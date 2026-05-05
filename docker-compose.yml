@@ -1,0 +1,14 @@
+version: '3.4'
+
+services:
+  aichatbox.api:
+    image: aichatboxapi
+    build:
+      context: ./AiChatBox.Api
+      dockerfile: Dockerfile
+    ports:
+      - "8080:80"
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+    volumes:
+      - ./AiChatBox.Api/Data:/app/Data

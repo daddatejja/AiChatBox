@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AiChatBox Integration Demo</title>
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #f0f2f5;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .card {
+            background: white;
+            padding: 40px;
+            border-radius: 20px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.05);
+            text-align: center;
+            max-width: 500px;
+        }
+        h1 { color: #1e293b; }
+        p { color: #64748b; line-height: 1.6; }
+    </style>
+</head>
+<body>
+
+    <div class="card">
+        <h1>Welcome to Your App</h1>
+        <p>This is a demonstration of how easy it is to plug the <strong>AiChatBox</strong> widget into any project. Look at the bottom right corner!</p>
+        <p>Just add a script tag and one HTML element. That's it.</p>
+    </div>
+
+    <!-- START OF AICHATBOX INTEGRATION -->
+    <!-- 1. The custom element -->
+    <ai-chatbox 
+        api-url="https://localhost:44385" 
+        css-path="ai-chatbox.css"
+        provider="gemini">
+    </ai-chatbox>
+
+    <!-- 2. The script -->
+    <script src="ai-chatbox.js"></script>
+    <!-- END OF AICHATBOX INTEGRATION -->
+
+</body>
+</html>
