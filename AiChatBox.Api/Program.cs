@@ -41,6 +41,7 @@ builder.Services.AddScoped<IAiLoggingService, AiLoggingService>();
 builder.Services.AddScoped<GroqAudioService>();
 builder.Services.AddScoped<GeminiTtsService>();
 builder.Services.AddScoped<IFileService, FileService>();
+builder.Services.AddScoped<FileProcessingService>();
 
 // Agent & Tools
 builder.Services.AddScoped<ITool, SqlTool>();
@@ -50,8 +51,17 @@ builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 
 // Live Mode
-builder.Services.AddSingleton<IGeminiLiveService, GeminiLiveService>();
-builder.Services.AddSignalR();
+builder.Services.AddSingleton<LiveSessionManager>();
+builder.Services.AddScoped<IGeminiLiveService, GeminiLiveService>();
+builder.Services.AddSignalR(options => {
+    options.EnableDetailedErrors = true;
+    options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB
+});
+
+builder.Host.UseSerilog((context, config) =>
+{
+    config.ReadFrom.Configuration(context.Configuration);
+});
 
 // CORS
 builder.Services.AddCors(options =>
@@ -91,9 +101,14 @@ app.UseStaticFiles(new StaticFileOptions
     }
 });
 app.UseHttpsRedirection();
+
+app.UseSerilogIngestion();
+app.UseSerilogRequestLogging();
+
 app.UseAuthorization();
 
+
 app.MapControllers();
-app.MapHub<LiveAudioHub>("/liveAudioHub");
+app.MapHub<LiveAudioHub>("/liveAudioHub").DisableAntiforgery();
 
 app.Run();

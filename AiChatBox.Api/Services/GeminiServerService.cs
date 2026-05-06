@@ -8,11 +8,12 @@ using Microsoft.Extensions.Logging;
 
 namespace AiChatBox.Api.Services
 {
-    public class GeminiServerService(HttpClient httpClient, IConfiguration configuration, ILogger<GeminiServerService> logger) : ILlmProviderService
+    public class GeminiServerService(HttpClient httpClient, IConfiguration configuration, FileProcessingService fileService, ILogger<GeminiServerService> logger) : ILlmProviderService
     {
         private readonly HttpClient _httpClient = httpClient;
         private readonly string _apiKey = configuration["Gemini:ApiKey"] ?? string.Empty;
         private readonly string _defaultModel = configuration["Gemini:DefaultModel"] ?? "gemini-3.1-flash-lite-preview";
+        private readonly FileProcessingService _fileService = fileService;
         private readonly ILogger<GeminiServerService> _logger = logger;
 
         public async IAsyncEnumerable<LlmResponseChunk> StreamGenerateContentAsync(
@@ -38,7 +39,7 @@ namespace AiChatBox.Api.Services
                 }
             }).ToArray();
 
-            var requestBody = BuildRequestBody(messages, systemPrompt, toolDeclarations);
+            var requestBody = await BuildRequestBodyAsync(messages, systemPrompt, toolDeclarations);
             var jsonContent = new StringContent(
                 JsonSerializer.Serialize(requestBody),
                 Encoding.UTF8,
@@ -153,7 +154,7 @@ namespace AiChatBox.Api.Services
             if (string.IsNullOrEmpty(_apiKey))
                 throw new InvalidOperationException("Gemini API key is not configured.");
 
-            var requestBody = BuildRequestBody(messages, systemPrompt, toolDeclarations);
+            var requestBody = await BuildRequestBodyAsync(messages, systemPrompt, toolDeclarations);
             var jsonContent = new StringContent(
                 JsonSerializer.Serialize(requestBody),
                 Encoding.UTF8,
@@ -179,14 +180,26 @@ namespace AiChatBox.Api.Services
             return ExtractTextResponse(parsed);
         }
 
-        private object BuildRequestBody(IEnumerable<GenericChatMessage> messages, string? systemPrompt = null, object[]? toolDeclarations = null)
+        private async Task<object> BuildRequestBodyAsync(IEnumerable<GenericChatMessage> messages, string? systemPrompt = null, object[]? toolDeclarations = null)
         {
             var contents = new List<object>();
 
             foreach (var msg in messages)
             {
                 var role = msg.Role == "user" ? "user" : "model";
-                contents.Add(new { role, parts = BuildMessageParts(msg.Content, msg.ImageDataUrl) });
+                var parts = await BuildMessagePartsAsync(msg.Content, msg.ImageDataUrl, msg.AttachedFileId);
+                
+                if (parts.Length == 0) 
+                {
+                    parts = new[] { new { text = "[Empty Message]" } };
+                }
+                
+                contents.Add(new { role, parts });
+            }
+
+            if (contents.Count == 0)
+            {
+                contents.Add(new { role = "user", parts = new[] { new { text = "Hello" } } });
             }
 
             var body = new Dictionary<string, object>
@@ -217,7 +230,7 @@ namespace AiChatBox.Api.Services
             return body;
         }
 
-        private object[] BuildMessageParts(string text, string? imageDataUrl)
+        private async Task<object[]> BuildMessagePartsAsync(string text, string? imageDataUrl, Guid? attachedFileId)
         {
             var parts = new List<object>();
 
@@ -232,6 +245,28 @@ namespace AiChatBox.Api.Services
                 if (imagePart != null)
                 {
                     parts.Add(imagePart);
+                }
+            }
+
+            if (attachedFileId.HasValue)
+            {
+                var file = await _fileService.GetFileAsync(attachedFileId.Value);
+                if (file != null && file.ContentType.StartsWith("image/"))
+                {
+                    var uploadBasePath = configuration["FileStorage:BasePath"] ?? Path.Combine("wwwroot", "uploads", "chat");
+                    var filePath = Path.Combine(uploadBasePath, file.UserId, file.StoredFileName);
+                    if (File.Exists(filePath))
+                    {
+                        var bytes = await File.ReadAllBytesAsync(filePath);
+                        parts.Add(new
+                        {
+                            inlineData = new
+                            {
+                                mimeType = file.ContentType,
+                                data = Convert.ToBase64String(bytes)
+                            }
+                        });
+                    }
                 }
             }
 

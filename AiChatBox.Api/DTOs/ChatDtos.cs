@@ -28,6 +28,7 @@ namespace AiChatBox.Api.DTOs
         public string Role { get; set; } = string.Empty;
         public string Content { get; set; } = string.Empty;
         public string? ImageDataUrl { get; set; }
+        public Guid? AttachedFileId { get; set; }
     }
 
     public class ChatSessionDto

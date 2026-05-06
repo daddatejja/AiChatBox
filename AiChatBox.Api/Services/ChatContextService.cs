@@ -29,9 +29,10 @@ namespace AiChatBox.Api.Services
                 // Inject file text if not already in content
                 if (message.AttachedFile != null && !string.IsNullOrEmpty(message.AttachedFile.ExtractedText))
                 {
-                    if (!message.Content.Contains("[Attached File Content]"))
+                    var marker = $"[Attached File: {message.AttachedFile.OriginalFileName}]";
+                    if (!message.Content.Contains(marker))
                     {
-                        message.Content = $"{message.Content}\n\n[Attached File: {message.AttachedFile.OriginalFileName}]\n{message.AttachedFile.ExtractedText}";
+                        message.Content = $"{message.Content}\n\n{marker}\n{message.AttachedFile.ExtractedText}";
                     }
                 }
 

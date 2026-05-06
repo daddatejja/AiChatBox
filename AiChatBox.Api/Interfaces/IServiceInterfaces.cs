@@ -25,11 +25,16 @@ namespace AiChatBox.Api.Interfaces
         Task<byte[]> TextToSpeechAsync(string text, string voice = "en-US-Standard-A");
     }
 
-    public interface IGeminiLiveService
+    public interface IGeminiLiveService : IAsyncDisposable
     {
-        Task StartSessionAsync(string connectionId, string userId, string model = "gemini-2.0-flash-exp");
-        Task StopSessionAsync(string connectionId);
-        Task SendAudioChunkAsync(string connectionId, byte[] audioData);
-        Task SendTextMessageAsync(string connectionId, string text);
+        event Func<byte[], Task>? OnAudioReceived;
+        event Func<string, bool, Task>? OnTextReceived;
+        event Func<string, Task>? OnInputTranscribed;
+        event Action<string>? OnError;
+
+        Task ConnectAsync(string userId, string? voiceName = null, CancellationToken cancellationToken = default);
+        Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default);
+        Task SendTextMessageAsync(string text, CancellationToken cancellationToken = default);
+        Task CompleteTurnAsync(CancellationToken cancellationToken = default);
     }
 }

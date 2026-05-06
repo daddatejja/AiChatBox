@@ -15,6 +15,7 @@ namespace AiChatBox.Api.Services
                                 AgentService agentService,
                                 IChatContextService contextService,
                                 IAiLoggingService loggingService,
+                                FileProcessingService fileProcessingService,
                                 ILogger<AiChatService> logger) : IAiChatService
     {
         private readonly ChatDbContext _db = db;
@@ -23,6 +24,7 @@ namespace AiChatBox.Api.Services
         private readonly AgentService _agentService = agentService;
         private readonly IChatContextService _contextService = contextService;
         private readonly IAiLoggingService _loggingService = loggingService;
+        private readonly FileProcessingService _fileProcessingService = fileProcessingService;
         private readonly ILogger<AiChatService> _logger = logger;
 
         private const int MaxContextMessages = 20;
@@ -108,7 +110,8 @@ namespace AiChatBox.Api.Services
             {
                 Role = m.Role,
                 Content = m.Content,
-                ImageDataUrl = m.ImageDataUrl
+                ImageDataUrl = m.ImageDataUrl,
+                AttachedFileId = m.AttachedFileId
             }).ToList();
 
             var providerService = _llmFactory.GetProvider(request.Provider);
@@ -208,6 +211,7 @@ namespace AiChatBox.Api.Services
             if (!sessionExists) return [];
 
             return await _db.ChatMessages
+                .Include(m => m.AttachedFile)
                 .Where(m => m.SessionId == sessionId)
                 .OrderBy(m => m.CreatedAt)
                 .Select(m => new ChatMessageDto
@@ -217,6 +221,7 @@ namespace AiChatBox.Api.Services
                     Content = m.Content,
                     ImageDataUrl = m.ImageDataUrl,
                     AttachedFileId = m.AttachedFileId,
+                    AttachedFileName = m.AttachedFile != null ? m.AttachedFile.OriginalFileName : null,
                     CreatedAt = m.CreatedAt
                 })
                 .ToListAsync();

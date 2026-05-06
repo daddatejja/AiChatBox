@@ -1,227 +1,287 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
-using Microsoft.AspNetCore.SignalR;
-using System.Collections.Concurrent;
+using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace AiChatBox.Api.Services
 {
-    public class GeminiLiveService : IGeminiLiveService
+    public class GeminiLiveService(IConfiguration config, ILogger<GeminiLiveService> logger, IChatContextService contextService) : IGeminiLiveService
     {
-        private readonly string _apiKey;
-        private readonly IHubContext<LiveAudioHub> _hubContext;
-        private readonly ILogger<GeminiLiveService> _logger;
-        private readonly ConcurrentDictionary<string, ClientWebSocket> _sockets = new();
-        private readonly ConcurrentDictionary<string, CancellationTokenSource> _cts = new();
+        private readonly string _apiKey = config["Gemini:ApiKey"] ?? "";
+        private readonly ILogger<GeminiLiveService> _logger = logger;
+        private readonly IChatContextService _contextService = contextService;
+        
+        private ClientWebSocket? _webSocket;
+        private CancellationTokenSource? _cts;
+        private Task? _receiveTask;
+        private TaskCompletionSource<bool>? _setupTcs;
 
-        public GeminiLiveService(IConfiguration config, IHubContext<LiveAudioHub> hubContext, ILogger<GeminiLiveService> logger)
+        public event Func<byte[], Task>? OnAudioReceived;
+        public event Func<string, bool, Task>? OnTextReceived;
+        public event Func<string, Task>? OnInputTranscribed;
+        public event Action<string>? OnError;
+
+        private readonly JsonSerializerOptions _jsonOptions = new()
         {
-            _apiKey = config["Gemini:ApiKey"] ?? "";
-            _hubContext = hubContext;
-            _logger = logger;
-        }
+            PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+            DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
+        };
 
-        public async Task StartSessionAsync(string connectionId, string userId, string model = "gemini-2.5-flash-native-audio-latest")
+        public async Task ConnectAsync(string userId, string? voiceName = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(_apiKey)) throw new Exception("Gemini API key missing");
 
+            _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            _setupTcs = new TaskCompletionSource<bool>();
+            _webSocket = new ClientWebSocket();
+            
+            var uri = new Uri($"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={_apiKey}");
+
             try
             {
-                var ws = new ClientWebSocket();
-                var url = $"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={_apiKey}";
+                await _webSocket.ConnectAsync(uri, _cts.Token);
+                _logger.LogInformation("Connected to Gemini Live API WebSocket.");
+
+                _receiveTask = ReceiveLoopAsync(_cts.Token);
+
+                await SendSetupMessageAsync(userId, voiceName, _cts.Token);
                 
-                await ws.ConnectAsync(new Uri(url), CancellationToken.None);
-                _sockets[connectionId] = ws;
-                
-                var cts = new CancellationTokenSource();
-                _cts[connectionId] = cts;
+                // Wait for setup to complete
+                await _setupTcs.Task.WaitAsync(TimeSpan.FromSeconds(10), _cts.Token);
 
-                // Safeguard against null model
-                model ??= "gemini-2.5-flash-native-audio-latest";
-                var modelFull = model.StartsWith("models/") ? model : $"models/{model}";
-
-                // Initial Setup
-                var setup = new
-                {
-                    setup = new
-                    {
-                        model = modelFull,
-                        generation_config = new { response_modalities = new[] { "AUDIO" } }
-                    }
-                };
-                await SendJsonAsync(ws, setup, cts.Token);
-
-                // Start listening loop
-                _ = Task.Run(() => ReceiveLoopAsync(connectionId, ws, cts.Token));
+                // Initial Greeting
+                await SendTextMessageAsync("Greetings! Start the session with a very brief time-based greeting.", _cts.Token);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to start Gemini Live session for user {UserId} on connection {ConnectionId}", userId, connectionId);
-                await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveError", $"Failed to connect to Gemini: {ex.Message}");
+                _logger.LogError(ex, "Failed to connect to Gemini Live API.");
+                OnError?.Invoke($"Gemini connection failed: {ex.Message}");
                 throw;
             }
         }
 
-        public async Task StopSessionAsync(string connectionId)
+        private async Task SendSetupMessageAsync(string userId, string? voiceName, CancellationToken cancellationToken)
         {
-            if (_cts.TryRemove(connectionId, out var cts)) cts.Cancel();
-            if (_sockets.TryRemove(connectionId, out var ws))
-            {
-                if (ws.State == WebSocketState.Open)
-                    await ws.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closed by user", CancellationToken.None);
-                ws.Dispose();
-            }
-        }
+            var systemPrompt = await _contextService.BuildSystemPromptAsync(userId);
+            var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
+            systemPrompt += $"\n\n[SYSTEM INFO: Current Local Time is {currentTime}]\n\n" +
+                            "You are now in 'Live Voice Mode'. Be extremely concise, conversational, and proactive.\n" +
+                            "IMPORTANT: Start the session ONLY with a brief time-based greeting.";
 
-        public async Task SendAudioChunkAsync(string connectionId, byte[] audioData)
-        {
-            if (_sockets.TryGetValue(connectionId, out var ws) && ws.State == WebSocketState.Open)
+            var setupReq = new GeminiLiveSetupRequest
             {
-                var msg = new
+                Setup = new GeminiLiveSetup
                 {
-                    realtime_input = new
+                    Model = "models/gemini-2.5-flash-native-audio-latest",
+                    GenerationConfig = new GeminiLiveGenerationConfig
                     {
-                        media_chunks = new[] {
-                            new {
-                                data = Convert.ToBase64String(audioData),
-                                mime_type = "audio/pcm;rate=16000"
-                            }
-                        }
-                    }
-                };
-                await SendJsonAsync(ws, msg, _cts[connectionId].Token);
-            }
-        }
-
-        public async Task SendTextMessageAsync(string connectionId, string text)
-        {
-            if (_sockets.TryGetValue(connectionId, out var ws) && ws.State == WebSocketState.Open)
-            {
-                var msg = new
-                {
-                    realtime_input = new
-                    {
-                        media_chunks = new[] {
-                            new {
-                                data = Convert.ToBase64String(Encoding.UTF8.GetBytes(text)),
-                                mime_type = "text/plain"
-                            }
-                        }
-                    }
-                };
-                await SendJsonAsync(ws, msg, _cts[connectionId].Token);
-            }
-        }
-
-        private async Task SendJsonAsync(ClientWebSocket ws, object obj, CancellationToken ct)
-        {
-            var json = JsonSerializer.Serialize(obj);
-            var bytes = Encoding.UTF8.GetBytes(json);
-            await ws.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, ct);
-        }
-
-        private async Task ReceiveLoopAsync(string connectionId, ClientWebSocket ws, CancellationToken ct)
-        {
-            var buffer = new byte[1024 * 64];
-            using var ms = new MemoryStream();
-            try
-            {
-                while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
-                {
-                    WebSocketReceiveResult result;
-                    do
-                    {
-                        result = await ws.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
-                        if (result.MessageType == WebSocketMessageType.Close) break;
-                        ms.Write(buffer, 0, result.Count);
-                    } while (!result.EndOfMessage);
-
-                    if (result.MessageType == WebSocketMessageType.Close) break;
-
-                    ms.Seek(0, SeekOrigin.Begin);
-                    using var doc = await JsonDocument.ParseAsync(ms, cancellationToken: ct);
-                    ms.SetLength(0); // Reset for next message
-                    
-                    var root = doc.RootElement;
-                    if (root.TryGetProperty("serverContent", out var serverContent))
-                    {
-                        if (serverContent.TryGetProperty("modelTurn", out var modelTurn))
+                        ResponseModalities = ["audio"],
+                        SpeechConfig = new GeminiLiveSpeechConfig
                         {
-                            if (modelTurn.TryGetProperty("parts", out var parts))
+                            VoiceConfig = new GeminiLiveVoiceConfig
                             {
-                                foreach (var part in parts.EnumerateArray())
+                                PrebuiltVoiceConfig = new GeminiLivePrebuiltVoiceConfig
                                 {
-                                    if (part.TryGetProperty("inlineData", out var inlineData))
-                                    {
-                                        var data = inlineData.GetProperty("data").GetString();
-                                        if (!string.IsNullOrEmpty(data))
-                                        {
-                                            var audioBytes = Convert.FromBase64String(data);
-                                            await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveAudioChunk", audioBytes, ct);
-                                        }
-                                    }
-                                    else if (part.TryGetProperty("text", out var textPart))
-                                    {
-                                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveTextChunk", textPart.GetString(), ct);
-                                    }
+                                    VoiceName = voiceName ?? "Aoede"
                                 }
                             }
                         }
+                    },
+                    SystemInstruction = new GeminiLiveSystemInstruction
+                    {
+                        Parts = [new GeminiLivePart { Text = systemPrompt }]
+                    },
+                    InputAudioTranscription = new { },
+                    OutputAudioTranscription = new { }
+                }
+            };
+
+            var json = JsonSerializer.Serialize(setupReq, _jsonOptions);
+            await SendJsonAsync(json, cancellationToken);
+        }
+
+        public async Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default)
+        {
+            var req = new GeminiLiveRealtimeInputRequest
+            {
+                RealtimeInput = new GeminiLiveRealtimeInput
+                {
+                    Audio = new GeminiLiveMediaChunk
+                    {
+                        Data = base64Data,
+                        MimeType = "audio/pcm;rate=16000"
+                    }
+                }
+            };
+
+            var json = JsonSerializer.Serialize(req, _jsonOptions);
+            await SendJsonAsync(json, cancellationToken);
+        }
+
+        public async Task SendTextMessageAsync(string text, CancellationToken cancellationToken = default)
+        {
+            var req = new GeminiLiveClientContentRequest
+            {
+                ClientContent = new GeminiLiveClientContent
+                {
+                    Turns = [new GeminiLiveTurn
+                    {
+                        Role = "user",
+                        Parts = [new GeminiLivePart { Text = text }]
+                    }],
+                    TurnComplete = true
+                }
+            };
+            var json = JsonSerializer.Serialize(req, _jsonOptions);
+            await SendJsonAsync(json, cancellationToken);
+        }
+
+        public async Task CompleteTurnAsync(CancellationToken cancellationToken = default)
+        {
+            var req = new GeminiLiveClientContentRequest
+            {
+                ClientContent = new GeminiLiveClientContent
+                {
+                    Turns = null,
+                    TurnComplete = true
+                }
+            };
+            var json = JsonSerializer.Serialize(req, _jsonOptions);
+            await SendJsonAsync(json, cancellationToken);
+        }
+
+        private async Task SendJsonAsync(string json, CancellationToken cancellationToken)
+        {
+            if (_webSocket == null || _webSocket.State != WebSocketState.Open)
+            {
+                _logger.LogWarning("WebSocket not open. State: {State}", _webSocket?.State);
+                return;
+            }
+            
+            _logger.LogDebug("Sending to Gemini: {Json}", json);
+            var bytes = Encoding.UTF8.GetBytes(json);
+            await _webSocket.SendAsync(new ArraySegment<byte>(bytes), WebSocketMessageType.Text, true, cancellationToken);
+        }
+
+        private async Task ReceiveLoopAsync(CancellationToken cancellationToken)
+        {
+            var buffer = new byte[1024 * 64];
+            using var ms = new MemoryStream();
+
+            try
+            {
+                while (_webSocket?.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+                {
+                    var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
+                    if (result.MessageType == WebSocketMessageType.Close)
+                    {
+                        _logger.LogInformation("Gemini closed the connection: {Status}", result.CloseStatus);
+                        break;
+                    }
+
+                    ms.Write(buffer, 0, result.Count);
+
+                    if (result.EndOfMessage)
+                    {
+                        var json = Encoding.UTF8.GetString(ms.ToArray());
+                        ms.SetLength(0);
                         
-                        if (serverContent.TryGetProperty("interrupted", out _))
-                        {
-                            _logger.LogInformation("Interrupted signal received for {ConnectionId}", connectionId);
-                            await _hubContext.Clients.Client(connectionId).SendAsync("StopAudio", ct);
-                        }
-                        
-                        if (serverContent.TryGetProperty("turnComplete", out _))
-                        {
-                            _logger.LogDebug("Turn complete for {ConnectionId}", connectionId);
-                        }
+                        _logger.LogDebug("Received from Gemini: {Json}", json);
+                        await ProcessReceivedJsonAsync(json, cancellationToken);
                     }
                 }
             }
-            catch (OperationCanceledException)
+            catch (OperationCanceledException) { }
+            catch (Exception ex)
             {
-                _logger.LogInformation("Gemini Live session cancelled for {ConnectionId}", connectionId);
+                _logger.LogError(ex, "Error in Gemini WebSocket receive loop");
+                OnError?.Invoke($"Gemini connection error: {ex.Message}");
+            }
+        }
+
+        private async Task ProcessReceivedJsonAsync(string json, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var response = JsonSerializer.Deserialize<GeminiLiveServerResponse>(json, _jsonOptions);
+                if (response == null) return;
+
+                if (response.Error != null)
+                {
+                    _logger.LogError("Gemini API Error: {Message}", response.Error.Message);
+                    OnError?.Invoke($"Gemini API Error: {response.Error.Message}");
+                    return;
+                }
+
+                if (json.Contains("setupComplete") || json.Contains("setup_complete"))
+                {
+                    _setupTcs?.TrySetResult(true);
+                    return;
+                }
+
+                if (response.ServerContent?.ModelTurn?.Parts != null)
+                {
+                    foreach (var part in response.ServerContent.ModelTurn.Parts)
+                    {
+                        if (part.InlineData != null && !string.IsNullOrEmpty(part.InlineData.Data))
+                        {
+                            var audioBytes = Convert.FromBase64String(part.InlineData.Data);
+                            if (OnAudioReceived != null) await OnAudioReceived.Invoke(audioBytes);
+                        }
+                        else if (!string.IsNullOrEmpty(part.Text))
+                        {
+                            if (OnTextReceived != null) await OnTextReceived.Invoke(part.Text, part.Thought);
+                        }
+                    }
+                }
+
+                if (response.ServerContent?.OutputTranscription != null)
+                {
+                    var text = response.ServerContent.OutputTranscription.Text;
+                    if (!string.IsNullOrEmpty(text) && OnTextReceived != null)
+                        await OnTextReceived.Invoke(text, false);
+                }
+
+                if (response.ServerContent?.InputTranscription != null)
+                {
+                    var text = response.ServerContent.InputTranscription.Text;
+                    if (!string.IsNullOrEmpty(text) && OnInputTranscribed != null)
+                        await OnInputTranscribed.Invoke(text);
+                }
             }
             catch (Exception ex)
             {
-                // SocketException 995 is often a side effect of aborting the connection
-                if (ex.InnerException is System.Net.Sockets.SocketException { SocketErrorCode: System.Net.Sockets.SocketError.OperationAborted })
-                {
-                    _logger.LogInformation("Gemini Live connection aborted for {ConnectionId}", connectionId);
-                }
-                else
-                {
-                    _logger.LogError(ex, "Error in Gemini Live Receive Loop for {ConnectionId}", connectionId);
-                    try 
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveError", "Connection to Gemini lost.", CancellationToken.None);
-                    }
-                    catch { /* Best effort */ }
-                }
-            }
-            finally
-            {
-                await StopSessionAsync(connectionId);
+                _logger.LogError(ex, "Error parsing Gemini message");
             }
         }
-    }
 
-    public class LiveAudioHub : Hub
-    {
-        private readonly IGeminiLiveService _liveService;
-        public LiveAudioHub(IGeminiLiveService liveService) => _liveService = liveService;
-
-        public async Task StartLive(string userId, string model) => await _liveService.StartSessionAsync(Context.ConnectionId, userId, model);
-        public async Task SendAudio(byte[] data) => await _liveService.SendAudioChunkAsync(Context.ConnectionId, data);
-        public async Task SendText(string text) => await _liveService.SendTextMessageAsync(Context.ConnectionId, text);
-        public override async Task OnDisconnectedAsync(Exception? exception)
+        public async ValueTask DisposeAsync()
         {
-            await _liveService.StopSessionAsync(Context.ConnectionId);
-            await base.OnDisconnectedAsync(exception);
+            if (_cts != null)
+            {
+                _cts.Cancel();
+                _cts.Dispose();
+                _cts = null;
+            }
+
+            if (_webSocket != null)
+            {
+                if (_webSocket.State == WebSocketState.Open)
+                {
+                    try { await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Disposing", CancellationToken.None); } catch { }
+                }
+                _webSocket.Dispose();
+                _webSocket = null;
+            }
+
+            if (_receiveTask != null)
+            {
+                try { await _receiveTask; } catch { }
+                _receiveTask = null;
+            }
         }
     }
 }
