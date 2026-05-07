@@ -54,10 +54,24 @@ namespace AiChatBox.Api.DTOs
     public class ChatStreamChunk
     {
         public string? Text { get; set; }
+        public ToolCallDto? ToolCall { get; set; }
         public Guid? SessionId { get; set; }
         public bool Done { get; set; }
         public string? Error { get; set; }
         public ReportDownloadDto? ReportInfo { get; set; }
+    }
+
+    public class ToolCallDto
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+        public string Arguments { get; set; } = string.Empty;
+    }
+
+    public class AgentChunk
+    {
+        public string? Text { get; set; }
+        public ToolCallDto? ToolCall { get; set; }
     }
 
     public class ReportDownloadDto

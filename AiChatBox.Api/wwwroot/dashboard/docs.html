@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Documentation | AiChatBox</title>
+    <link rel="stylesheet" href="dashboard.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        h2 { margin-top: 3rem; margin-bottom: 1rem; color: var(--accent-primary); }
+        h3 { margin-top: 2rem; margin-bottom: 0.75rem; }
+        p { margin-bottom: 1rem; color: var(--text-secondary); }
+        .step { display: flex; gap: 1.5rem; margin-bottom: 2rem; }
+        .step-num { width: 32px; height: 32px; background: var(--accent-primary); color: white; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 700; flex-shrink: 0; }
+        li { margin-left: 1.5rem; margin-bottom: 0.5rem; color: var(--text-secondary); }
+    </style>
+</head>
+<body>
+    <div class="app-container">
+        <aside class="sidebar">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <span>AiChatBox</span>
+            </div>
+            <nav>
+                <ul class="nav-menu">
+                    <li class="nav-item"><a href="index.html" class="nav-link">Projects</a></li>
+                    <li class="nav-item"><a href="docs.html" class="nav-link active">Documentation</a></li>
+                </ul>
+            </nav>
+        </aside>
+
+        <main class="main-content">
+            <div class="docs-container animate-in">
+                <h1>Documentation</h1>
+                <p>Learn how to integrate AiChatBox into your own projects and leverage custom tools.</p>
+
+                <h2>Quick Start</h2>
+                <div class="step">
+                    <div class="step-num">1</div>
+                    <div>
+                        <h3>Embed the Widget</h3>
+                        <p>Add the following script and tag to your HTML page. Replace <code>YOUR_API_KEY</code> with a key from your project settings.</p>
+                        <div class="code-block">
+&lt;!-- Include the widget script --&gt;
+&lt;script src="https://your-domain.com/ai-chatbox.js"&gt;&lt;/script&gt;
+
+&lt;!-- Add the component --&gt;
+&lt;ai-chatbox 
+    api-url="https://your-domain.com"
+    api-key="YOUR_API_KEY"&gt;
+&lt;/ai-chatbox&gt;
+                        </div>
+                    </div>
+                </div>
+
+                <h2>Tool Execution Support</h2>
+                <p>AiChatBox supports two ways to execute custom logic through the AI.</p>
+
+                <h3>Option A: JavaScript Callbacks (Frontend)</h3>
+                <p>Perfect for interacting with the current page UI or local data.</p>
+                <div class="code-block">
+const assistant = document.querySelector('ai-chatbox');
+
+// Register a tool handler
+assistant.registerTool('get_user_info', async (args) => {
+    return {
+        name: "John Doe",
+        membership: "Premium"
+    };
+});
+                </div>
+
+                <h3>Option B: Webhooks (Backend)</h3>
+                <p>Securely execute logic on your own server. Configure your Webhook URL in the project dashboard.</p>
+                <p>When the AI calls a tool, your server receives a POST request:</p>
+                <div class="code-block">
+// Node.js / Express Example
+app.post('/webhook', (req, res) => {
+    const { tool, arguments: args } = req.body;
+    
+    if (tool === 'check_inventory') {
+        const stock = db.query("SELECT qty FROM stock WHERE id = ?", [args.id]);
+        return res.json({ available: stock > 0 });
+    }
+    
+    res.status(404).send('Tool not found');
+});
+                </div>
+
+                <h2>Best Practices</h2>
+                <ul>
+                    <li>Use descriptive names for your custom tools (e.g. <code>search_database</code> instead of <code>run</code>).</li>
+                    <li>Keep your System Prompt concise but specific about the tools available.</li>
+                    <li>Always validate the <code>X-Hub-Signature</code> header on your webhooks if using a secret.</li>
+                </ul>
+            </div>
+        </main>
+    </div>
+</body>
+</html>

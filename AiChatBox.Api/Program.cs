@@ -1,9 +1,14 @@
 using AiChatBox.Api.Data;
 using AiChatBox.Api.Interfaces;
+using AiChatBox.Api.Models;
 using AiChatBox.Api.Services;
 using AiChatBox.Api.Services.Tools;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.IdentityModel.Tokens;
 using Serilog;
+using System.Text;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -19,17 +24,52 @@ builder.Host.UseSerilog();
 
 // Add services to the container.
 builder.Services.AddControllers();
+builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Database
-// We register the factory as Scoped to avoid the "Cannot consume scoped service from singleton" error
 builder.Services.AddDbContext<ChatDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")));
 
 builder.Services.AddDbContextFactory<ChatDbContext>(options =>
     options.UseSqlite(builder.Configuration.GetConnectionString("DefaultConnection")),
     ServiceLifetime.Scoped);
+
+// Identity
+builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options => {
+    options.Password.RequireDigit = false;
+    options.Password.RequiredLength = 6;
+    options.Password.RequireNonAlphanumeric = false;
+    options.Password.RequireUppercase = false;
+})
+.AddEntityFrameworkStores<ChatDbContext>()
+.AddDefaultTokenProviders();
+
+// Authentication
+var jwtSettings = builder.Configuration.GetSection("Jwt");
+var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? "super_secret_key_change_this_in_production_123456");
+
+builder.Services.AddAuthentication(options => {
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options => {
+    options.TokenValidationParameters = new TokenValidationParameters {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(key),
+        ValidateIssuer = false,
+        ValidateAudience = false
+    };
+})
+.AddGoogle(options => {
+    options.ClientId = builder.Configuration["Authentication:Google:ClientId"] ?? "placeholder";
+    options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"] ?? "placeholder";
+})
+.AddGitHub(options => {
+    options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"] ?? "placeholder";
+    options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"] ?? "placeholder";
+});
 
 // AI Services
 builder.Services.AddHttpClient();
@@ -49,6 +89,8 @@ builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
 
 builder.Services.AddScoped<IAiChatService, AiChatService>();
+builder.Services.AddScoped<ApiKeyService>();
+builder.Services.AddScoped<WebhookService>();
 
 // Live Mode
 builder.Services.AddSingleton<LiveSessionManager>();
@@ -105,8 +147,9 @@ app.UseHttpsRedirection();
 app.UseSerilogIngestion();
 app.UseSerilogRequestLogging();
 
+app.UseMiddleware<AiChatBox.Api.Middleware.ApiKeyMiddleware>();
+app.UseAuthentication();
 app.UseAuthorization();
-
 
 app.MapControllers();
 app.MapHub<LiveAudioHub>("/liveAudioHub").DisableAntiforgery();

@@ -16,6 +16,7 @@ namespace AiChatBox.Api.Services
                                 IChatContextService contextService,
                                 IAiLoggingService loggingService,
                                 FileProcessingService fileProcessingService,
+                                IHttpContextAccessor httpContextAccessor,
                                 ILogger<AiChatService> logger) : IAiChatService
     {
         private readonly ChatDbContext _db = db;
@@ -25,9 +26,12 @@ namespace AiChatBox.Api.Services
         private readonly IChatContextService _contextService = contextService;
         private readonly IAiLoggingService _loggingService = loggingService;
         private readonly FileProcessingService _fileProcessingService = fileProcessingService;
+        private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
         private readonly ILogger<AiChatService> _logger = logger;
 
         private const int MaxContextMessages = 20;
+
+        private Project? CurrentProject => _httpContextAccessor.HttpContext?.Items["CurrentProject"] as Project;
 
         public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId)
         {
@@ -50,6 +54,7 @@ namespace AiChatBox.Api.Services
             var session = new ChatSession
             {
                 UserId = userId,
+                ProjectId = CurrentProject?.Id,
                 Title = "New Chat",
                 CreatedAt = DateTime.UtcNow,
                 LastMessageAt = DateTime.UtcNow
@@ -102,9 +107,24 @@ namespace AiChatBox.Api.Services
             await SaveMessageAsync(session.Id, "user", request.Message, request.ImageDataUrl, request.AttachedFileId);
 
             var contextMessages = await _contextService.GetContextMessagesAsync(session.Id, MaxContextMessages);
+            
+            // Resolve config: Request > Project > Default
+            var project = CurrentProject;
+            _logger.LogInformation("Processing chat for ProjectId: {ProjectId}, UserId: {UserId}", project?.Id, userId);
+
             var systemPrompt = !string.IsNullOrEmpty(request.SystemPrompt) 
                 ? request.SystemPrompt 
-                : await _contextService.BuildSystemPromptAsync(userId);
+                : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt : await _contextService.BuildSystemPromptAsync(userId));
+            
+            _logger.LogDebug("Using SystemPrompt (length: {Length})", systemPrompt?.Length ?? 0);
+
+            var provider = !string.IsNullOrEmpty(request.Provider) && request.Provider != "gemini" // gemini is default in DTO
+                ? request.Provider
+                : (project != null ? project.Provider : request.Provider);
+
+            var modelName = !string.IsNullOrEmpty(request.ModelName)
+                ? request.ModelName
+                : (project != null ? project.ModelName : request.ModelName);
 
             var genericMessages = contextMessages.Select(m => new GenericChatMessage
             {
@@ -114,17 +134,23 @@ namespace AiChatBox.Api.Services
                 AttachedFileId = m.AttachedFileId
             }).ToList();
 
-            var providerService = _llmFactory.GetProvider(request.Provider);
             var finalResponseText = new StringBuilder();
             string? errorMessage = null;
             ChatStreamChunk? errorChunk = null;
 
             async IAsyncEnumerable<ChatStreamChunk> StreamInternal()
             {
-                await foreach (var chunk in _agentService.ExecuteAgentAsync(request.Provider, request.ModelName, genericMessages, systemPrompt, userId, cancellationToken))
+                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, cancellationToken))
                 {
-                    finalResponseText.Append(chunk);
-                    yield return new ChatStreamChunk { Text = chunk, SessionId = session.Id };
+                    if (chunk.ToolCall != null)
+                    {
+                        yield return new ChatStreamChunk { ToolCall = chunk.ToolCall, SessionId = session.Id };
+                    }
+                    else if (!string.IsNullOrEmpty(chunk.Text))
+                    {
+                        finalResponseText.Append(chunk.Text);
+                        yield return new ChatStreamChunk { Text = chunk.Text, SessionId = session.Id };
+                    }
                 }
 
                 yield return new ChatStreamChunk { Done = true, SessionId = session.Id };
@@ -176,6 +202,7 @@ namespace AiChatBox.Api.Services
             {
                 SessionId = session.Id,
                 UserId = userId,
+                ProjectId = project?.Id,
                 Endpoint = "/api/chat",
                 InputTokens = GeminiServerService.StaticEstimateTokenCount(request.Message),
                 OutputTokens = GeminiServerService.StaticEstimateTokenCount(finalResponseText.ToString()),
@@ -191,8 +218,9 @@ namespace AiChatBox.Api.Services
 
         public async Task<IEnumerable<ChatSessionDto>> GetSessionsAsync(string userId)
         {
+            var projectId = CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && !s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == projectId && !s.IsArchived)
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto
                 {
@@ -207,7 +235,8 @@ namespace AiChatBox.Api.Services
 
         public async Task<IEnumerable<ChatMessageDto>> GetSessionMessagesAsync(Guid sessionId, string userId)
         {
-            var sessionExists = await _db.ChatSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId);
+            var projectId = CurrentProject?.Id;
+            var sessionExists = await _db.ChatSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
             if (!sessionExists) return [];
 
             return await _db.ChatMessages
@@ -229,7 +258,8 @@ namespace AiChatBox.Api.Services
 
         public async Task<bool> ArchiveSessionAsync(Guid sessionId, string userId)
         {
-            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId);
+            var projectId = CurrentProject?.Id;
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
             if (session == null) return false;
             session.IsArchived = true;
             await _db.SaveChangesAsync();
@@ -238,8 +268,9 @@ namespace AiChatBox.Api.Services
 
         public async Task<IEnumerable<ChatSessionDto>> GetArchivedSessionsAsync(string userId)
         {
+            var projectId = CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == projectId && s.IsArchived)
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto 
                 { 
@@ -254,7 +285,8 @@ namespace AiChatBox.Api.Services
 
         public async Task<bool> HardDeleteSessionAsync(Guid sessionId, string userId)
         {
-            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId);
+            var projectId = CurrentProject?.Id;
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
             if (session == null) return false;
             _db.ChatSessions.Remove(session);
             await _db.SaveChangesAsync();

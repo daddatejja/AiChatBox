@@ -203,6 +203,7 @@
 
       // Attributes
       this.apiUrl = this.getAttribute("api-url") || "https://localhost:44385";
+      this.apiKey = this.getAttribute("api-key") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
       this.modelName = this.getAttribute("model") || "gemini-1.5-flash";
@@ -210,6 +211,9 @@
         this.getAttribute("suggestions") ||
           '["Record a new entry", "Show my last session", "What can you do?", "Help with my budget"]',
       );
+
+      // Tools
+      this.toolHandlers = new Map();
 
       // Audio & Live
       this.visualizer = new LiveVisualizer();
@@ -244,6 +248,11 @@
         error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
         person: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
         minimize: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>',
+      };
+
+      this.registerTool = (name, handler) => {
+        this.toolHandlers.set(name, handler);
+        console.log(`Tool registered: ${name}`);
       };
     }
 
@@ -480,6 +489,8 @@
       root.getElementById("scroll-down-btn").onclick = () => this.scrollToBottom();
     }
 
+
+
     setupDraggable() {
       const root = this.shadowRoot;
       const container = root.getElementById("main-container");
@@ -596,9 +607,15 @@
 
       try {
         this.abortController = new AbortController();
+        const headers = { 
+          "Content-Type": "application/json", 
+          "X-User-Id": this.userId 
+        };
+        if (this.apiKey) headers["X-Api-Key"] = this.apiKey;
+
         const response = await fetch(`${this.apiUrl}/api/chat`, {
           method: "POST",
-          headers: { "Content-Type": "application/json", "X-User-Id": this.userId },
+          headers: headers,
           signal: this.abortController.signal,
           body: JSON.stringify({
             message: text,
@@ -626,7 +643,8 @@
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.substring(6));
-                const sid = data.SessionId || data.sessionId;
+                const toolCall = data.ToolCall || data.toolCall;
+                const sid = data.SessionId || data.sessionId || data.sid;
                 const textChunk = data.Text || data.text;
                 const errorChunk = data.Error || data.error;
 
@@ -639,6 +657,11 @@
                   bubble.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
                   hasStarted = true;
                   break;
+                }
+
+                if (toolCall) {
+                  this.handleToolCall(toolCall, bubble);
+                  return; // Stop processing this stream, handleToolCall will continue
                 }
 
                 if (textChunk) {
@@ -661,6 +684,71 @@
         this.isTyping = false;
         this.updateInputButtons();
       }
+    }
+
+    async handleToolCall(toolCall, bubble) {
+      console.log('Executing tool:', toolCall.name, toolCall.arguments);
+      
+      const handler = this.toolHandlers.get(toolCall.name);
+      let result;
+      
+      if (handler) {
+        try {
+          const args = JSON.parse(toolCall.arguments);
+          result = await handler(args);
+        } catch (err) {
+          result = { error: `Handler error: ${err.message}` };
+        }
+      } else {
+        result = { error: `No handler registered for tool: ${toolCall.name}` };
+      }
+
+      // Send result back to API to continue conversation
+      const headers = { 
+        "Content-Type": "application/json", 
+        "X-User-Id": this.userId 
+      };
+      if (this.apiKey) headers["X-Api-Key"] = this.apiKey;
+
+      const response = await fetch(`${this.apiUrl}/api/chat`, {
+        method: "POST",
+        headers: headers,
+        body: JSON.stringify({
+          message: `Tool Result (${toolCall.name}): ${JSON.stringify(result)}`,
+          sessionId: this.currentSessionId,
+          provider: this.provider,
+          modelName: this.shadowRoot.getElementById("model-select").value
+        }),
+      });
+
+      // Restart the streaming UI for the new response
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let fullText = "", hasStarted = false;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        const chunk = decoder.decode(value);
+        const lines = chunk.split("\n");
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            try {
+              const data = JSON.parse(line.substring(6));
+              const textChunk = data.Text || data.text;
+              if (textChunk) {
+                if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
+                fullText += textChunk;
+                bubble.innerHTML = this.formatMarkdown(fullText);
+                this.scrollToBottom();
+              }
+            } catch(e) {}
+          }
+        }
+      }
+      
+      this.isTyping = false;
+      this.updateInputButtons();
     }
 
     addMessage(role, htmlContent, fileId = null, fileName = null) {

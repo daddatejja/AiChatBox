@@ -9,7 +9,7 @@ namespace AiChatBox.Api.Services.Tools
     public class SqlTool(IConfiguration config) : ITool
     {
         public string Name => "query_database";
-        public string Description => "Executes a read-only SQL query to retrieve information about chats, files, and logs. Use this to answer questions about user activity.";
+        public string Description => "Executes read-only SQL queries on the application database. Available tables: Projects, ApiKeys, CustomTools, ChatSessions, ChatMessages, AspNetUsers (Identity). Use this to analyze user activity, project configurations, or chat history. Do NOT use this for personal user data unless explicitly asked.";
 
         public JsonObject ParametersSchema => new JsonObject
         {
@@ -53,7 +53,7 @@ namespace AiChatBox.Api.Services.Tools
                 using var conn = new SqliteConnection(config.GetConnectionString("DefaultConnection"));
                 var results = await conn.QueryAsync(query);
 
-                return new ToolResult { ToolName = Name, Data = results };
+                return new ToolResult { ToolName = Name, Content = results };
             }
             catch (Exception ex)
             {

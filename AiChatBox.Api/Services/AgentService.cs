@@ -1,36 +1,54 @@
-using AiChatBox.Api.DTOs;
-using AiChatBox.Api.Interfaces;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
+using AiChatBox.Api.DTOs;
+using AiChatBox.Api.Interfaces;
+using AiChatBox.Api.Models;
 
 namespace AiChatBox.Api.Services
 {
-    public class AgentService(LlmProviderFactory llmFactory, ToolRegistry toolRegistry, ILogger<AgentService> logger)
+    public class AgentService(LlmProviderFactory llmFactory, 
+                            ToolRegistry toolRegistry, 
+                            WebhookService webhookService,
+                            ILogger<AgentService> logger)
     {
         private readonly LlmProviderFactory _llmFactory = llmFactory;
         private readonly ToolRegistry _toolRegistry = toolRegistry;
+        private readonly WebhookService _webhookService = webhookService;
         private readonly ILogger<AgentService> _logger = logger;
 
-        public async IAsyncEnumerable<string> ExecuteAgentAsync(
+        public async IAsyncEnumerable<AgentChunk> ExecuteAgentAsync(
             string provider,
             string? modelName,
-            IEnumerable<GenericChatMessage> history,
+            List<GenericChatMessage> history,
             string systemPrompt,
             string userId,
+            Project? project,
             [EnumeratorCancellation] CancellationToken ct)
         {
             var providerService = _llmFactory.GetProvider(provider);
-            var tools = _toolRegistry.GetAllTools().ToList();
+            
+            // Combine built-in tools with custom tools from project
+            var allTools = new List<ITool>(_toolRegistry.GetAllTools());
+            if (project != null)
+            {
+                foreach (var ctModel in project.CustomTools.Where(t => t.IsActive))
+                {
+                    // For now, we wrap them as ITool. 
+                    // If it's a client-side tool, we'll handle it specially below.
+                    allTools.Add(new DynamicTool(ctModel, project, _webhookService));
+                }
+            }
+
             var messages = history.ToList();
 
-            // Safety limit: 5 rounds of tool calling
             for (int i = 0; i < 5; i++)
             {
                 ToolCall? currentToolCall = null;
                 var sb = new StringBuilder();
 
-                await foreach (var chunk in providerService.StreamGenerateContentAsync(messages, systemPrompt, tools, modelName, ct))
+                await foreach (var chunk in providerService.StreamGenerateContentAsync(messages, systemPrompt, allTools, modelName, ct))
                 {
                     if (chunk.ToolCall != null)
                     {
@@ -39,15 +57,34 @@ namespace AiChatBox.Api.Services
                     else if (!string.IsNullOrEmpty(chunk.Text))
                     {
                         sb.Append(chunk.Text);
-                        yield return chunk.Text;
+                        yield return new AgentChunk { Text = chunk.Text };
                     }
                 }
 
                 if (currentToolCall == null) break;
 
-                // Execute tool
                 _logger.LogInformation("Agent calling tool: {ToolName}", currentToolCall.Name);
-                var tool = _toolRegistry.GetTool(currentToolCall.Name);
+
+                // Check if it's a built-in tool or a dynamic tool
+                var tool = allTools.FirstOrDefault(t => t.Name == currentToolCall.Name);
+                
+                // If it's a custom tool, check if it should be handled by the client
+                // Strategy: If WebhookUrl is empty and it's a CustomTool, it's a Client-side tool.
+                var customTool = project?.CustomTools.FirstOrDefault(t => t.Name == currentToolCall.Name);
+                if (customTool != null && string.IsNullOrEmpty(project?.WebhookUrl))
+                {
+                    yield return new AgentChunk 
+                    { 
+                        ToolCall = new ToolCallDto 
+                        { 
+                            Id = currentToolCall.Id,
+                            Name = currentToolCall.Name, 
+                            Arguments = currentToolCall.ArgumentsJson 
+                        } 
+                    };
+                    yield break; // Stop execution, let client handle it and come back
+                }
+
                 ToolResult result;
                 if (tool == null)
                 {
@@ -58,16 +95,34 @@ namespace AiChatBox.Api.Services
                     result = await tool.ExecuteAsync(currentToolCall.ArgumentsJson, userId);
                 }
 
-                // Add assistant's tool call and the tool's response to conversation history
-                // Note: Gemini expects specific role/parts for function calls and responses.
-                // For this standalone demo, we simulate by adding them as system/model messages or updating the context.
-                // A better way is to have specific GenericChatMessage types for tool calls.
                 messages.Add(new GenericChatMessage { Role = "model", Content = $"Calling tool: {currentToolCall.Name} with {currentToolCall.ArgumentsJson}" });
                 messages.Add(new GenericChatMessage { Role = "user", Content = $"Tool Result ({currentToolCall.Name}): {JsonSerializer.Serialize(result)}" });
                 
-                // Clear the string builder as we are going for another round
                 sb.Clear();
             }
+        }
+    }
+
+    public class DynamicTool : ITool
+    {
+        private readonly CustomTool _model;
+        private readonly Project _project;
+        private readonly WebhookService _webhookService;
+
+        public DynamicTool(CustomTool model, Project project, WebhookService webhookService)
+        {
+            _model = model;
+            _project = project;
+            _webhookService = webhookService;
+        }
+
+        public string Name => _model.Name;
+        public string Description => _model.Description;
+        public JsonObject ParametersSchema => JsonNode.Parse(_model.ParametersJsonSchema)!.AsObject();
+
+        public async Task<ToolResult> ExecuteAsync(string argumentsJson, string userId)
+        {
+            return await _webhookService.ExecuteWebhookToolAsync(_project, _model.Name, argumentsJson);
         }
     }
 }

@@ -13,7 +13,7 @@ namespace AiChatBox.Api.Interfaces
     public class ToolResult
     {
         public string ToolName { get; set; } = string.Empty;
-        public object? Data { get; set; }
+        public object? Content { get; set; }
         public string? Error { get; set; }
         public bool Success => Error == null;
     }

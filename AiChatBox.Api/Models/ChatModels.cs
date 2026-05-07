@@ -13,6 +13,11 @@ namespace AiChatBox.Api.Models
         [MaxLength(450)]
         public string UserId { get; set; } = string.Empty;
 
+        public Guid? ProjectId { get; set; }
+        
+        [ForeignKey(nameof(ProjectId))]
+        public virtual Project? Project { get; set; }
+
         [MaxLength(200)]
         public string? Title { get; set; }
 
