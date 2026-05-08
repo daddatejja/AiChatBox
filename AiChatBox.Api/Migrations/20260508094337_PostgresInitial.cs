@@ -1,12 +1,13 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
+using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 
 #nullable disable
 
 namespace AiChatBox.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class InitialCreate : Migration
+    public partial class PostgresInitial : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
@@ -15,10 +16,10 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetRoles",
                 columns: table => new
                 {
-                    Id = table.Column<string>(type: "TEXT", nullable: false),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    NormalizedName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    ConcurrencyStamp = table.Column<string>(type: "TEXT", nullable: true)
+                    Id = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    NormalizedName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    ConcurrencyStamp = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -29,22 +30,22 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetUsers",
                 columns: table => new
                 {
-                    Id = table.Column<string>(type: "TEXT", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    UserName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    NormalizedUserName = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    Email = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    NormalizedEmail = table.Column<string>(type: "TEXT", maxLength: 256, nullable: true),
-                    EmailConfirmed = table.Column<bool>(type: "INTEGER", nullable: false),
-                    PasswordHash = table.Column<string>(type: "TEXT", nullable: true),
-                    SecurityStamp = table.Column<string>(type: "TEXT", nullable: true),
-                    ConcurrencyStamp = table.Column<string>(type: "TEXT", nullable: true),
-                    PhoneNumber = table.Column<string>(type: "TEXT", nullable: true),
-                    PhoneNumberConfirmed = table.Column<bool>(type: "INTEGER", nullable: false),
-                    TwoFactorEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    LockoutEnd = table.Column<DateTimeOffset>(type: "TEXT", nullable: true),
-                    LockoutEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    AccessFailedCount = table.Column<int>(type: "INTEGER", nullable: false)
+                    Id = table.Column<string>(type: "text", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    UserName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    NormalizedUserName = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    Email = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    NormalizedEmail = table.Column<string>(type: "character varying(256)", maxLength: 256, nullable: true),
+                    EmailConfirmed = table.Column<bool>(type: "boolean", nullable: false),
+                    PasswordHash = table.Column<string>(type: "text", nullable: true),
+                    SecurityStamp = table.Column<string>(type: "text", nullable: true),
+                    ConcurrencyStamp = table.Column<string>(type: "text", nullable: true),
+                    PhoneNumber = table.Column<string>(type: "text", nullable: true),
+                    PhoneNumberConfirmed = table.Column<bool>(type: "boolean", nullable: false),
+                    TwoFactorEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    LockoutEnd = table.Column<DateTimeOffset>(type: "timestamp with time zone", nullable: true),
+                    LockoutEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    AccessFailedCount = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -55,14 +56,14 @@ namespace AiChatBox.Api.Migrations
                 name: "UploadedFiles",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    UserId = table.Column<string>(type: "TEXT", maxLength: 450, nullable: false),
-                    OriginalFileName = table.Column<string>(type: "TEXT", maxLength: 500, nullable: false),
-                    StoredFileName = table.Column<string>(type: "TEXT", maxLength: 500, nullable: false),
-                    ContentType = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
-                    FileSizeBytes = table.Column<long>(type: "INTEGER", nullable: false),
-                    ExtractedText = table.Column<string>(type: "TEXT", nullable: true),
-                    UploadedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: false),
+                    OriginalFileName = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    StoredFileName = table.Column<string>(type: "character varying(500)", maxLength: 500, nullable: false),
+                    ContentType = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    FileSizeBytes = table.Column<long>(type: "bigint", nullable: false),
+                    ExtractedText = table.Column<string>(type: "text", nullable: true),
+                    UploadedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -73,11 +74,11 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetRoleClaims",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    RoleId = table.Column<string>(type: "TEXT", nullable: false),
-                    ClaimType = table.Column<string>(type: "TEXT", nullable: true),
-                    ClaimValue = table.Column<string>(type: "TEXT", nullable: true)
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    RoleId = table.Column<string>(type: "text", nullable: false),
+                    ClaimType = table.Column<string>(type: "text", nullable: true),
+                    ClaimValue = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -94,11 +95,11 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetUserClaims",
                 columns: table => new
                 {
-                    Id = table.Column<int>(type: "INTEGER", nullable: false)
-                        .Annotation("Sqlite:Autoincrement", true),
-                    UserId = table.Column<string>(type: "TEXT", nullable: false),
-                    ClaimType = table.Column<string>(type: "TEXT", nullable: true),
-                    ClaimValue = table.Column<string>(type: "TEXT", nullable: true)
+                    Id = table.Column<int>(type: "integer", nullable: false)
+                        .Annotation("Npgsql:ValueGenerationStrategy", NpgsqlValueGenerationStrategy.IdentityByDefaultColumn),
+                    UserId = table.Column<string>(type: "text", nullable: false),
+                    ClaimType = table.Column<string>(type: "text", nullable: true),
+                    ClaimValue = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -115,10 +116,10 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetUserLogins",
                 columns: table => new
                 {
-                    LoginProvider = table.Column<string>(type: "TEXT", nullable: false),
-                    ProviderKey = table.Column<string>(type: "TEXT", nullable: false),
-                    ProviderDisplayName = table.Column<string>(type: "TEXT", nullable: true),
-                    UserId = table.Column<string>(type: "TEXT", nullable: false)
+                    LoginProvider = table.Column<string>(type: "text", nullable: false),
+                    ProviderKey = table.Column<string>(type: "text", nullable: false),
+                    ProviderDisplayName = table.Column<string>(type: "text", nullable: true),
+                    UserId = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -135,8 +136,8 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetUserRoles",
                 columns: table => new
                 {
-                    UserId = table.Column<string>(type: "TEXT", nullable: false),
-                    RoleId = table.Column<string>(type: "TEXT", nullable: false)
+                    UserId = table.Column<string>(type: "text", nullable: false),
+                    RoleId = table.Column<string>(type: "text", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -159,10 +160,10 @@ namespace AiChatBox.Api.Migrations
                 name: "AspNetUserTokens",
                 columns: table => new
                 {
-                    UserId = table.Column<string>(type: "TEXT", nullable: false),
-                    LoginProvider = table.Column<string>(type: "TEXT", nullable: false),
-                    Name = table.Column<string>(type: "TEXT", nullable: false),
-                    Value = table.Column<string>(type: "TEXT", nullable: true)
+                    UserId = table.Column<string>(type: "text", nullable: false),
+                    LoginProvider = table.Column<string>(type: "text", nullable: false),
+                    Name = table.Column<string>(type: "text", nullable: false),
+                    Value = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -179,16 +180,16 @@ namespace AiChatBox.Api.Migrations
                 name: "Projects",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
-                    UserId = table.Column<string>(type: "TEXT", nullable: false),
-                    SystemPrompt = table.Column<string>(type: "TEXT", nullable: false),
-                    Provider = table.Column<string>(type: "TEXT", nullable: false),
-                    ModelName = table.Column<string>(type: "TEXT", nullable: false),
-                    WebhookUrl = table.Column<string>(type: "TEXT", nullable: true),
-                    WebhookSecret = table.Column<string>(type: "TEXT", nullable: true),
-                    AllowedDomains = table.Column<string>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    UserId = table.Column<string>(type: "text", nullable: false),
+                    SystemPrompt = table.Column<string>(type: "text", nullable: false),
+                    Provider = table.Column<string>(type: "text", nullable: false),
+                    ModelName = table.Column<string>(type: "text", nullable: false),
+                    WebhookUrl = table.Column<string>(type: "text", nullable: true),
+                    WebhookSecret = table.Column<string>(type: "text", nullable: true),
+                    AllowedDomains = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -205,18 +206,18 @@ namespace AiChatBox.Api.Migrations
                 name: "AiRequestLogs",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    SessionId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    ProjectId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    UserId = table.Column<string>(type: "TEXT", maxLength: 450, nullable: true),
-                    Endpoint = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),
-                    InputTokens = table.Column<int>(type: "INTEGER", nullable: false),
-                    OutputTokens = table.Column<int>(type: "INTEGER", nullable: false),
-                    DurationMs = table.Column<int>(type: "INTEGER", nullable: false),
-                    RawRequest = table.Column<string>(type: "TEXT", nullable: true),
-                    RawResponse = table.Column<string>(type: "TEXT", nullable: true),
-                    ErrorMessage = table.Column<string>(type: "TEXT", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SessionId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
+                    Endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    InputTokens = table.Column<int>(type: "integer", nullable: false),
+                    OutputTokens = table.Column<int>(type: "integer", nullable: false),
+                    DurationMs = table.Column<int>(type: "integer", nullable: false),
+                    RawRequest = table.Column<string>(type: "text", nullable: true),
+                    RawResponse = table.Column<string>(type: "text", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -232,18 +233,18 @@ namespace AiChatBox.Api.Migrations
                 name: "Configurations",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ProjectId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 100, nullable: false),
-                    SystemPrompt = table.Column<string>(type: "TEXT", nullable: false),
-                    GeminiApiKey = table.Column<string>(type: "TEXT", nullable: true),
-                    GroqApiKey = table.Column<string>(type: "TEXT", nullable: true),
-                    OpenAiApiKey = table.Column<string>(type: "TEXT", nullable: true),
-                    DefaultProvider = table.Column<string>(type: "TEXT", nullable: false),
-                    DefaultModel = table.Column<string>(type: "TEXT", nullable: false),
-                    LiveVoiceEnabled = table.Column<bool>(type: "INTEGER", nullable: false),
-                    EnabledModels = table.Column<string>(type: "TEXT", maxLength: 4000, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: false),
+                    SystemPrompt = table.Column<string>(type: "text", nullable: false),
+                    GeminiApiKey = table.Column<string>(type: "text", nullable: true),
+                    GroqApiKey = table.Column<string>(type: "text", nullable: true),
+                    OpenAiApiKey = table.Column<string>(type: "text", nullable: true),
+                    DefaultProvider = table.Column<string>(type: "text", nullable: false),
+                    DefaultModel = table.Column<string>(type: "text", nullable: false),
+                    LiveVoiceEnabled = table.Column<bool>(type: "boolean", nullable: false),
+                    EnabledModels = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -260,13 +261,13 @@ namespace AiChatBox.Api.Migrations
                 name: "CustomTools",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ProjectId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Name = table.Column<string>(type: "TEXT", maxLength: 50, nullable: false),
-                    Description = table.Column<string>(type: "TEXT", nullable: false),
-                    ParametersJsonSchema = table.Column<string>(type: "TEXT", nullable: false),
-                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Name = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: false),
+                    Description = table.Column<string>(type: "text", nullable: false),
+                    ParametersJsonSchema = table.Column<string>(type: "text", nullable: false),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -283,16 +284,16 @@ namespace AiChatBox.Api.Migrations
                 name: "ApiKeys",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ProjectId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ConfigurationId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    ExperimentConfigurationId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    ExperimentWeight = table.Column<int>(type: "INTEGER", nullable: false),
-                    KeyHash = table.Column<string>(type: "TEXT", nullable: false),
-                    Label = table.Column<string>(type: "TEXT", maxLength: 100, nullable: true),
-                    IsActive = table.Column<bool>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    LastUsedAt = table.Column<DateTime>(type: "TEXT", nullable: true)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
+                    ConfigurationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ExperimentConfigurationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ExperimentWeight = table.Column<int>(type: "integer", nullable: false),
+                    KeyHash = table.Column<string>(type: "text", nullable: false),
+                    Label = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
+                    IsActive = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    LastUsedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -315,14 +316,14 @@ namespace AiChatBox.Api.Migrations
                 name: "ChatSessions",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    UserId = table.Column<string>(type: "TEXT", maxLength: 450, nullable: false),
-                    ProjectId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    ConfigurationId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    Title = table.Column<string>(type: "TEXT", maxLength: 200, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    LastMessageAt = table.Column<DateTime>(type: "TEXT", nullable: false),
-                    IsArchived = table.Column<bool>(type: "INTEGER", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ConfigurationId = table.Column<Guid>(type: "uuid", nullable: true),
+                    Title = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    LastMessageAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    IsArchived = table.Column<bool>(type: "boolean", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -344,11 +345,11 @@ namespace AiChatBox.Api.Migrations
                 name: "ConfigurationHistories",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    ConfigurationId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    SystemPrompt = table.Column<string>(type: "TEXT", nullable: false),
-                    DefaultModel = table.Column<string>(type: "TEXT", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ConfigurationId = table.Column<Guid>(type: "uuid", nullable: false),
+                    SystemPrompt = table.Column<string>(type: "text", nullable: false),
+                    DefaultModel = table.Column<string>(type: "text", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -365,14 +366,14 @@ namespace AiChatBox.Api.Migrations
                 name: "ChatMessages",
                 columns: table => new
                 {
-                    Id = table.Column<Guid>(type: "TEXT", nullable: false),
-                    SessionId = table.Column<Guid>(type: "TEXT", nullable: false),
-                    Role = table.Column<string>(type: "TEXT", maxLength: 20, nullable: false),
-                    Content = table.Column<string>(type: "TEXT", nullable: false),
-                    ImageDataUrl = table.Column<string>(type: "TEXT", nullable: true),
-                    AttachedFileId = table.Column<Guid>(type: "TEXT", nullable: true),
-                    TokenCount = table.Column<int>(type: "INTEGER", nullable: false),
-                    CreatedAt = table.Column<DateTime>(type: "TEXT", nullable: false)
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SessionId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Role = table.Column<string>(type: "character varying(20)", maxLength: 20, nullable: false),
+                    Content = table.Column<string>(type: "text", nullable: false),
+                    ImageDataUrl = table.Column<string>(type: "text", nullable: true),
+                    AttachedFileId = table.Column<Guid>(type: "uuid", nullable: true),
+                    TokenCount = table.Column<int>(type: "integer", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
                 {
