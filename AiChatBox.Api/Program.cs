@@ -160,17 +160,31 @@ if (app.Environment.IsDevelopment())
 
 app.UseCors("AllowAll");
 app.UseStaticFiles(); // Default wwwroot
-app.UseStaticFiles(new StaticFileOptions
+var widgetPath = Path.Combine(app.Environment.ContentRootPath, "..", "AiChatBox.Widget");
+if (!Directory.Exists(widgetPath))
 {
-    FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(
-        Path.Combine(app.Environment.ContentRootPath, "..", "AiChatBox.Widget")),
-    RequestPath = "/widget",
-    OnPrepareResponse = ctx =>
+    // Fallback for Docker/Production structure
+    widgetPath = Path.Combine(app.Environment.ContentRootPath, "widget");
+}
+
+if (Directory.Exists(widgetPath))
+{
+    Console.WriteLine($"[Startup] Serving widget files from: {widgetPath}");
+    app.UseStaticFiles(new StaticFileOptions
     {
-        ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
-        ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, OPTIONS");
-    }
-});
+        FileProvider = new Microsoft.Extensions.FileProviders.PhysicalFileProvider(widgetPath),
+        RequestPath = "/widget",
+        OnPrepareResponse = ctx =>
+        {
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Origin", "*");
+            ctx.Context.Response.Headers.Append("Access-Control-Allow-Methods", "GET, OPTIONS");
+        }
+    });
+}
+else
+{
+    Console.WriteLine($"[Startup] Warning: Widget directory not found at {widgetPath}. Widget may not be served correctly.");
+}
 
 app.UseHttpsRedirection();
 
