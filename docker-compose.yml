@@ -3,9 +3,12 @@ services:
     image: ghcr.io/daddatejja/aichatbox-api:latest
     container_name: aichatbox-api
     restart: always
+    depends_on:
+      db:
+        condition: service_healthy
     volumes:
-      - ./data:/app/data
       - ./logs:/app/logs
+      - ./uploads:/app/uploads
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
       - ASPNETCORE_URLS=http://+:5000
@@ -13,8 +16,26 @@ services:
       - Authentication__Google__ClientId=${GOOGLE_CLIENT_ID}
       - Authentication__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
       - Gemini__ApiKey=${GEMINI_API_KEY}
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/prod_v1.db
+      - ConnectionStrings__DefaultConnection=Host=db;Database=aichatbox;Username=admin;Password=${DB_PASSWORD}
       - DashboardUrl=https://appchatbox.daddatejja.dev/login
+    networks:
+      - chat-network
+
+  db:
+    image: postgres:16-alpine
+    container_name: aichatbox-db
+    restart: always
+    environment:
+      - POSTGRES_USER=admin
+      - POSTGRES_PASSWORD=${DB_PASSWORD}
+      - POSTGRES_DB=aichatbox
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U admin -d aichatbox"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
     networks:
       - chat-network
 

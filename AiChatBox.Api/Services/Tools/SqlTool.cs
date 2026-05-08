@@ -2,7 +2,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using AiChatBox.Api.Interfaces;
 using Dapper;
-using Microsoft.Data.Sqlite;
+using Npgsql;
 
 namespace AiChatBox.Api.Services.Tools
 {
@@ -50,7 +50,7 @@ namespace AiChatBox.Api.Services.Tools
                     }
                 }
 
-                using var conn = new SqliteConnection(config.GetConnectionString("DefaultConnection"));
+                using var conn = new NpgsqlConnection(config.GetConnectionString("DefaultConnection"));
                 var results = await conn.QueryAsync(query);
 
                 return new ToolResult { ToolName = Name, Content = results };
