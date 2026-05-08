@@ -9,7 +9,8 @@ import InputText from 'primevue/inputtext';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 
-const { apiFetch } = useApi();
+const { apiFetch, API_BASE } = useApi();
+const showWidget = ref(false);
 
 const projects = ref<any[]>([]);
 const configurations = ref<any[]>([]);
@@ -199,6 +200,25 @@ async function sendMessage() {
         loadSessions();
     }
 }
+async function openWidgetPreview() {
+    if (!selectedProject.value) return;
+    
+    // Ensure widget script is loaded from API
+    if (!document.getElementById('ai-chatbox-script')) {
+        const script = document.createElement('script');
+        script.id = 'ai-chatbox-script';
+        script.src = `${API_BASE}/widget/ai-chatbox.js`;
+        document.head.appendChild(script);
+        
+        // Wait for script to load
+        await new Promise((resolve) => {
+            script.onload = resolve;
+        });
+    }
+    
+    showWidget.value = true;
+}
+
 </script>
 
 <template>
@@ -217,6 +237,7 @@ async function sendMessage() {
                     <label>Configuration</label>
                     <Select v-model="selectedConfig" :options="configurations" optionLabel="name" placeholder="Select Config" class="w-64" />
                 </div>
+                <Button label="Test with Widget" icon="pi pi-external-link" severity="help" class="ml-2" @click="openWidgetPreview" :disabled="!selectedProject" />
                 <Button icon="pi pi-refresh" severity="secondary" rounded text v-tooltip.bottom="'Reset Chat'" @click="messages = []; sessionId = null;" />
             </div>
         </header>
@@ -327,6 +348,14 @@ async function sendMessage() {
                 </Card>
             </aside>
         </div>
+        
+        <!-- Widget Preview Overlay -->
+        <ai-chatbox 
+            v-if="showWidget" 
+            :project-id="selectedProject?.id" 
+            :api-base="API_BASE" 
+            @close="showWidget = false"
+        ></ai-chatbox>
     </div>
 </template>
 

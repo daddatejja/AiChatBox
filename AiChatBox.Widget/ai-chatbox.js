@@ -204,6 +204,7 @@
       // Attributes
       this.apiUrl = this.getAttribute("api-base") || this.getAttribute("api-url") || window.location.origin;
       this.apiKey = this.getAttribute("api-key") || null;
+      this.projectId = this.getAttribute("project-id") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
       this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
@@ -1033,7 +1034,7 @@
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
-        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null);
+        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null, this.projectId || null);
 
         await this.audioContext.audioWorklet.addModule("./audio-processor.js");
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });

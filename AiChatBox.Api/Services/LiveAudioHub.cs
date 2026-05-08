@@ -13,7 +13,7 @@ namespace AiChatBox.Api.Services
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
         private readonly ApiKeyService _apiKeyService = apiKeyService;
 
-        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null)
+        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null, Guid? projectId = null)
         {
             var connectionId = Context.ConnectionId;
             _logger.LogInformation("Client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
@@ -40,15 +40,25 @@ namespace AiChatBox.Api.Services
                     systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project?.SystemPrompt;
                     geminiApiKeyOverride = config?.GeminiApiKey;
                 }
-                else
+                else if (projectId.HasValue && Context.User.Identity?.IsAuthenticated == true)
                 {
-                    // If no API key is provided, we might still allow it if the user is authenticated via JWT (Dashboard)
-                    // but for the public widget, API key is required.
-                    if (Context.User.Identity?.IsAuthenticated != true)
+                    // If authenticated via JWT (Dashboard), allow session by ProjectId
+                    var authUserId = Context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                    project = await _apiKeyService.GetProjectByIdAsync(projectId.Value, authUserId);
+                    
+                    if (project == null)
                     {
-                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
+                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Project not found or access denied.");
                         return;
                     }
+
+                    systemPrompt = systemPrompt ?? project.SystemPrompt;
+                    // For dashboard preview, use project default key if config not selected
+                }
+                else
+                {
+                    await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
+                    return;
                 }
 
                 await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,

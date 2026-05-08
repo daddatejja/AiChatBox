@@ -30,6 +30,15 @@ namespace AiChatBox.Api.Services
             return (rawKey, apiKey);
         }
 
+        public async Task<Project?> GetProjectByIdAsync(Guid id, string? userId = null)
+        {
+            var query = _db.Projects.AsQueryable();
+            if (!string.IsNullOrEmpty(userId))
+                query = query.Where(p => p.UserId == userId);
+            
+            return await query.FirstOrDefaultAsync(p => p.Id == id);
+        }
+
         public async Task<(Project? Project, ProjectConfiguration? Configuration, ApiKey? ApiKey)> ValidateApiKeyAsync(string rawKey, string? origin = null)
         {
             var keyHash = HashKey(rawKey);
