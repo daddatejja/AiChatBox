@@ -56,6 +56,6 @@ jobs:
           key: ${{ secrets.ORACLE_SSH_KEY }}
           script: |
             cd ~/AiChatBox
-            git pull origin main
+            git pull origin deploy
             docker compose pull
             docker compose up -d

@@ -1,18 +1,11 @@
 {
-    email your-email@example.com
+    email daddatejja@gmail.com
 }
 
-# API Subdomain
-api.yourdomain.com {
+apichatbox.daddatejja.dev {
     reverse_proxy api:5000
 }
 
-# Dashboard Subdomain
-app.yourdomain.com {
+appchatbox.daddatejja.dev {
     reverse_proxy dashboard:80
-}
-
-# (Optional) Main domain redirects to Dashboard
-yourdomain.com {
-    redir https://app.yourdomain.com{uri}
 }
