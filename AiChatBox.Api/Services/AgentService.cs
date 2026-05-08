@@ -25,6 +25,7 @@ namespace AiChatBox.Api.Services
             string systemPrompt,
             string userId,
             Project? project,
+            string? apiKeyOverride = null,
             [EnumeratorCancellation] CancellationToken ct)
         {
             var providerService = _llmFactory.GetProvider(provider);
@@ -49,7 +50,7 @@ namespace AiChatBox.Api.Services
                 ToolCall? currentToolCall = null;
                 var sb = new StringBuilder();
 
-                await foreach (var chunk in providerService.StreamGenerateContentAsync(messages, systemPrompt, allTools, modelName, ct))
+                await foreach (var chunk in providerService.StreamGenerateContentAsync(messages, systemPrompt, allTools, modelName, apiKeyOverride, ct))
                 {
                     if (chunk.ToolCall != null)
                     {

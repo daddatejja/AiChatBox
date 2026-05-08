@@ -91,4 +91,14 @@ namespace AiChatBox.Api.DTOs
         public string Format { get; set; } = string.Empty;
         public string DownloadUrl { get; set; } = string.Empty;
     }
+
+    public class ChatConfigDto
+    {
+        public string ProjectName { get; set; } = string.Empty;
+        public string DefaultProvider { get; set; } = "gemini";
+        public string DefaultModel { get; set; } = "gemini-3.1-flash-lite-preview";
+        public bool LiveVoiceEnabled { get; set; }
+        public List<string> EnabledModels { get; set; } = [];
+        public string? SystemPrompt { get; set; }
+    }
 }

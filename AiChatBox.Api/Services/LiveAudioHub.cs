@@ -22,6 +22,8 @@ namespace AiChatBox.Api.Services
             {
                 // Resolve project and system prompt
                 Project? project = null;
+                string? geminiApiKeyOverride = null;
+
                 if (!string.IsNullOrEmpty(apiKey))
                 {
                     var origin = Context.GetHttpContext()?.Request.Headers.Origin.ToString();
@@ -36,6 +38,7 @@ namespace AiChatBox.Api.Services
                     }
 
                     systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project?.SystemPrompt;
+                    geminiApiKeyOverride = config?.GeminiApiKey;
                 }
                 else
                 {
@@ -65,7 +68,8 @@ namespace AiChatBox.Api.Services
                     {
                         await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
                     },
-                    project?.Id
+                    project?.Id,
+                    geminiApiKeyOverride
                 );
 
                 var session = _sessionManager.GetSession(connectionId);

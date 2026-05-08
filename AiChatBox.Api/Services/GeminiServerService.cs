@@ -21,9 +21,11 @@ namespace AiChatBox.Api.Services
             string? systemPrompt = null,
             IEnumerable<ITool>? tools = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            var apiKey = !string.IsNullOrEmpty(apiKeyOverride) ? apiKeyOverride : _apiKey;
+            if (string.IsNullOrEmpty(apiKey))
                 throw new InvalidOperationException("Gemini API key is not configured.");
 
             var toolDeclarations = tools?.Select(t => new
@@ -46,13 +48,14 @@ namespace AiChatBox.Api.Services
                 "application/json");
 
             var modelToUse = string.IsNullOrEmpty(modelName) ? _defaultModel : modelName;
-            var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{modelToUse}:streamGenerateContent?key={_apiKey}&alt=sse")
+            var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{modelToUse}:streamGenerateContent?key={apiKey}&alt=sse")
             {
                 Content = jsonContent
             };
             request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
 
             HttpResponseMessage response;
+// ... (rest of the logic remains same, just ensure it uses 'apiKey' variable)
             try
             {
                 // Create a linked token with a timeout to avoid hanging
@@ -149,9 +152,11 @@ namespace AiChatBox.Api.Services
             string? systemPrompt = null,
             object[]? toolDeclarations = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            var apiKey = !string.IsNullOrEmpty(apiKeyOverride) ? apiKeyOverride : _apiKey;
+            if (string.IsNullOrEmpty(apiKey))
                 throw new InvalidOperationException("Gemini API key is not configured.");
 
             var requestBody = await BuildRequestBodyAsync(messages, systemPrompt, toolDeclarations);
@@ -161,7 +166,7 @@ namespace AiChatBox.Api.Services
                 "application/json");
 
             var modelToUse = string.IsNullOrEmpty(modelName) ? _defaultModel : modelName;
-            var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{modelToUse}:generateContent?key={_apiKey}")
+            var request = new HttpRequestMessage(HttpMethod.Post, $"https://generativelanguage.googleapis.com/v1beta/models/{modelToUse}:generateContent?key={apiKey}")
             {
                 Content = jsonContent
             };

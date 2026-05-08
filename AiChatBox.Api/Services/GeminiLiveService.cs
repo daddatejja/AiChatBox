@@ -20,6 +20,7 @@ namespace AiChatBox.Api.Services
         private TaskCompletionSource<bool>? _setupTcs;
         public Guid? ProjectId { get; set; }
         public string? UserId { get; set; }
+        public string? ApiKeyOverride { get; set; }
 
         public event Func<byte[], Task>? OnAudioReceived;
         public event Func<string, bool, Task>? OnTextReceived;
@@ -35,13 +36,14 @@ namespace AiChatBox.Api.Services
 
         public async Task ConnectAsync(string userId, string? voiceName = null, string? systemPrompt = null, CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(_apiKey)) throw new Exception("Gemini API key missing");
+            var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
+            if (string.IsNullOrEmpty(apiKey)) throw new Exception("Gemini API key missing");
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _setupTcs = new TaskCompletionSource<bool>();
             _webSocket = new ClientWebSocket();
             
-            var uri = new Uri($"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={_apiKey}");
+            var uri = new Uri($"wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key={apiKey}");
 
             try
             {

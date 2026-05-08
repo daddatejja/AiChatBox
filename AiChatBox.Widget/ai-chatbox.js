@@ -250,6 +250,8 @@
         minimize: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>',
       };
 
+      this.config = null;
+
       this.registerTool = (name, handler) => {
         this.toolHandlers.set(name, handler);
         console.log(`Tool registered: ${name}`);
@@ -263,7 +265,24 @@
       };
     }
 
-    connectedCallback() {
+    async fetchConfig() {
+      if (!this.apiKey) return;
+      try {
+        const response = await fetch(`${this.apiUrl}/api/chat/config`, {
+          headers: { "X-Api-Key": this.apiKey }
+        });
+        if (response.ok) {
+          this.config = await response.json();
+          if (this.config.defaultModel) this.modelName = this.config.defaultModel;
+          if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
+        }
+      } catch (err) {
+        console.error("Failed to fetch widget config:", err);
+      }
+    }
+
+    async connectedCallback() {
+      await this.fetchConfig();
       this.render();
       this.setupEventListeners();
       this.setupDraggable();
@@ -285,10 +304,10 @@
                     <div class="chatbox-header" id="drag-header">
                         <div class="chatbox-title">
                             ${this.icons.awesome}
-                            <span>AI Assistant</span>
+                            <span>${this.getAttribute("title") || this.config?.projectName || "AI Assistant"}</span>
                         </div>
                         <div class="chatbox-header-actions">
-                            <button class="header-action-btn" id="btn-live" title="Live Voice Mode">${this.icons.voice}</button>
+                            ${this.config?.liveVoiceEnabled !== false ? `<button class="header-action-btn" id="btn-live" title="Live Voice Mode">${this.icons.voice}</button>` : ''}
                             <button class="header-action-btn" id="btn-history" title="Chat history">${this.icons.history}</button>
                             <button class="header-action-btn" id="btn-new" title="New chat">${this.icons.newChat}</button>
                             <button class="header-action-btn" id="btn-full" title="Fullscreen">${this.icons.fullscreen}</button>
@@ -391,9 +410,9 @@
                             <div class="input-footer">
                                 <div class="model-selector-wrapper">
                                     <select class="modern-model-select" id="model-select">
-                                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash</option>
-                                        <option value="gemini-3-flash">Gemini 3 Flash</option>
-                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
+                                        ${(this.config?.enabledModels?.length > 0 ? this.config.enabledModels : ["gemini-3.1-flash-lite-preview", "gemini-3-flash", "gemini-2.5-flash-lite"]).map(m => `
+                                            <option value="${m}" ${m === this.modelName ? 'selected' : ''}>${m.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>
+                                        `).join('')}
                                     </select>
                                     <select class="modern-model-select" id="voice-select">
                                         <option value="Puck">Puck</option>
@@ -438,7 +457,8 @@
       root.getElementById("btn-history").onclick = () => this.toggleHistory();
       root.getElementById("btn-history-close").onclick = () => this.toggleHistory();
       root.getElementById("btn-new").onclick = () => this.startNewChat();
-      root.getElementById("btn-live").onclick = () => this.toggleLiveMode();
+      const liveBtn = root.getElementById("btn-live");
+      if (liveBtn) liveBtn.onclick = () => this.toggleLiveMode();
 
       // Input Actions
       root.getElementById("btn-send").onclick = () => this.sendMessage();
@@ -1445,7 +1465,7 @@
       container.innerHTML = `
         <div class="chatbox-empty-state">
           <div class="empty-state-icon">${this.icons.awesome}</div>
-          <h3>How can I help you today?</h3>
+          <h3>${this.getAttribute("welcome-message") || "How can I help you today?"}</h3>
           <div class="suggestion-chips">
             ${this.suggestions.map(s => `<button class="suggestion-chip">${s}</button>`).join("")}
           </div>

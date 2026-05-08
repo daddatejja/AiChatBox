@@ -22,6 +22,7 @@ namespace AiChatBox.Api.Interfaces
             string? systemPrompt = null,
             IEnumerable<ITool>? tools = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             CancellationToken cancellationToken = default);
 
         Task<string> GenerateContentAsync(
@@ -29,6 +30,7 @@ namespace AiChatBox.Api.Interfaces
             string? systemPrompt = null,
             object[]? toolDeclarations = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             CancellationToken cancellationToken = default);
             
         int EstimateTokenCount(string text);

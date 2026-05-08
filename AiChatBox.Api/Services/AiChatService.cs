@@ -165,13 +165,21 @@ namespace AiChatBox.Api.Services
                 AttachedFileId = m.AttachedFileId
             }).ToList();
 
+            var apiKeyOverride = provider?.ToLowerInvariant() switch
+            {
+                "gemini" => config?.GeminiApiKey,
+                "groq" => config?.GroqApiKey,
+                "grok" => config?.GroqApiKey,
+                _ => null
+            };
+
             var finalResponseText = new StringBuilder();
             string? errorMessage = null;
             ChatStreamChunk? errorChunk = null;
 
             async IAsyncEnumerable<ChatStreamChunk> StreamInternal()
             {
-                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, cancellationToken))
+                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, cancellationToken))
                 {
                     if (chunk.ToolCall != null)
                     {

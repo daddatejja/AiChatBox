@@ -28,6 +28,7 @@ namespace AiChatBox.Api.Interfaces
     public interface IGeminiLiveService : IAsyncDisposable
     {
         Guid? ProjectId { get; set; }
+        string? ApiKeyOverride { get; set; }
         event Func<byte[], Task>? OnAudioReceived;
         event Func<string, bool, Task>? OnTextReceived;
         event Func<string, Task>? OnInputTranscribed;

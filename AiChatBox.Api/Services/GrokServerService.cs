@@ -22,9 +22,11 @@ namespace AiChatBox.Api.Services
             string? systemPrompt = null,
             IEnumerable<ITool>? tools = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             [EnumeratorCancellation] CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            var apiKey = !string.IsNullOrEmpty(apiKeyOverride) ? apiKeyOverride : _apiKey;
+            if (string.IsNullOrEmpty(apiKey))
                 throw new InvalidOperationException("Grok API key is not configured.");
 
             var requestBody = BuildRequestBody(messages, systemPrompt, tools, modelName, stream: true);
@@ -37,7 +39,7 @@ namespace AiChatBox.Api.Services
             {
                 Content = jsonContent
             };
-            request.Headers.Add("Authorization", $"Bearer {_apiKey}");
+            request.Headers.Add("Authorization", $"Bearer {apiKey}");
             request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
 
             HttpResponseMessage response;
@@ -137,9 +139,11 @@ namespace AiChatBox.Api.Services
             string? systemPrompt = null,
             object[]? toolDeclarations = null,
             string? modelName = null,
+            string? apiKeyOverride = null,
             CancellationToken cancellationToken = default)
         {
-            if (string.IsNullOrEmpty(_apiKey))
+            var apiKey = !string.IsNullOrEmpty(apiKeyOverride) ? apiKeyOverride : _apiKey;
+            if (string.IsNullOrEmpty(apiKey))
                 throw new InvalidOperationException("Grok API key is not configured.");
 
             var requestBody = BuildRequestBody(messages, systemPrompt, null, modelName, stream: false);
@@ -152,7 +156,7 @@ namespace AiChatBox.Api.Services
             {
                 Content = jsonContent
             };
-            request.Headers.Add("Authorization", $"Bearer {_apiKey}");
+            request.Headers.Add("Authorization", $"Bearer {apiKey}");
 
             var response = await _httpClient.SendAsync(request, cancellationToken);
 

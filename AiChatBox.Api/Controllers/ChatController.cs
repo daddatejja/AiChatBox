@@ -89,5 +89,24 @@ namespace AiChatBox.Api.Controllers
             var result = await _chatService.HardDeleteSessionAsync(sessionId, UserId);
             return result ? Ok() : NotFound();
         }
+        
+        [HttpGet("config")]
+        public IActionResult GetConfig()
+        {
+            var project = HttpContext.Items["CurrentProject"] as Project;
+            var config = HttpContext.Items["CurrentConfiguration"] as ProjectConfiguration;
+
+            if (project == null) return Unauthorized(new { error = "Project not found or API key missing" });
+
+            return Ok(new ChatConfigDto
+            {
+                ProjectName = project.Name,
+                DefaultProvider = config?.DefaultProvider ?? project.Provider,
+                DefaultModel = config?.DefaultModel ?? project.ModelName,
+                LiveVoiceEnabled = config?.LiveVoiceEnabled ?? false,
+                EnabledModels = (config?.EnabledModels ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim()).ToList(),
+                SystemPrompt = config?.SystemPrompt ?? project.SystemPrompt
+            });
+        }
     }
 }

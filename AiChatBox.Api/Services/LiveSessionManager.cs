@@ -18,7 +18,8 @@ namespace AiChatBox.Api.Services
             Func<string, bool, Task> onTextReceived, 
             Func<string, Task> onInputTranscribed,
             Func<string, string, Dictionary<string, object>, Task> onToolCall,
-            Guid? projectId = null)
+            Guid? projectId = null,
+            string? apiKeyOverride = null)
         {
             var scope = _scopeFactory.CreateAsyncScope();
             try
@@ -29,6 +30,7 @@ namespace AiChatBox.Api.Services
                 geminiService.OnInputTranscribed += onInputTranscribed;
                 geminiService.OnToolCall += onToolCall;
                 geminiService.ProjectId = projectId;
+                geminiService.ApiKeyOverride = apiKeyOverride;
 
                 await geminiService.ConnectAsync(userId, voiceName, systemPrompt);
 
