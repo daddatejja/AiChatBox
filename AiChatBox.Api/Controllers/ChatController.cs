@@ -98,13 +98,29 @@ namespace AiChatBox.Api.Controllers
 
             if (project == null) return Unauthorized(new { error = "Project not found or API key missing" });
 
+            var enabledModels = new List<string>();
+            var rawModels = config?.EnabledModels;
+            if (!string.IsNullOrEmpty(rawModels))
+            {
+                if (rawModels.Trim().StartsWith("["))
+                {
+                    try { enabledModels = System.Text.Json.JsonSerializer.Deserialize<List<string>>(rawModels) ?? new(); }
+                    catch { }
+                }
+                
+                if (enabledModels.Count == 0)
+                {
+                    enabledModels = rawModels.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim()).ToList();
+                }
+            }
+
             return Ok(new ChatConfigDto
             {
                 ProjectName = project.Name,
                 DefaultProvider = config?.DefaultProvider ?? project.Provider,
                 DefaultModel = config?.DefaultModel ?? project.ModelName,
                 LiveVoiceEnabled = config?.LiveVoiceEnabled ?? false,
-                EnabledModels = (config?.EnabledModels ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim()).ToList(),
+                EnabledModels = enabledModels,
                 SystemPrompt = config?.SystemPrompt ?? project.SystemPrompt
             });
         }
