@@ -9,7 +9,7 @@ import InputText from 'primevue/inputtext';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
 
-const { apiFetch, API_BASE } = useApi();
+const { apiFetch, API_BASE, getToken } = useApi();
 const showWidget = ref(false);
 
 const projects = ref<any[]>([]);
@@ -354,6 +354,7 @@ async function openWidgetPreview() {
             v-if="showWidget" 
             :project-id="selectedProject?.id" 
             :api-base="API_BASE" 
+            :auth-token="getToken()"
             @close="showWidget = false"
         ></ai-chatbox>
     </div>

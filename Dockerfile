@@ -9,6 +9,12 @@ RUN dotnet restore "AiChatBox.Api/AiChatBox.Api.csproj"
 # Copy everything else and build
 COPY . .
 
+# Copy widget files to wwwroot for serving
+RUN mkdir -p AiChatBox.Api/wwwroot
+COPY AiChatBox.Widget/ai-chatbox.js AiChatBox.Api/wwwroot/
+COPY AiChatBox.Widget/ai-chatbox.css AiChatBox.Api/wwwroot/
+COPY AiChatBox.Widget/audio-processor.js AiChatBox.Api/wwwroot/
+
 WORKDIR "/src/AiChatBox.Api"
 RUN dotnet build "AiChatBox.Api.csproj" -c Release -o /app/build
 

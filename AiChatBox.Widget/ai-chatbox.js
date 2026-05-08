@@ -204,6 +204,7 @@
       // Attributes
       this.apiUrl = this.getAttribute("api-base") || this.getAttribute("api-url") || window.location.origin;
       this.apiKey = this.getAttribute("api-key") || null;
+      this.authToken = this.getAttribute("auth-token") || null;
       this.projectId = this.getAttribute("project-id") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
@@ -266,14 +267,30 @@
       };
     }
 
+    getHeaders() {
+      const headers = { "X-User-Id": this.userId };
+      if (this.apiKey) headers["X-Api-Key"] = this.apiKey;
+      if (this.authToken) headers["Authorization"] = `Bearer ${this.authToken}`;
+      return headers;
+    }
+
+    async safeJson(response) {
+      const contentType = response.headers.get("content-type");
+      if (contentType && contentType.includes("application/json")) {
+        return await response.json();
+      }
+      const text = await response.text();
+      throw new Error(`Expected JSON but got ${contentType || 'unknown'}. Content: ${text.substring(0, 100)}...`);
+    }
+
     async fetchConfig() {
       if (!this.apiKey) return;
       try {
         const response = await fetch(`${this.apiUrl}/api/chat/config`, {
-          headers: { "X-Api-Key": this.apiKey }
+          headers: this.getHeaders()
         });
         if (response.ok) {
-          this.config = await response.json();
+          this.config = await this.safeJson(response);
           if (this.config.defaultModel) this.modelName = this.config.defaultModel;
           if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
         }
@@ -635,15 +652,9 @@
 
       try {
         this.abortController = new AbortController();
-        const headers = { 
-          "Content-Type": "application/json", 
-          "X-User-Id": this.userId 
-        };
-        if (this.apiKey) headers["X-Api-Key"] = this.apiKey;
-
         const response = await fetch(`${this.apiUrl}/api/chat`, {
           method: "POST",
-          headers: headers,
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
           signal: this.abortController.signal,
           body: JSON.stringify({
             message: text,
@@ -772,15 +783,9 @@
       }
 
       // Send result back to API to continue conversation
-      const headers = { 
-        "Content-Type": "application/json", 
-        "X-User-Id": this.userId 
-      };
-      if (this.apiKey) headers["X-Api-Key"] = this.apiKey;
-
       const response = await fetch(`${this.apiUrl}/api/chat`, {
         method: "POST",
-        headers: headers,
+        headers: { ...this.getHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           message: "",
           sessionId: this.currentSessionId,
@@ -1232,10 +1237,10 @@
         const isArchived = this.shadowRoot.getElementById("tab-archived").classList.contains("history-tab-active");
         const endpoint = isArchived ? "archived" : "sessions";
         const response = await fetch(`${this.apiUrl}/api/chat/${endpoint}`, {
-          headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
+          headers: this.getHeaders(),
         });
         if (!response.ok) throw new Error("Failed to load history");
-        this.sessions = await response.json();
+        this.sessions = await this.safeJson(response);
         this.renderHistoryList(isArchived);
       } catch (err) {
         console.error("Failed to load sessions", err);
@@ -1250,10 +1255,10 @@
       list.innerHTML = `<div class="history-loading">Loading messages...</div>`;
       try {
         const response = await fetch(`${this.apiUrl}/api/chat/sessions/${sessionId}`, {
-          headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
+          headers: this.getHeaders(),
         });
         if (!response.ok) throw new Error("Session not found");
-        const messages = await response.json();
+        const messages = await this.safeJson(response);
         list.innerHTML = "";
         messages.forEach((m) => {
           const role = m.Role || m.role;
@@ -1326,11 +1331,11 @@
       formData.append("file", file);
       const resp = await fetch(`${this.apiUrl}/api/File/upload`, {
         method: "POST",
-        headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
+        headers: this.getHeaders(),
         body: formData,
       });
       if (!resp.ok) throw new Error("Upload failed");
-      return await resp.json();
+      return await this.safeJson(resp);
     }
 
     renderAttachments() {
@@ -1393,10 +1398,11 @@
         try {
           const res = await fetch(`${this.apiUrl}/api/audio/transcribe`, {
             method: "POST",
+            headers: this.getHeaders(),
             body: formData
           });
           if (res.ok) {
-            const data = await res.json();
+            const data = await this.safeJson(res);
             const input = this.shadowRoot.getElementById("chat-input");
             input.value = data.text || "";
             this.updateSendButtonState();
