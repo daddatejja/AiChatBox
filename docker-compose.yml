@@ -1,5 +1,3 @@
-version: '3.8'
-
 services:
   api:
     build: .
@@ -18,7 +16,10 @@ services:
       - chat-network
 
   dashboard:
-    build: ./AiChatBox.Dashboard
+    build:
+      context: ./AiChatBox.Dashboard
+      args:
+        - VITE_API_URL=https://apichatbox.daddatejja.dev
     container_name: aichatbox-dashboard
     restart: always
     networks:

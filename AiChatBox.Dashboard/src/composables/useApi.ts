@@ -1,7 +1,9 @@
 export function useApi() {
     // Determine the backend API URL. If running in dev mode, default to the Blazor API port
     // In production, it might be the same origin.
-    const API_BASE = import.meta.env.DEV ? 'https://localhost:44385' : window.location.origin;
+    const API_BASE = import.meta.env.DEV 
+        ? 'https://localhost:44385' 
+        : (import.meta.env.VITE_API_URL || window.location.origin);
 
     function getToken() {
         return localStorage.getItem('acb_token');

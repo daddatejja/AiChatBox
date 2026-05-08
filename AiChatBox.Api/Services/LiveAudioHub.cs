@@ -1,6 +1,4 @@
 using Microsoft.AspNetCore.SignalR;
-using AiChatBox.Api.Interfaces;
-using AiChatBox.Api.Services;
 using AiChatBox.Api.Models;
 
 namespace AiChatBox.Api.Services
@@ -26,7 +24,7 @@ namespace AiChatBox.Api.Services
                 Project? project = null;
                 if (!string.IsNullOrEmpty(apiKey))
                 {
-                    var origin = Context.GetHttpContext()?.Request.Headers["Origin"].ToString();
+                    var origin = Context.GetHttpContext()?.Request.Headers.Origin.ToString();
                     ProjectConfiguration? config;
                     (project, config, _) = await _apiKeyService.ValidateApiKeyAsync(apiKey, origin);
                     
