@@ -2,14 +2,17 @@
     email your-email@example.com
 }
 
+# API Subdomain
 api.yourdomain.com {
-    reverse_proxy api:5000 {
-        header_up Host {host}
-        header_up X-Real-IP {remote_host}
-        header_up X-Forwarded-For {remote_host}
-        header_up X-Forwarded-Proto {scheme}
-    }
+    reverse_proxy api:5000
+}
 
-    # Handle static assets for the widget (js/css)
-    # They are served by the API but we can cache them here if needed
+# Dashboard Subdomain
+app.yourdomain.com {
+    reverse_proxy dashboard:80
+}
+
+# (Optional) Main domain redirects to Dashboard
+yourdomain.com {
+    redir https://app.yourdomain.com{uri}
 }

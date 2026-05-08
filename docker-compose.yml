@@ -17,6 +17,13 @@ services:
     networks:
       - chat-network
 
+  dashboard:
+    build: ./AiChatBox.Dashboard
+    container_name: aichatbox-dashboard
+    restart: always
+    networks:
+      - chat-network
+
   caddy:
     image: caddy:latest
     container_name: aichatbox-proxy
