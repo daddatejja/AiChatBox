@@ -9,12 +9,14 @@ namespace AiChatBox.Api.Data
         public ChatDbContext(DbContextOptions<ChatDbContext> options) : base(options) { }
 
         public DbSet<Project> Projects { get; set; }
+        public DbSet<ProjectConfiguration> Configurations { get; set; }
         public DbSet<ApiKey> ApiKeys { get; set; }
         public DbSet<CustomTool> CustomTools { get; set; }
         public DbSet<ChatSession> ChatSessions { get; set; }
         public DbSet<ChatMessage> ChatMessages { get; set; }
         public DbSet<AiRequestLog> AiRequestLogs { get; set; }
         public DbSet<UploadedFile> UploadedFiles { get; set; }
+        public DbSet<ConfigurationHistory> ConfigurationHistories { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -31,6 +33,24 @@ namespace AiChatBox.Api.Data
                 .WithOne(k => k.Project)
                 .HasForeignKey(k => k.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Project>()
+                .HasMany(p => p.Configurations)
+                .WithOne(c => c.Project)
+                .HasForeignKey(c => c.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ProjectConfiguration>()
+                .HasMany(c => c.ApiKeys)
+                .WithOne(k => k.Configuration)
+                .HasForeignKey(k => k.ConfigurationId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<ProjectConfiguration>()
+                .HasMany(c => c.Sessions)
+                .WithOne(s => s.Configuration)
+                .HasForeignKey(s => s.ConfigurationId)
+                .OnDelete(DeleteBehavior.SetNull);
 
             modelBuilder.Entity<Project>()
                 .HasMany(p => p.CustomTools)

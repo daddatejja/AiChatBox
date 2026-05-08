@@ -34,6 +34,7 @@ namespace AiChatBox.Api.Controllers
                     Provider = p.Provider,
                     ModelName = p.ModelName,
                     WebhookUrl = p.WebhookUrl,
+                    AllowedDomains = p.AllowedDomains,
                     CreatedAt = p.CreatedAt,
                     ApiKeyCount = p.ApiKeys.Count
                 })
@@ -85,6 +86,7 @@ namespace AiChatBox.Api.Controllers
                 Provider = project.Provider,
                 ModelName = project.ModelName,
                 WebhookUrl = project.WebhookUrl,
+                AllowedDomains = project.AllowedDomains,
                 CreatedAt = project.CreatedAt,
                 ApiKeyCount = project.ApiKeys.Count
             };
@@ -101,6 +103,7 @@ namespace AiChatBox.Api.Controllers
             project.Provider = model.Provider;
             project.ModelName = model.ModelName;
             project.WebhookUrl = model.WebhookUrl;
+            project.AllowedDomains = model.AllowedDomains;
             if (!string.IsNullOrEmpty(model.WebhookSecret))
                 project.WebhookSecret = model.WebhookSecret;
 
@@ -121,13 +124,13 @@ namespace AiChatBox.Api.Controllers
 
         // API Key Management
         [HttpPost("{id}/keys")]
-        public async Task<ActionResult> CreateApiKey(Guid id, [FromBody] string label)
+        public async Task<ActionResult> CreateApiKey(Guid id, [FromBody] CreateApiKeyRequest request)
         {
             var project = await _db.Projects.AnyAsync(p => p.Id == id && p.UserId == UserId);
             if (!project) return NotFound();
 
-            var (rawKey, entity) = await _apiKeyService.GenerateApiKeyAsync(id, label);
-            return Ok(new { key = rawKey, label = entity.Label, createdAt = entity.CreatedAt });
+            var (rawKey, entity) = await _apiKeyService.GenerateApiKeyAsync(id, request.Label, request.ConfigurationId);
+            return Ok(new { key = rawKey, id = entity.Id, label = entity.Label, createdAt = entity.CreatedAt });
         }
 
         [HttpGet("{id}/keys")]
@@ -135,7 +138,7 @@ namespace AiChatBox.Api.Controllers
         {
             var keys = await _db.ApiKeys
                 .Where(k => k.ProjectId == id && k.Project!.UserId == UserId)
-                .Select(k => new { k.Id, k.Label, k.CreatedAt, k.LastUsedAt, k.IsActive })
+                .Select(k => new { k.Id, k.Label, k.ConfigurationId, ConfigurationName = k.Configuration != null ? k.Configuration.Name : null, k.CreatedAt, k.LastUsedAt, k.IsActive })
                 .ToListAsync();
 
             return Ok(keys);

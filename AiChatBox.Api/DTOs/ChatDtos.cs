@@ -1,14 +1,25 @@
+using System.ComponentModel.DataAnnotations;
+
 namespace AiChatBox.Api.DTOs
 {
     public class ChatRequest
     {
-        public string Message { get; set; } = string.Empty;
+        public string? Message { get; set; }
         public Guid? SessionId { get; set; }
         public string? ImageDataUrl { get; set; }
         public Guid? AttachedFileId { get; set; }
+
+        [Required]
         public string Provider { get; set; } = "gemini";
         public string? ModelName { get; set; }
         public string? SystemPrompt { get; set; }
+        public ToolResultDto? ToolResult { get; set; }
+    }
+
+    public class ToolResultDto
+    {
+        public string ToolName { get; set; } = string.Empty;
+        public object? Result { get; set; }
     }
 
     public class TranscribeRequest

@@ -1,23 +1,56 @@
 using Microsoft.AspNetCore.SignalR;
 using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Services;
+using AiChatBox.Api.Models;
 
 namespace AiChatBox.Api.Services
 {
-    public class LiveAudioHub(ILogger<LiveAudioHub> logger, LiveSessionManager sessionManager, IHubContext<LiveAudioHub> hubContext) : Hub
+    public class LiveAudioHub(ILogger<LiveAudioHub> logger, 
+                            LiveSessionManager sessionManager, 
+                            IHubContext<LiveAudioHub> hubContext,
+                            ApiKeyService apiKeyService) : Hub
     {
         private readonly ILogger<LiveAudioHub> _logger = logger;
         private readonly LiveSessionManager _sessionManager = sessionManager;
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
+        private readonly ApiKeyService _apiKeyService = apiKeyService;
 
-        public async Task StartLive(string userId, string? voiceName = null)
+        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null)
         {
             var connectionId = Context.ConnectionId;
             _logger.LogInformation("Client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
 
             try
             {
-                await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, 
+                // Resolve project and system prompt
+                Project? project = null;
+                if (!string.IsNullOrEmpty(apiKey))
+                {
+                    var origin = Context.GetHttpContext()?.Request.Headers["Origin"].ToString();
+                    ProjectConfiguration? config;
+                    (project, config, _) = await _apiKeyService.ValidateApiKeyAsync(apiKey, origin);
+                    
+                    if (project == null)
+                    {
+                        _logger.LogWarning("Unauthorized live session attempt with API Key from origin: {Origin}", origin);
+                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Invalid API Key or Origin.");
+                        return;
+                    }
+
+                    systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project?.SystemPrompt;
+                }
+                else
+                {
+                    // If no API key is provided, we might still allow it if the user is authenticated via JWT (Dashboard)
+                    // but for the public widget, API key is required.
+                    if (Context.User.Identity?.IsAuthenticated != true)
+                    {
+                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
+                        return;
+                    }
+                }
+
+                await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,
                     async (pcmData) => 
                     {
                         await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveAudioChunk", pcmData);
@@ -29,7 +62,12 @@ namespace AiChatBox.Api.Services
                     async (text) => 
                     {
                         await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveInputTranscription", text);
-                    }
+                    },
+                    async (id, name, args) =>
+                    {
+                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
+                    },
+                    project?.Id
                 );
 
                 var session = _sessionManager.GetSession(connectionId);

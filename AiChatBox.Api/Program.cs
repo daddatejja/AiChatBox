@@ -1,9 +1,11 @@
 using AiChatBox.Api.Data;
 using AiChatBox.Api.Interfaces;
+using AiChatBox.Api.Middleware;
 using AiChatBox.Api.Models;
 using AiChatBox.Api.Services;
 using AiChatBox.Api.Services.Tools;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
@@ -20,7 +22,10 @@ Log.Logger = new LoggerConfiguration()
     .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)
     .CreateLogger();
 
-builder.Host.UseSerilog();
+builder.Host.UseSerilog((context, config) =>
+{
+    config.ReadFrom.Configuration(context.Configuration);
+});
 
 // Add services to the container.
 builder.Services.AddControllers();
@@ -48,7 +53,7 @@ builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options => {
 
 // Authentication
 var jwtSettings = builder.Configuration.GetSection("Jwt");
-var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? "super_secret_key_change_this_in_production_123456");
+var key = Encoding.ASCII.GetBytes(jwtSettings["Key"] ?? "super_secret_key_change_this_in_production_123456!!");
 
 builder.Services.AddAuthentication(options => {
     options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
@@ -100,9 +105,11 @@ builder.Services.AddSignalR(options => {
     options.MaximumReceiveMessageSize = 1024 * 1024; // 1MB
 });
 
-builder.Host.UseSerilog((context, config) =>
+builder.Services.AddSingleton<IAuthorizationHandler, ApiKeyOrJwtHandler>();
+builder.Services.AddAuthorization(options =>
 {
-    config.ReadFrom.Configuration(context.Configuration);
+    options.AddPolicy("ApiKeyOrJwt", policy =>
+        policy.AddRequirements(new ApiKeyOrJwtRequirement()));
 });
 
 // CORS
@@ -119,11 +126,11 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
-// Ensure Database is created
+// Apply migrations at startup
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-    db.Database.EnsureCreated();
+    db.Database.Migrate();
 }
 
 // Configure the HTTP request pipeline.

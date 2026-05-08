@@ -364,3 +364,6 @@ FodyWeavers.xsd
 /AiChatBox.Api/wwwroot/uploads
 /.agent
 /.commandcode/taste
+
+
+.commandcode

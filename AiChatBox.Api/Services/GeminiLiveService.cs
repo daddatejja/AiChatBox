@@ -3,25 +3,28 @@ using System.Text;
 using System.Text.Json;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
-using Microsoft.Extensions.Configuration;
-using Microsoft.Extensions.Logging;
+using AiChatBox.Api.Models;
 
 namespace AiChatBox.Api.Services
 {
-    public class GeminiLiveService(IConfiguration config, ILogger<GeminiLiveService> logger, IChatContextService contextService) : IGeminiLiveService
+    public class GeminiLiveService(IConfiguration config, ILogger<GeminiLiveService> logger, IChatContextService contextService, IAiLoggingService aiLogger) : IGeminiLiveService
     {
         private readonly string _apiKey = config["Gemini:ApiKey"] ?? "";
         private readonly ILogger<GeminiLiveService> _logger = logger;
         private readonly IChatContextService _contextService = contextService;
+        private readonly IAiLoggingService _aiLogger = aiLogger;
         
         private ClientWebSocket? _webSocket;
         private CancellationTokenSource? _cts;
         private Task? _receiveTask;
         private TaskCompletionSource<bool>? _setupTcs;
+        public Guid? ProjectId { get; set; }
+        public string? UserId { get; set; }
 
         public event Func<byte[], Task>? OnAudioReceived;
         public event Func<string, bool, Task>? OnTextReceived;
         public event Func<string, Task>? OnInputTranscribed;
+        public event Func<string, string, Dictionary<string, object>, Task>? OnToolCall;
         public event Action<string>? OnError;
 
         private readonly JsonSerializerOptions _jsonOptions = new()
@@ -30,7 +33,7 @@ namespace AiChatBox.Api.Services
             DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
         };
 
-        public async Task ConnectAsync(string userId, string? voiceName = null, CancellationToken cancellationToken = default)
+        public async Task ConnectAsync(string userId, string? voiceName = null, string? systemPrompt = null, CancellationToken cancellationToken = default)
         {
             if (string.IsNullOrEmpty(_apiKey)) throw new Exception("Gemini API key missing");
 
@@ -46,8 +49,9 @@ namespace AiChatBox.Api.Services
                 _logger.LogInformation("Connected to Gemini Live API WebSocket.");
 
                 _receiveTask = ReceiveLoopAsync(_cts.Token);
+                this.UserId = userId;
 
-                await SendSetupMessageAsync(userId, voiceName, _cts.Token);
+                await SendSetupMessageAsync(userId, voiceName, systemPrompt, _cts.Token);
                 
                 // Wait for setup to complete
                 await _setupTcs.Task.WaitAsync(TimeSpan.FromSeconds(10), _cts.Token);
@@ -63,13 +67,14 @@ namespace AiChatBox.Api.Services
             }
         }
 
-        private async Task SendSetupMessageAsync(string userId, string? voiceName, CancellationToken cancellationToken)
+        private async Task SendSetupMessageAsync(string userId, string? voiceName, string? customSystemPrompt, CancellationToken cancellationToken)
         {
-            var systemPrompt = await _contextService.BuildSystemPromptAsync(userId);
-            var currentTime = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-            systemPrompt += $"\n\n[SYSTEM INFO: Current Local Time is {currentTime}]\n\n" +
-                            "You are now in 'Live Voice Mode'. Be extremely concise, conversational, and proactive.\n" +
-                            "IMPORTANT: Start the session ONLY with a brief time-based greeting.";
+            var systemPrompt = !string.IsNullOrEmpty(customSystemPrompt) 
+                ? customSystemPrompt 
+                : await _contextService.BuildSystemPromptAsync(userId);
+
+            systemPrompt += "\n\nYOU ARE IN LIVE VOICE MODE. Be extremely concise, conversational, and proactive. " +
+                            "Keep responses brief and to the point. Speak naturally as a human would.";
 
             var setupReq = new GeminiLiveSetupRequest
             {
@@ -233,7 +238,7 @@ namespace AiChatBox.Api.Services
                         }
                         else if (!string.IsNullOrEmpty(part.Text))
                         {
-                            if (OnTextReceived != null) await OnTextReceived.Invoke(part.Text, part.Thought);
+                            if (OnTextReceived != null) await OnTextReceived.Invoke(part.Text, part.Thought ?? false);
                         }
                     }
                 }
@@ -250,6 +255,25 @@ namespace AiChatBox.Api.Services
                     var text = response.ServerContent.InputTranscription.Text;
                     if (!string.IsNullOrEmpty(text) && OnInputTranscribed != null)
                         await OnInputTranscribed.Invoke(text);
+                }
+
+                if (response.ToolCall != null)
+                {
+                    foreach (var fc in response.ToolCall.FunctionCalls)
+                    {
+                        _logger.LogInformation("Tool call received: {Name}", fc.Name);
+                        // Log to DB
+                        await _aiLogger.LogRequestAsync(new AiRequestLog
+                        {
+                            ProjectId = this.ProjectId,
+                            UserId = this.UserId,
+                            Endpoint = "GeminiLive/ToolCall",
+                            RawResponse = JsonSerializer.Serialize(fc, _jsonOptions),
+                            DurationMs = 0
+                        });
+                        
+                        if (OnToolCall != null) await OnToolCall.Invoke(fc.Id, fc.Name, fc.Args);
+                    }
                 }
             }
             catch (Exception ex)

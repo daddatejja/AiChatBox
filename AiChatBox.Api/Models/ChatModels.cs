@@ -18,6 +18,11 @@ namespace AiChatBox.Api.Models
         [ForeignKey(nameof(ProjectId))]
         public virtual Project? Project { get; set; }
 
+        public Guid? ConfigurationId { get; set; }
+
+        [ForeignKey(nameof(ConfigurationId))]
+        public virtual ProjectConfiguration? Configuration { get; set; }
+
         [MaxLength(200)]
         public string? Title { get; set; }
 

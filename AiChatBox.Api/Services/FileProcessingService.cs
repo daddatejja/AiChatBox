@@ -1,6 +1,7 @@
 using AiChatBox.Api.Data;
 using AiChatBox.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using UglyToad.PdfPig;
 
 namespace AiChatBox.Api.Services
 {
@@ -56,7 +57,7 @@ namespace AiChatBox.Api.Services
             }
             else if (contentType == "application/pdf")
             {
-                extractedText = "[PDF content extraction requires extra libraries]";
+                extractedText = ExtractPdfText(filePath, fileName, fileSize);
             }
 
             var fileModel = new UploadedFile
@@ -89,6 +90,21 @@ namespace AiChatBox.Api.Services
             _db.UploadedFiles.Remove(file);
             await _db.SaveChangesAsync();
             return true;
+        }
+
+        private static string ExtractPdfText(string filePath, string fileName, long fileSize)
+        {
+            try
+            {
+                using var pdf = PdfDocument.Open(filePath);
+                var text = string.Join("\n", pdf.GetPages().Select(p => p.Text));
+                if (text.Length > 10000) text = text[..10000] + "... [truncated]";
+                return text;
+            }
+            catch (Exception ex)
+            {
+                return $"[PDF: {fileName} ({fileSize} bytes) - text extraction failed: {ex.Message}]";
+            }
         }
     }
 }

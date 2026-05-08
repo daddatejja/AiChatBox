@@ -11,7 +11,8 @@ namespace AiChatBox.Api.Services
         {
             return providerName?.ToLowerInvariant() switch
             {
-                "grok" => _grokService,
+                "groq" => _grokService,
+                "grok" => _grokService,  // legacy alias
                 "gemini" => _geminiService,
                 _ => _geminiService
             };

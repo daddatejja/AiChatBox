@@ -1,7 +1,5 @@
 using System.Collections.Concurrent;
 using AiChatBox.Api.Interfaces;
-using Microsoft.Extensions.DependencyInjection;
-using Microsoft.Extensions.Logging;
 
 namespace AiChatBox.Api.Services
 {
@@ -15,19 +13,24 @@ namespace AiChatBox.Api.Services
             string connectionId, 
             string userId, 
             string? voiceName, 
+            string? systemPrompt,
             Func<byte[], Task> onAudioReceived, 
             Func<string, bool, Task> onTextReceived, 
-            Func<string, Task> onInputTranscribed)
+            Func<string, Task> onInputTranscribed,
+            Func<string, string, Dictionary<string, object>, Task> onToolCall,
+            Guid? projectId = null)
         {
-            var scope = _scopeFactory.CreateScope();
+            var scope = _scopeFactory.CreateAsyncScope();
             try
             {
                 var geminiService = scope.ServiceProvider.GetRequiredService<IGeminiLiveService>();
                 geminiService.OnAudioReceived += onAudioReceived;
                 geminiService.OnTextReceived += onTextReceived;
                 geminiService.OnInputTranscribed += onInputTranscribed;
+                geminiService.OnToolCall += onToolCall;
+                geminiService.ProjectId = projectId;
 
-                await geminiService.ConnectAsync(userId, voiceName);
+                await geminiService.ConnectAsync(userId, voiceName, systemPrompt);
 
                 _sessions[connectionId] = new LiveSessionState(geminiService, scope);
                 return geminiService;
@@ -35,10 +38,7 @@ namespace AiChatBox.Api.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to start Gemini Live session for {ConnectionId}", connectionId);
-                if (scope is IAsyncDisposable asyncDisposable)
-                    await asyncDisposable.DisposeAsync();
-                else
-                    scope.Dispose();
+                await scope.DisposeAsync();
                 throw;
             }
         }
@@ -62,15 +62,12 @@ namespace AiChatBox.Api.Services
                 }
                 finally
                 {
-                    if (state.Scope is IAsyncDisposable asyncDisposable)
-                        await asyncDisposable.DisposeAsync();
-                    else
-                        state.Scope.Dispose();
+                    await state.Scope.DisposeAsync();
                 }
                 _logger.LogInformation("Stopped session for {ConnectionId}", connectionId);
             }
         }
 
-        private record LiveSessionState(IGeminiLiveService Service, IServiceScope Scope);
+        private record LiveSessionState(IGeminiLiveService Service, AsyncServiceScope Scope);
     }
 }

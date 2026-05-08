@@ -186,7 +186,58 @@ namespace AiChatBox.Api.Services
 
             foreach (var msg in messages)
             {
+                if (msg.Role == "function")
+                {
+                    try
+                    {
+                        var parsed = JsonDocument.Parse(msg.Content).RootElement;
+                        var toolName = parsed.GetProperty("toolName").GetString();
+                        var result = parsed.GetProperty("result");
+                        
+                        contents.Add(new 
+                        { 
+                            role = "function", 
+                            parts = new[] 
+                            { 
+                                new { functionResponse = new { name = toolName, response = result } } 
+                            } 
+                        });
+                        continue;
+                    }
+                    catch
+                    {
+                        // Fallback if parsing fails
+                        contents.Add(new { role = "user", parts = new[] { new { text = msg.Content } } });
+                        continue;
+                    }
+                }
+                
                 var role = msg.Role == "user" ? "user" : "model";
+                
+                if (role == "model" && !string.IsNullOrEmpty(msg.Content) && msg.Content.TrimStart().StartsWith("{"))
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(msg.Content);
+                        if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
+                        {
+                            var name = toolCall.GetProperty("name").GetString();
+                            var args = toolCall.GetProperty("args").GetRawText();
+                            
+                            contents.Add(new
+                            {
+                                role = "model",
+                                parts = new[]
+                                {
+                                    new { functionCall = new { name, args = JsonDocument.Parse(args).RootElement } }
+                                }
+                            });
+                            continue;
+                        }
+                    }
+                    catch { /* Fallback to text */ }
+                }
+
                 var parts = await BuildMessagePartsAsync(msg.Content, msg.ImageDataUrl, msg.AttachedFileId);
                 
                 if (parts.Length == 0) 

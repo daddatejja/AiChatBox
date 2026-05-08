@@ -42,6 +42,7 @@ namespace AiChatBox.Api.Services
             }
 
             var messages = history.ToList();
+            var reachedMaxIterations = true;
 
             for (int i = 0; i < 5; i++)
             {
@@ -61,7 +62,7 @@ namespace AiChatBox.Api.Services
                     }
                 }
 
-                if (currentToolCall == null) break;
+                if (currentToolCall == null) { reachedMaxIterations = false; break; }
 
                 _logger.LogInformation("Agent calling tool: {ToolName}", currentToolCall.Name);
 
@@ -95,10 +96,24 @@ namespace AiChatBox.Api.Services
                     result = await tool.ExecuteAsync(currentToolCall.ArgumentsJson, userId);
                 }
 
-                messages.Add(new GenericChatMessage { Role = "model", Content = $"Calling tool: {currentToolCall.Name} with {currentToolCall.ArgumentsJson}" });
-                messages.Add(new GenericChatMessage { Role = "user", Content = $"Tool Result ({currentToolCall.Name}): {JsonSerializer.Serialize(result)}" });
+                messages.Add(new GenericChatMessage 
+                { 
+                    Role = "model", 
+                    Content = JsonSerializer.Serialize(new { toolCall = new { name = currentToolCall.Name, args = currentToolCall.ArgumentsJson } }) 
+                });
+                
+                messages.Add(new GenericChatMessage 
+                { 
+                    Role = "function", 
+                    Content = JsonSerializer.Serialize(new { toolName = currentToolCall.Name, result = result.Content }) 
+                });
                 
                 sb.Clear();
+            }
+
+            if (reachedMaxIterations)
+            {
+                yield return new AgentChunk { Text = "\n\n*Maximum tool-calling iterations reached. Task may be incomplete.*" };
             }
         }
     }

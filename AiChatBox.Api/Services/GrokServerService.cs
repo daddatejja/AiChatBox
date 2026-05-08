@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
 using Microsoft.Extensions.Configuration;
@@ -26,7 +27,7 @@ namespace AiChatBox.Api.Services
             if (string.IsNullOrEmpty(_apiKey))
                 throw new InvalidOperationException("Grok API key is not configured.");
 
-            var requestBody = BuildRequestBody(messages, systemPrompt, modelName, stream: true);
+            var requestBody = BuildRequestBody(messages, systemPrompt, tools, modelName, stream: true);
             var jsonContent = new StringContent(
                 JsonSerializer.Serialize(requestBody),
                 Encoding.UTF8,
@@ -60,6 +61,8 @@ namespace AiChatBox.Api.Services
             using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
             using var reader = new StreamReader(stream);
 
+            var toolCallAccumulator = new Dictionary<int, (string Id, string Name, StringBuilder Args)>();
+
             while (!cancellationToken.IsCancellationRequested)
             {
                 var line = await reader.ReadLineAsync(cancellationToken);
@@ -81,12 +84,51 @@ namespace AiChatBox.Api.Services
                         continue;
                     }
 
-                    var textChunk = ExtractTextFromStreamChunk(json);
-                    if (!string.IsNullOrEmpty(textChunk))
+                    if (json.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
                     {
-                        yield return new LlmResponseChunk { Text = textChunk };
+                        var firstChoice = choices[0];
+                        if (firstChoice.TryGetProperty("delta", out var delta))
+                        {
+                            if (delta.TryGetProperty("tool_calls", out var toolCalls))
+                            {
+                                foreach (var tc in toolCalls.EnumerateArray())
+                                {
+                                    var index = tc.GetProperty("index").GetInt32();
+                                    if (!toolCallAccumulator.ContainsKey(index))
+                                        toolCallAccumulator[index] = ("", "", new StringBuilder());
+
+                                    var (id, name, args) = toolCallAccumulator[index];
+
+                                    if (tc.TryGetProperty("id", out var idEl))
+                                        id = idEl.GetString() ?? "";
+                                    if (tc.TryGetProperty("function", out var func) &&
+                                        func.TryGetProperty("name", out var nameEl))
+                                        name = nameEl.GetString() ?? "";
+                                    if (tc.TryGetProperty("function", out var func2) &&
+                                        func2.TryGetProperty("arguments", out var argsEl))
+                                        args.Append(argsEl.GetString() ?? "");
+
+                                    toolCallAccumulator[index] = (id, name, args);
+                                }
+                            }
+
+                            if (delta.TryGetProperty("content", out var content))
+                            {
+                                var text = content.GetString();
+                                if (!string.IsNullOrEmpty(text))
+                                    yield return new LlmResponseChunk { Text = text };
+                            }
+                        }
                     }
                 }
+            }
+
+            foreach (var (_, (id, name, args)) in toolCallAccumulator.OrderBy(kvp => kvp.Key))
+            {
+                yield return new LlmResponseChunk
+                {
+                    ToolCall = new ToolCall { Id = id, Name = name, ArgumentsJson = args.ToString() }
+                };
             }
         }
 
@@ -100,7 +142,7 @@ namespace AiChatBox.Api.Services
             if (string.IsNullOrEmpty(_apiKey))
                 throw new InvalidOperationException("Grok API key is not configured.");
 
-            var requestBody = BuildRequestBody(messages, systemPrompt, modelName, stream: false);
+            var requestBody = BuildRequestBody(messages, systemPrompt, null, modelName, stream: false);
             var jsonContent = new StringContent(
                 JsonSerializer.Serialize(requestBody),
                 Encoding.UTF8,
@@ -126,7 +168,7 @@ namespace AiChatBox.Api.Services
             return ExtractTextResponse(parsed);
         }
 
-        private object BuildRequestBody(IEnumerable<GenericChatMessage> messages, string? systemPrompt = null, string? modelName = null, bool stream = false)
+        private object BuildRequestBody(IEnumerable<GenericChatMessage> messages, string? systemPrompt, IEnumerable<ITool>? tools, string? modelName, bool stream)
         {
             var openAiMessages = new List<object>();
 
@@ -141,27 +183,37 @@ namespace AiChatBox.Api.Services
                 openAiMessages.Add(new { role, content = msg.Content });
             }
 
-            return new
+            var body = new Dictionary<string, object>
             {
-                model = string.IsNullOrEmpty(modelName) ? _defaultModel : modelName,
-                messages = openAiMessages,
-                stream = stream,
-                temperature = 0.1,
-                max_tokens = 2048
+                ["model"] = string.IsNullOrEmpty(modelName) ? _defaultModel : modelName,
+                ["messages"] = openAiMessages,
+                ["stream"] = stream,
+                ["temperature"] = 0.1,
+                ["max_tokens"] = 2048
             };
-        }
 
-        private string ExtractTextFromStreamChunk(JsonElement json)
-        {
-            if (json.TryGetProperty("choices", out var choices) && choices.GetArrayLength() > 0)
+            if (tools != null)
             {
-                var firstChoice = choices[0];
-                if (firstChoice.TryGetProperty("delta", out var delta) && delta.TryGetProperty("content", out var content))
+                var toolsList = tools.ToList();
+                if (toolsList.Count > 0)
                 {
-                    return content.GetString() ?? string.Empty;
+                    var openAiTools = toolsList.Select(t => new
+                    {
+                        type = "function",
+                        function = new
+                        {
+                            name = t.Name,
+                            description = t.Description,
+                            parameters = (object?)t.ParametersSchema ?? new { type = "object", properties = new { } }
+                        }
+                    }).ToList<object>();
+
+                    body["tools"] = openAiTools;
+                    body["tool_choice"] = "auto";
                 }
             }
-            return string.Empty;
+
+            return body;
         }
 
         private string ExtractTextResponse(JsonElement json)

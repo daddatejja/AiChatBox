@@ -202,11 +202,11 @@
       this.liveStartTime = null;
 
       // Attributes
-      this.apiUrl = this.getAttribute("api-url") || "https://localhost:44385";
+      this.apiUrl = this.getAttribute("api-url") || window.location.origin;
       this.apiKey = this.getAttribute("api-key") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
-      this.modelName = this.getAttribute("model") || "gemini-1.5-flash";
+      this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
       this.suggestions = JSON.parse(
         this.getAttribute("suggestions") ||
           '["Record a new entry", "Show my last session", "What can you do?", "Help with my budget"]',
@@ -253,6 +253,13 @@
       this.registerTool = (name, handler) => {
         this.toolHandlers.set(name, handler);
         console.log(`Tool registered: ${name}`);
+      };
+
+      this.submitToolResult = (callId, result) => {
+        const event = new CustomEvent('tool-result-submitted', {
+            detail: { callId, result }
+        });
+        this.dispatchEvent(event);
       };
     }
 
@@ -384,9 +391,9 @@
                             <div class="input-footer">
                                 <div class="model-selector-wrapper">
                                     <select class="modern-model-select" id="model-select">
-                                        <option value="gemini-1.5-pro">Gemini Pro</option>
-                                        <option value="gemini-1.5-flash">Gemini Flash</option>
-                                        <option value="gemini-2.0-flash-exp">Gemini 2.0 Flash</option>
+                                        <option value="gemini-3.1-flash-lite-preview">Gemini 3.1 Flash</option>
+                                        <option value="gemini-3-flash">Gemini 3 Flash</option>
+                                        <option value="gemini-2.5-flash-lite">Gemini 2.5 Flash Lite</option>
                                     </select>
                                     <select class="modern-model-select" id="voice-select">
                                         <option value="Puck">Puck</option>
@@ -687,20 +694,60 @@
     }
 
     async handleToolCall(toolCall, bubble) {
-      console.log('Executing tool:', toolCall.name, toolCall.arguments);
+      const toolName = toolCall.name || toolCall.Name;
+      const toolArgs = toolCall.arguments || toolCall.Arguments;
+      const callId = toolCall.id || toolCall.Id || Date.now().toString();
+
+      console.log('Executing tool:', toolName, toolArgs);
       
-      const handler = this.toolHandlers.get(toolCall.name);
-      let result;
+      // Update UI to show thinking/calling tool
+      bubble.innerHTML = `<div class="tool-calling-indicator">
+        <span class="spin-animation">${this.icons.refresh}</span>
+        <span>Calling tool: <strong>${toolName}</strong>...</span>
+      </div>`;
+
+      let result = null;
+      const handler = this.toolHandlers.get(toolName);
       
       if (handler) {
         try {
-          const args = JSON.parse(toolCall.arguments);
+          const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
           result = await handler(args);
         } catch (err) {
           result = { error: `Handler error: ${err.message}` };
         }
       } else {
-        result = { error: `No handler registered for tool: ${toolCall.name}` };
+        // Create result promise before dispatching event to avoid race condition
+        const resultPromise = new Promise((resolve) => {
+          const onResult = (e) => {
+            if (e.detail.callId === callId) {
+              this.removeEventListener('tool-result-submitted', onResult);
+              resolve(e.detail.result);
+            }
+          };
+          this.addEventListener('tool-result-submitted', onResult);
+          
+          // Timeout after 30 seconds
+          setTimeout(() => {
+            this.removeEventListener('tool-result-submitted', onResult);
+            resolve({ error: "Tool execution timed out" });
+          }, 30000);
+        });
+
+        // Dispatch event for external handling
+        const event = new CustomEvent("tool-call", {
+          detail: { 
+            name: toolName, 
+            args: typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs,
+            callId: callId
+          },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(event);
+
+        // Wait for submitToolResult to be called
+        result = await resultPromise;
       }
 
       // Send result back to API to continue conversation
@@ -714,10 +761,14 @@
         method: "POST",
         headers: headers,
         body: JSON.stringify({
-          message: `Tool Result (${toolCall.name}): ${JSON.stringify(result)}`,
+          message: "",
           sessionId: this.currentSessionId,
           provider: this.provider,
-          modelName: this.shadowRoot.getElementById("model-select").value
+          modelName: this.shadowRoot.getElementById("model-select").value,
+          toolResult: {
+            toolName: toolName,
+            result: result
+          }
         }),
       });
 
@@ -735,7 +786,7 @@
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.substring(6));
-              const textChunk = data.Text || data.text;
+              const textChunk = data.text || data.Text;
               if (textChunk) {
                 if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
                 fullText += textChunk;
@@ -750,6 +801,73 @@
       this.isTyping = false;
       this.updateInputButtons();
     }
+
+    async handleLiveToolCall(name, args, id = null) {
+      console.log("Live Tool Call:", name, args, id);
+      
+      // Add a special tool message to live transcript
+      const area = this.shadowRoot.getElementById("live-transcript");
+      const div = document.createElement("div");
+      div.className = "live-transcript-msg live-msg-tool";
+      div.innerHTML = `
+        <div class="live-msg-avatar">${this.icons.refresh}</div>
+        <div class="live-msg-bubble tool-bubble">
+          <span>Executing <strong>${name}</strong>...</span>
+        </div>
+      `;
+      area.appendChild(div);
+      area.scrollTop = area.scrollHeight;
+
+      let result = null;
+      const handler = this.toolHandlers.get(name);
+      
+      if (handler) {
+        try {
+          result = await handler(args);
+        } catch (err) {
+          result = { error: err.message };
+        }
+      } else {
+        // Support external handling via submitToolResult
+        const callId = id || `live-${name}-${Date.now()}`;
+        const resultPromise = new Promise((resolve) => {
+          const onResult = (e) => {
+            if (e.detail.callId === callId || e.detail.callId === name) {
+              this.removeEventListener('tool-result-submitted', onResult);
+              resolve(e.detail.result);
+            }
+          };
+          this.addEventListener('tool-result-submitted', onResult);
+          
+          // Timeout after 30 seconds for live tools
+          setTimeout(() => {
+            this.removeEventListener('tool-result-submitted', onResult);
+            resolve({ error: "Live tool execution timed out" });
+          }, 30000);
+        });
+
+        // Dispatch event for external handling
+        const event = new CustomEvent("tool-call", {
+          detail: { name, args, live: true, callId },
+          bubbles: true,
+          composed: true
+        });
+        this.dispatchEvent(event);
+        
+        result = await resultPromise;
+      }
+
+      // Send result back to hub
+      if (this.liveConnection) {
+        try {
+          await this.liveConnection.invoke("SendToolResult", name, JSON.stringify(result));
+          div.querySelector(".live-msg-bubble").innerHTML = `<span>Tool <strong>${name}</strong> executed successfully.</span>`;
+        } catch (err) {
+          console.error("Failed to send tool result:", err);
+        }
+      }
+    }
+
 
     addMessage(role, htmlContent, fileId = null, fileName = null) {
       const container = this.shadowRoot.getElementById("messages-container");
@@ -891,10 +1009,11 @@
           }
         });
         this.liveConnection.on("ReceiveInputTranscription", text => this.addLiveMessage("user", text));
+        this.liveConnection.on("ReceiveToolCall", (id, name, args) => this.handleLiveToolCall(name, args, id));
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
-        await this.liveConnection.invoke("StartLive", this.userId, voice);
+        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null);
 
         await this.audioContext.audioWorklet.addModule("./audio-processor.js");
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -1092,7 +1211,7 @@
         const isArchived = this.shadowRoot.getElementById("tab-archived").classList.contains("history-tab-active");
         const endpoint = isArchived ? "archived" : "sessions";
         const response = await fetch(`${this.apiUrl}/api/chat/${endpoint}`, {
-          headers: { "X-User-Id": this.userId },
+          headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
         });
         if (!response.ok) throw new Error("Failed to load history");
         this.sessions = await response.json();
@@ -1110,7 +1229,7 @@
       list.innerHTML = `<div class="history-loading">Loading messages...</div>`;
       try {
         const response = await fetch(`${this.apiUrl}/api/chat/sessions/${sessionId}`, {
-          headers: { "X-User-Id": this.userId },
+          headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
         });
         if (!response.ok) throw new Error("Session not found");
         const messages = await response.json();
@@ -1186,7 +1305,7 @@
       formData.append("file", file);
       const resp = await fetch(`${this.apiUrl}/api/File/upload`, {
         method: "POST",
-        headers: { "X-User-Id": this.userId },
+        headers: { "X-User-Id": this.userId, ...(this.apiKey ? { "X-Api-Key": this.apiKey } : {}) },
         body: formData,
       });
       if (!resp.ok) throw new Error("Upload failed");
@@ -1221,18 +1340,61 @@
     startVoiceRecording() {
       this.isRecording = true;
       this.shadowRoot.getElementById("btn-mic").classList.add("recording");
+
+      navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
+        this._mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+        this._audioChunks = [];
+        this._mediaRecorder.ondataavailable = (e) => {
+          if (e.data.size > 0) this._audioChunks.push(e.data);
+        };
+        this._mediaRecorder.start();
+      }).catch((err) => {
+        console.error("Microphone access denied:", err);
+        this.cancelVoiceRecording();
+      });
     }
 
-    stopVoiceRecording() {
+    async stopVoiceRecording() {
       if (!this.isRecording) return;
       this.isRecording = false;
       this.shadowRoot.getElementById("btn-mic").classList.remove("recording");
-      // Logic for voice to text would go here
+
+      if (!this._mediaRecorder || this._audioChunks.length === 0) return;
+
+      this._mediaRecorder.onstop = async () => {
+        this._mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+
+        const blob = new Blob(this._audioChunks, { type: "audio/webm" });
+        const formData = new FormData();
+        formData.append("audio", blob, "recording.webm");
+        formData.append("language", "auto");
+
+        try {
+          const res = await fetch(`${this.apiUrl}/api/audio/transcribe`, {
+            method: "POST",
+            body: formData
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const input = this.shadowRoot.getElementById("chat-input");
+            input.value = data.text || "";
+            this.updateSendButtonState();
+            if (data.text) this.sendMessage();
+          }
+        } catch (err) {
+          console.error("Transcription failed:", err);
+        }
+      };
+
+      this._mediaRecorder.stop();
     }
 
     cancelVoiceRecording() {
       this.isRecording = false;
       this.shadowRoot.getElementById("btn-mic").classList.remove("recording");
+      if (this._mediaRecorder && this._mediaRecorder.state !== "inactive") {
+        this._mediaRecorder.stream.getTracks().forEach((t) => t.stop());
+      }
     }
 
     sendLiveTextMessage() {

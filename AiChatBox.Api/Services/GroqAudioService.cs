@@ -34,7 +34,7 @@ namespace AiChatBox.Api.Services
 
         public Task<byte[]> TextToSpeechAsync(string text, string voice = "en-US-Standard-A")
         {
-            throw new NotImplementedException("Groq does not support TTS directly in this demo version. Use GeminiTtsService.");
+            throw new NotSupportedException("GroqAudioService only supports Speech-to-Text. Use GeminiTtsService for TTS.");
         }
 
         private class GroqSttResponse { public string Text { get; set; } = ""; }

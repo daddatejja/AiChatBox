@@ -1,14 +1,38 @@
-version: '3.4'
+version: '3.8'
 
 services:
-  aichatbox.api:
-    image: aichatboxapi
-    build:
-      context: ./AiChatBox.Api
-      dockerfile: Dockerfile
-    ports:
-      - "8080:80"
-    environment:
-      - ASPNETCORE_ENVIRONMENT=Development
+  api:
+    build: .
+    container_name: aichatbox-api
+    restart: always
     volumes:
-      - ./AiChatBox.Api/Data:/app/Data
+      - ./data:/app/data
+      - ./logs:/app/logs
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Production
+      - Jwt__Key=${JWT_KEY}
+      - Authentication__Google__ClientId=${GOOGLE_CLIENT_ID}
+      - Authentication__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
+      - Gemini__ApiKey=${GEMINI_API_KEY}
+    networks:
+      - chat-network
+
+  caddy:
+    image: caddy:latest
+    container_name: aichatbox-proxy
+    restart: always
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./caddy_data:/data
+      - ./caddy_config:/config
+    depends_on:
+      - api
+    networks:
+      - chat-network
+
+networks:
+  chat-network:
+    driver: bridge

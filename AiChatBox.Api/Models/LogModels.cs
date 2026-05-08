@@ -8,9 +8,7 @@ namespace AiChatBox.Api.Models
     {
         [Key]
         public Guid Id { get; set; } = Guid.NewGuid();
-
         public Guid? SessionId { get; set; }
-
         public Guid? ProjectId { get; set; }
 
         [ForeignKey(nameof(ProjectId))]
@@ -23,11 +21,11 @@ namespace AiChatBox.Api.Models
         public string? Endpoint { get; set; }
 
         public int InputTokens { get; set; }
-
         public int OutputTokens { get; set; }
-
         public int DurationMs { get; set; }
 
+        public string? RawRequest { get; set; }
+        public string? RawResponse { get; set; }
         public string? ErrorMessage { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

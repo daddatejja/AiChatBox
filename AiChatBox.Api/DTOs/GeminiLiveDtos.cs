@@ -77,7 +77,8 @@ namespace AiChatBox.Api.DTOs
         public GeminiLiveInlineData? InlineData { get; set; }
 
         [JsonPropertyName("thought")]
-        public bool Thought { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public bool? Thought { get; set; }
     }
 
     public class GeminiLiveInlineData

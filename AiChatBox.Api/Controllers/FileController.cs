@@ -1,15 +1,22 @@
+using System.Security.Claims;
 using AiChatBox.Api.Interfaces;
+using AiChatBox.Api.Models;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 
 namespace AiChatBox.Api.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
+    [Authorize(Policy = "ApiKeyOrJwt")]
     public class FileController(IFileService fileService) : ControllerBase
     {
         private readonly IFileService _fileService = fileService;
 
-        private string UserId => Request.Headers["X-User-Id"].ToString() ?? "standalone-user";
+        private string UserId =>
+            User.FindFirstValue(ClaimTypes.NameIdentifier) ??
+            Request.Headers["X-User-Id"].ToString() ??
+            (HttpContext.Items["CurrentProject"] is Project p ? $"project-{p.Id}" : "standalone-user");
 
         [HttpPost("upload")]
         public async Task<IActionResult> Upload(IFormFile file)

@@ -8,6 +8,7 @@ namespace AiChatBox.Api.DTOs
         public string Provider { get; set; } = string.Empty;
         public string ModelName { get; set; } = string.Empty;
         public string? WebhookUrl { get; set; }
+        public string? AllowedDomains { get; set; }
         public DateTime CreatedAt { get; set; }
         public int ApiKeyCount { get; set; }
     }
@@ -17,7 +18,7 @@ namespace AiChatBox.Api.DTOs
         public string Name { get; set; } = string.Empty;
         public string SystemPrompt { get; set; } = "You are a helpful AI assistant.";
         public string Provider { get; set; } = "gemini";
-        public string ModelName { get; set; } = "gemini-1.5-flash";
+        public string ModelName { get; set; } = "gemini-3.1-flash-lite-preview";
     }
 
     public class UpdateProjectDto
@@ -28,6 +29,7 @@ namespace AiChatBox.Api.DTOs
         public string ModelName { get; set; } = string.Empty;
         public string? WebhookUrl { get; set; }
         public string? WebhookSecret { get; set; }
+        public string? AllowedDomains { get; set; }
     }
 
     public class CustomToolDto
@@ -37,5 +39,11 @@ namespace AiChatBox.Api.DTOs
         public string Description { get; set; } = string.Empty;
         public string ParametersJsonSchema { get; set; } = string.Empty;
         public bool IsActive { get; set; }
+    }
+
+    public class CreateApiKeyRequest
+    {
+        public string? Label { get; set; }
+        public Guid? ConfigurationId { get; set; }
     }
 }

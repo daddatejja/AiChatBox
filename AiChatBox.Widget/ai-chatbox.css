@@ -951,3 +951,80 @@
   .chatbox-container { width: calc(100vw - 16px); right: 8px; left: 8px; bottom: 70px; height: 80vh; }
   .chatbox-fullscreen { width: 100vw !important; height: 100dvh !important; bottom: 0 !important; right: 0 !important; left: 0 !important; top: 0 !important; }
 }
+/* ── Tool Calling Indicator ── */
+.tool-calling-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(57, 167, 185, 0.05);
+  border: 1px solid rgba(57, 167, 185, 0.15);
+  border-radius: 12px;
+  color: var(--primary-color);
+  font-size: 13px;
+  font-weight: 500;
+  margin: 4px 0;
+}
+.tool-calling-indicator .spin-animation {
+  width: 18px;
+  height: 18px;
+  opacity: 0.8;
+}
+
+@keyframes chatboxSlideUp {
+  from { opacity: 0; transform: translateY(20px) scale(0.96); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes messageAppear {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+/* ── Animations ── */
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+.spin-animation {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+/* ── Tool Calling ── */
+.tool-calling-indicator {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: rgba(57, 167, 185, 0.08);
+  border-radius: 8px;
+  border: 1px dashed var(--primary-color);
+  font-size: 13px;
+  color: var(--primary-color);
+  margin: 4px 0;
+}
+.tool-calling-indicator strong {
+  font-weight: 600;
+}
+
+/* ── Live Tool Message ── */
+.live-msg-tool {
+  justify-content: center;
+  margin: 10px 0;
+}
+.live-msg-tool .live-msg-avatar {
+  background: var(--primary-color);
+  color: white;
+  animation: spin 2s linear infinite;
+}
+.live-msg-tool .tool-bubble {
+  background: rgba(57, 167, 185, 0.1);
+  border: 1px dashed var(--primary-color);
+  color: var(--primary-color);
+  font-size: 13px;
+  border-radius: 12px;
+}
+

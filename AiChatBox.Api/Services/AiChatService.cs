@@ -29,9 +29,13 @@ namespace AiChatBox.Api.Services
         private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
         private readonly ILogger<AiChatService> _logger = logger;
 
+        private static readonly JsonSerializerOptions _jsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase };
+
         private const int MaxContextMessages = 20;
 
         private Project? CurrentProject => _httpContextAccessor.HttpContext?.Items["CurrentProject"] as Project;
+        private ProjectConfiguration? CurrentConfiguration => _httpContextAccessor.HttpContext?.Items["CurrentConfiguration"] as ProjectConfiguration;
+        private ApiKey? CurrentApiKey => _httpContextAccessor.HttpContext?.Items["CurrentApiKey"] as ApiKey;
 
         public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId)
         {
@@ -51,10 +55,24 @@ namespace AiChatBox.Api.Services
                 }
             }
 
+            var configId = CurrentConfiguration?.Id;
+            
+            // A/B Testing Logic
+            var apiKey = CurrentApiKey;
+            if (apiKey != null && apiKey.ExperimentConfigurationId.HasValue && apiKey.ExperimentWeight > 0)
+            {
+                var dice = Random.Shared.Next(1, 101);
+                if (dice <= apiKey.ExperimentWeight)
+                {
+                    configId = apiKey.ExperimentConfigurationId.Value;
+                }
+            }
+
             var session = new ChatSession
             {
                 UserId = userId,
                 ProjectId = CurrentProject?.Id,
+                ConfigurationId = configId,
                 Title = "New Chat",
                 CreatedAt = DateTime.UtcNow,
                 LastMessageAt = DateTime.UtcNow
@@ -104,27 +122,40 @@ namespace AiChatBox.Api.Services
             // Yield initial session ID
             yield return new ChatStreamChunk { SessionId = session.Id };
 
-            await SaveMessageAsync(session.Id, "user", request.Message, request.ImageDataUrl, request.AttachedFileId);
+            if (request.ToolResult != null)
+            {
+                var content = JsonSerializer.Serialize(new { toolName = request.ToolResult.ToolName, result = request.ToolResult.Result });
+                await SaveMessageAsync(session.Id, "function", content);
+            }
+            else
+            {
+                await SaveMessageAsync(session.Id, "user", request.Message ?? "", request.ImageDataUrl, request.AttachedFileId);
+            }
 
             var contextMessages = await _contextService.GetContextMessagesAsync(session.Id, MaxContextMessages);
             
-            // Resolve config: Request > Project > Default
+            // Resolve config: Session Pinned Config > Configuration > Request > Project > Default
+            var config = session.ConfigurationId.HasValue 
+                ? await _db.Configurations.FindAsync(session.ConfigurationId.Value)
+                : CurrentConfiguration;
+                
             var project = CurrentProject;
-            _logger.LogInformation("Processing chat for ProjectId: {ProjectId}, UserId: {UserId}", project?.Id, userId);
 
             var systemPrompt = !string.IsNullOrEmpty(request.SystemPrompt) 
                 ? request.SystemPrompt 
-                : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt : await _contextService.BuildSystemPromptAsync(userId));
-            
-            _logger.LogDebug("Using SystemPrompt (length: {Length})", systemPrompt?.Length ?? 0);
+                : (!string.IsNullOrEmpty(config?.SystemPrompt) ? config.SystemPrompt 
+                : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
+                : await _contextService.BuildSystemPromptAsync(userId)));
 
-            var provider = !string.IsNullOrEmpty(request.Provider) && request.Provider != "gemini" // gemini is default in DTO
+            var provider = !string.IsNullOrEmpty(request.Provider) && request.Provider != "gemini"
                 ? request.Provider
-                : (project != null ? project.Provider : request.Provider);
+                : (config != null ? config.DefaultProvider
+                : (project != null ? project.Provider : request.Provider));
 
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
-                : (project != null ? project.ModelName : request.ModelName);
+                : (config != null ? config.DefaultModel
+                : (project != null ? project.ModelName : request.ModelName));
 
             var genericMessages = contextMessages.Select(m => new GenericChatMessage
             {
@@ -204,9 +235,11 @@ namespace AiChatBox.Api.Services
                 UserId = userId,
                 ProjectId = project?.Id,
                 Endpoint = "/api/chat",
-                InputTokens = GeminiServerService.StaticEstimateTokenCount(request.Message),
+                InputTokens = GeminiServerService.StaticEstimateTokenCount(request.Message ?? ""),
                 OutputTokens = GeminiServerService.StaticEstimateTokenCount(finalResponseText.ToString()),
                 DurationMs = (int)(DateTime.UtcNow - startTime).TotalMilliseconds,
+                RawRequest = JsonSerializer.Serialize(request, _jsonOptions),
+                RawResponse = finalResponseText.ToString(),
                 ErrorMessage = errorMessage
             });
 

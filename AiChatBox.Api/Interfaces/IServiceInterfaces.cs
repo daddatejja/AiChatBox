@@ -27,12 +27,14 @@ namespace AiChatBox.Api.Interfaces
 
     public interface IGeminiLiveService : IAsyncDisposable
     {
+        Guid? ProjectId { get; set; }
         event Func<byte[], Task>? OnAudioReceived;
         event Func<string, bool, Task>? OnTextReceived;
         event Func<string, Task>? OnInputTranscribed;
+        event Func<string, string, Dictionary<string, object>, Task>? OnToolCall;
         event Action<string>? OnError;
 
-        Task ConnectAsync(string userId, string? voiceName = null, CancellationToken cancellationToken = default);
+        Task ConnectAsync(string userId, string? voiceName = null, string? systemPrompt = null, CancellationToken cancellationToken = default);
         Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default);
         Task SendTextMessageAsync(string text, CancellationToken cancellationToken = default);
         Task CompleteTurnAsync(CancellationToken cancellationToken = default);
