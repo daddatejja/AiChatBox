@@ -202,17 +202,14 @@
       this.liveStartTime = null;
 
       // Attributes
-      this.apiUrl = this.getAttribute("api-base") || this.getAttribute("api-url") || window.location.origin;
-      this.apiKey = this.getAttribute("api-key") || null;
-      this.authToken = this.getAttribute("auth-token") || null;
-      this.projectId = this.getAttribute("project-id") || null;
-      this.userId = this.getAttribute("user-id") || "standalone-user";
-      this.provider = this.getAttribute("provider") || "gemini";
-      this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
-      this.suggestions = JSON.parse(
-        this.getAttribute("suggestions") ||
-          '["Record a new entry", "Show my last session", "What can you do?", "Help with my budget"]',
-      );
+      this.apiUrl = null;
+      this.apiKey = null;
+      this.authToken = null;
+      this.projectId = null;
+      this.userId = null;
+      this.provider = null;
+      this.modelName = null;
+      this.suggestions = [];
 
       // Tools
       this.toolHandlers = new Map();
@@ -300,6 +297,19 @@
     }
 
     async connectedCallback() {
+      // Initialize attributes in connectedCallback as they may not be ready in constructor
+      this.apiUrl = this.getAttribute("api-base") || this.getAttribute("api-url") || window.location.origin;
+      this.apiKey = this.getAttribute("api-key") || null;
+      this.authToken = this.getAttribute("auth-token") || null;
+      this.projectId = this.getAttribute("project-id") || null;
+      this.userId = this.getAttribute("user-id") || "standalone-user";
+      this.provider = this.getAttribute("provider") || "gemini";
+      this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
+      this.suggestions = JSON.parse(
+        this.getAttribute("suggestions") ||
+          '["Record a new entry", "Show my last session", "What can you do?", "Help with my budget"]',
+      );
+
       await this.fetchConfig();
       this.render();
       this.setupEventListeners();
