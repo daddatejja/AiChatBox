@@ -130,7 +130,32 @@ var app = builder.Build();
 using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
-    db.Database.Migrate();
+    var connection = db.Database.GetDbConnection();
+    Console.WriteLine($"[Startup] Checking database: {connection.ConnectionString}");
+    
+    try 
+    {
+        connection.Open();
+        using var command = connection.CreateCommand();
+        command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='UploadedFiles';";
+        var exists = command.ExecuteScalar() != null;
+        connection.Close();
+
+        if (exists)
+        {
+            Console.WriteLine("[Startup] Database already initialized. Skipping migrations.");
+        }
+        else
+        {
+            Console.WriteLine("[Startup] Database is empty. Running Migrations...");
+            db.Database.Migrate();
+            Console.WriteLine("[Startup] Migrations completed successfully.");
+        }
+    }
+    catch (Exception ex)
+    {
+        Console.WriteLine($"[Startup] Migration handler caught: {ex.Message}");
+    }
 }
 
 // Configure the HTTP request pipeline.
