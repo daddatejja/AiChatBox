@@ -8,11 +8,13 @@ services:
       - ./logs:/app/logs
     environment:
       - ASPNETCORE_ENVIRONMENT=Production
+      - ASPNETCORE_URLS=http://+:5000
       - Jwt__Key=${JWT_KEY}
       - Authentication__Google__ClientId=${GOOGLE_CLIENT_ID}
       - Authentication__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
       - Gemini__ApiKey=${GEMINI_API_KEY}
       - ConnectionStrings__DefaultConnection=Data Source=/app/data/prod_v1.db
+      - DashboardUrl=https://appchatbox.daddatejja.dev/login
     networks:
       - chat-network
 

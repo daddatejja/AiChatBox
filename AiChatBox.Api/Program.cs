@@ -126,6 +126,12 @@ builder.Services.AddCors(options =>
 
 var app = builder.Build();
 
+// Enable Forwarded Headers for reverse proxy support (Caddy)
+app.UseForwardedHeaders(new ForwardedHeadersOptions
+{
+    ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
+});
+
 // Apply migrations at startup
 using (var scope = app.Services.CreateScope())
 {
