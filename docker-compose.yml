@@ -1,6 +1,6 @@
 services:
   api:
-    build: .
+    image: ghcr.io/daddatejja/aichatbox-api:latest
     container_name: aichatbox-api
     restart: always
     volumes:
@@ -16,10 +16,7 @@ services:
       - chat-network
 
   dashboard:
-    build:
-      context: ./AiChatBox.Dashboard
-      args:
-        - VITE_API_URL=https://apichatbox.daddatejja.dev
+    image: ghcr.io/daddatejja/aichatbox-dashboard:latest
     container_name: aichatbox-dashboard
     restart: always
     networks:
@@ -38,6 +35,7 @@ services:
       - ./caddy_config:/config
     depends_on:
       - api
+      - dashboard
     networks:
       - chat-network
 

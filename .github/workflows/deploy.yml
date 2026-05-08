@@ -1,0 +1,61 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ deploy ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: daddatejja/aichatbox
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push API
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-api:latest
+
+      - name: Build and push Dashboard
+        uses: docker/build-push-action@v5
+        with:
+          context: ./AiChatBox.Dashboard
+          file: ./AiChatBox.Dashboard/Dockerfile
+          push: true
+          build-args: |
+            VITE_API_URL=https://apichatbox.daddatejja.dev
+          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-dashboard:latest
+
+  deploy:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to Oracle via SSH
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.ORACLE_HOST }}
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            cd ~/AiChatBox
+            git pull origin main
+            docker compose pull
+            docker compose up -d
