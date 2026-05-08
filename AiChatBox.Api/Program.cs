@@ -140,30 +140,43 @@ using (var scope = app.Services.CreateScope())
 {
     var db = scope.ServiceProvider.GetRequiredService<ChatDbContext>();
     var connection = db.Database.GetDbConnection();
-    Console.WriteLine($"[Startup] Checking database: {connection.ConnectionString}");
+    var dbPath = connection.DataSource;
     
     try 
     {
         connection.Open();
         using var command = connection.CreateCommand();
-        command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='UploadedFiles';";
-        var exists = command.ExecuteScalar() != null;
+        command.CommandText = "SELECT name FROM sqlite_master WHERE type='table' AND name='__EFMigrationsHistory';";
+        var isInitialized = command.ExecuteScalar() != null;
         connection.Close();
 
-        if (exists)
+        if (isInitialized)
         {
-            Console.WriteLine("[Startup] Database already initialized. Skipping migrations.");
+            Console.WriteLine("[Startup] Database verified and initialized.");
         }
         else
         {
-            Console.WriteLine("[Startup] Database is empty. Running Migrations...");
-            db.Database.Migrate();
-            Console.WriteLine("[Startup] Migrations completed successfully.");
+            Console.WriteLine("[Startup] Database missing history. Attempting Migration...");
+            try 
+            {
+                db.Database.Migrate();
+                Console.WriteLine("[Startup] Migration success.");
+            }
+            catch (Exception ex) when (ex.Message.Contains("already exists"))
+            {
+                Console.WriteLine("[Startup] Detected half-migrated DB. Wiping and retrying...");
+                connection.Close();
+                Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+                if (System.IO.File.Exists(dbPath)) System.IO.File.Delete(dbPath);
+                
+                db.Database.Migrate();
+                Console.WriteLine("[Startup] Clean migration successful.");
+            }
         }
     }
     catch (Exception ex)
     {
-        Console.WriteLine($"[Startup] Migration handler caught: {ex.Message}");
+        Console.WriteLine($"[Startup] Critical database error: {ex.Message}");
     }
 }
 
