@@ -12,7 +12,7 @@ services:
       - Authentication__Google__ClientId=${GOOGLE_CLIENT_ID}
       - Authentication__Google__ClientSecret=${GOOGLE_CLIENT_SECRET}
       - Gemini__ApiKey=${GEMINI_API_KEY}
-      - ConnectionStrings__DefaultConnection=Data Source=/app/data/chat.db
+      - ConnectionStrings__DefaultConnection=Data Source=/app/data/prod_v1.db
     networks:
       - chat-network
 
