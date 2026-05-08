@@ -26,7 +26,7 @@ namespace AiChatBox.Api.Services
             string userId,
             Project? project,
             string? apiKeyOverride = null,
-            [EnumeratorCancellation] CancellationToken ct)
+            [EnumeratorCancellation] CancellationToken ct = default)
         {
             var providerService = _llmFactory.GetProvider(provider);
             

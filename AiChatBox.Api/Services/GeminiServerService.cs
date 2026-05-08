@@ -55,7 +55,6 @@ namespace AiChatBox.Api.Services
             request.Headers.Accept.Add(new System.Net.Http.Headers.MediaTypeWithQualityHeaderValue("text/event-stream"));
 
             HttpResponseMessage response;
-// ... (rest of the logic remains same, just ensure it uses 'apiKey' variable)
             try
             {
                 // Create a linked token with a timeout to avoid hanging
