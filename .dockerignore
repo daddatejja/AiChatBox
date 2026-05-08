@@ -1,0 +1,15 @@
+**/*.db
+**/*.db-shm
+**/*.db-wal
+**/bin
+**/obj
+**/node_modules
+.git
+.github
+.vscode
+.idea
+Dockerfile
+docker-compose.yml
+.env
+Caddyfile
+README.md
