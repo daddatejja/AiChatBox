@@ -202,7 +202,7 @@
       this.liveStartTime = null;
 
       // Attributes
-      this.apiUrl = this.getAttribute("api-url") || window.location.origin;
+      this.apiUrl = this.getAttribute("api-base") || this.getAttribute("api-url") || window.location.origin;
       this.apiKey = this.getAttribute("api-key") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
@@ -291,7 +291,7 @@
     }
 
     render() {
-      const stylePath = this.getAttribute("css-path") || "ai-chatbox.css";
+      const stylePath = this.getAttribute("css-path") || `${this.apiUrl}/ai-chatbox.css`;
       this.shadowRoot.innerHTML = `
                 <link rel="stylesheet" href="${stylePath}">
                 

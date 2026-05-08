@@ -18,6 +18,9 @@ namespace AiChatBox.Api.Services
         private CancellationTokenSource? _cts;
         private Task? _receiveTask;
         private TaskCompletionSource<bool>? _setupTcs;
+        private readonly StringBuilder _sessionInput = new();
+        private readonly StringBuilder _sessionOutput = new();
+        private readonly DateTime _sessionStart = DateTime.UtcNow;
         public Guid? ProjectId { get; set; }
         public string? UserId { get; set; }
         public string? ApiKeyOverride { get; set; }
@@ -164,7 +167,7 @@ namespace AiChatBox.Api.Services
         {
             if (_webSocket == null || _webSocket.State != WebSocketState.Open)
             {
-                _logger.LogWarning("WebSocket not open. State: {State}", _webSocket?.State);
+                _logger.LogError("WebSocket not open for Send. State: {State}", _webSocket?.State);
                 return;
             }
             
@@ -225,6 +228,7 @@ namespace AiChatBox.Api.Services
 
                 if (json.Contains("setupComplete") || json.Contains("setup_complete"))
                 {
+                    _logger.LogInformation("Gemini Live Session Setup Complete for User: {UserId}", UserId);
                     _setupTcs?.TrySetResult(true);
                     return;
                 }
@@ -235,11 +239,15 @@ namespace AiChatBox.Api.Services
                     {
                         if (part.InlineData != null && !string.IsNullOrEmpty(part.InlineData.Data))
                         {
+                            // Audio chunks are high volume, log as Debug
+                            _logger.LogDebug("Received audio chunk ({Size} bytes)", part.InlineData.Data.Length);
                             var audioBytes = Convert.FromBase64String(part.InlineData.Data);
                             if (OnAudioReceived != null) await OnAudioReceived.Invoke(audioBytes);
                         }
                         else if (!string.IsNullOrEmpty(part.Text))
                         {
+                            _logger.LogInformation("Gemini Response Text: {Text}", part.Text);
+                            _sessionOutput.AppendLine($"[Model]: {part.Text}");
                             if (OnTextReceived != null) await OnTextReceived.Invoke(part.Text, part.Thought ?? false);
                         }
                     }
@@ -248,6 +256,8 @@ namespace AiChatBox.Api.Services
                 if (response.ServerContent?.OutputTranscription != null)
                 {
                     var text = response.ServerContent.OutputTranscription.Text;
+                    _logger.LogInformation("Model Speech Transcription: {Text}", text);
+                    _sessionOutput.AppendLine($"[Transcription]: {text}");
                     if (!string.IsNullOrEmpty(text) && OnTextReceived != null)
                         await OnTextReceived.Invoke(text, false);
                 }
@@ -255,8 +265,9 @@ namespace AiChatBox.Api.Services
                 if (response.ServerContent?.InputTranscription != null)
                 {
                     var text = response.ServerContent.InputTranscription.Text;
-                    if (!string.IsNullOrEmpty(text) && OnInputTranscribed != null)
-                        await OnInputTranscribed.Invoke(text);
+                    _logger.LogInformation("User Speech Transcription: {Text}", text);
+                    _sessionInput.AppendLine(text);
+                    if (OnInputTranscribed != null) await OnInputTranscribed.Invoke(text);
                 }
 
                 if (response.ToolCall != null)
@@ -286,6 +297,26 @@ namespace AiChatBox.Api.Services
 
         public async ValueTask DisposeAsync()
         {
+            if (_sessionInput.Length > 0 || _sessionOutput.Length > 0)
+            {
+                try
+                {
+                    await _aiLogger.LogRequestAsync(new AiRequestLog
+                    {
+                        ProjectId = this.ProjectId,
+                        UserId = this.UserId,
+                        Endpoint = "GeminiLive/Session",
+                        RawRequest = _sessionInput.ToString(),
+                        RawResponse = _sessionOutput.ToString(),
+                        DurationMs = (int)(DateTime.UtcNow - _sessionStart).TotalMilliseconds
+                    });
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Failed to log Gemini Live session to DB");
+                }
+            }
+
             if (_cts != null)
             {
                 _cts.Cancel();

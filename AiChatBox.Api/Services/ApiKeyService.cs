@@ -72,18 +72,26 @@ namespace AiChatBox.Api.Services
                                 allowedAuthority = d;
                             }
 
-                            // If allowedAuthority has no port, but origin does, we should check if the hostname matches
-                            // Example: allowed=localhost, origin=localhost:5000 -> OK
-                            // Example: allowed=localhost:5000, origin=localhost:5500 -> FAIL
-                            
-                            if (originAuthority.Equals(allowedAuthority, StringComparison.OrdinalIgnoreCase))
+                            // Wildcard match (*.example.com)
+                            if (allowedAuthority.StartsWith("*."))
+                            {
+                                var domain = allowedAuthority.Substring(2);
+                                var originHost = originAuthority.Contains(':') ? originAuthority.Split(':')[0] : originAuthority;
+                                if (originHost.EndsWith("." + domain, StringComparison.OrdinalIgnoreCase) || 
+                                    originHost.Equals(domain, StringComparison.OrdinalIgnoreCase))
+                                {
+                                    isAllowed = true;
+                                    break;
+                                }
+                            }
+                            // Exact match
+                            else if (originAuthority.Equals(allowedAuthority, StringComparison.OrdinalIgnoreCase))
                             {
                                 isAllowed = true;
                                 break;
                             }
-
-                            // Handle case where allowed has no port but origin does
-                            if (!allowedAuthority.Contains(':') && originAuthority.Contains(':'))
+                            // Host match ignoring port (if allowedAuthority has no port)
+                            else if (!allowedAuthority.Contains(':') && originAuthority.Contains(':'))
                             {
                                 var originHost = originAuthority.Split(':')[0];
                                 if (originHost.Equals(allowedAuthority, StringComparison.OrdinalIgnoreCase))

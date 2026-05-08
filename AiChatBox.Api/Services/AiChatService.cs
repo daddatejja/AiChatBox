@@ -135,11 +135,22 @@ namespace AiChatBox.Api.Services
             var contextMessages = await _contextService.GetContextMessagesAsync(session.Id, MaxContextMessages);
             
             // Resolve config: Session Pinned Config > Configuration > Request > Project > Default
+            var project = CurrentProject;
             var config = session.ConfigurationId.HasValue 
                 ? await _db.Configurations.FindAsync(session.ConfigurationId.Value)
                 : CurrentConfiguration;
-                
-            var project = CurrentProject;
+
+            // If we're in the Playground (authenticated via JWT), project/config won't be in HttpContext.Items
+            if (project == null && request.ProjectId.HasValue)
+            {
+                project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
+            }
+
+            if (config == null && project != null)
+            {
+                // Find the project's default configuration if not specified
+                config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == "Default");
+            }
 
             var systemPrompt = !string.IsNullOrEmpty(request.SystemPrompt) 
                 ? request.SystemPrompt 
