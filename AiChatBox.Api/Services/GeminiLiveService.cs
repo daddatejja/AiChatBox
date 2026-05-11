@@ -67,6 +67,20 @@ namespace AiChatBox.Api.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to connect to Gemini Live API.");
+                
+                try
+                {
+                    await _aiLogger.LogRequestAsync(new AiRequestLog
+                    {
+                        ProjectId = this.ProjectId,
+                        UserId = this.UserId,
+                        Endpoint = "GeminiLive/Connect",
+                        ErrorMessage = ex.Message,
+                        DurationMs = (int)(DateTime.UtcNow - _sessionStart).TotalMilliseconds
+                    });
+                }
+                catch { }
+
                 OnError?.Invoke($"Gemini connection failed: {ex.Message}");
                 throw;
             }
@@ -222,6 +236,20 @@ namespace AiChatBox.Api.Services
                 if (response.Error != null)
                 {
                     _logger.LogError("Gemini API Error: {Message}", response.Error.Message);
+                    
+                    try
+                    {
+                        await _aiLogger.LogRequestAsync(new AiRequestLog
+                        {
+                            ProjectId = this.ProjectId,
+                            UserId = this.UserId,
+                            Endpoint = "GeminiLive/ApiError",
+                            ErrorMessage = response.Error.Message,
+                            RawResponse = json
+                        });
+                    }
+                    catch { }
+
                     OnError?.Invoke($"Gemini API Error: {response.Error.Message}");
                     return;
                 }

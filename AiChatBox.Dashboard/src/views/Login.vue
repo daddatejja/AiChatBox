@@ -67,32 +67,10 @@ const oauthLogin = (provider: string) => {
                 <div class="logo-icon"></div>
                 <h2>AiChatBox</h2>
             </div>
-            
-            <p class="subtitle">Sign in to your account</p>
-            
-            <form @submit.prevent="login" class="login-form">
-                <Message v-if="errorMsg" severity="error" :closable="false" class="mb-4">{{ errorMsg }}</Message>
-                
-                <div class="form-group">
-                    <label for="email">Email</label>
-                    <InputText id="email" v-model="email" type="email" placeholder="name@example.com" required fluid />
-                </div>
-                
-                <div class="form-group">
-                    <label for="password">Password</label>
-                    <Password id="password" v-model="password" :feedback="false" toggleMask required fluid />
-                </div>
-                
-                <Button type="submit" label="Sign In" :loading="loading" class="submit-btn" />
-            </form>
-            
-            <div class="divider">
-                <span>OR</span>
-            </div>
 
             <div class="oauth-buttons">
-                <Button label="Sign in with Google" icon="pi pi-google" severity="secondary" outlined fluid @click="oauthLogin('Google')" />
-                <Button label="Sign in with GitHub" icon="pi pi-github" severity="secondary" outlined fluid @click="oauthLogin('GitHub')" />
+                <Button label="Continue with Google" icon="pi pi-google" severity="secondary" outlined fluid @click="oauthLogin('Google')" />
+                <Button label="Continue with GitHub" icon="pi pi-github" severity="secondary" outlined fluid @click="oauthLogin('GitHub')" />
             </div>
             
             <div class="links">

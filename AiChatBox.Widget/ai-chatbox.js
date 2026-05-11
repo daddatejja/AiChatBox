@@ -1051,7 +1051,9 @@
         const voice = this.shadowRoot.getElementById("voice-select").value;
         await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null, this.projectId || null);
 
-        await this.audioContext.audioWorklet.addModule("./audio-processor.js");
+        const workletUrl = `${this.apiUrl}/widget/audio-processor.js`;
+        console.log("Loading audio worklet from:", workletUrl);
+        await this.audioContext.audioWorklet.addModule(workletUrl);
         this.micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
         const source = this.audioContext.createMediaStreamSource(this.micStream);
         
@@ -1075,7 +1077,7 @@
         this.updateLiveStatus("listening", "Listening");
         this.shadowRoot.getElementById("live-error-bar").style.display = "none";
       } catch (err) {
-        console.error(err);
+        console.error("Live session startup failed:", err);
         this.updateLiveStatus("error", "Error Occurred");
         this.showLiveError(err.message || "Failed to connect");
       }
