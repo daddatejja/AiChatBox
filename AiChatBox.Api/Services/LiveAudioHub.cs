@@ -68,6 +68,7 @@ namespace AiChatBox.Api.Services
                 else
                 {
                     _logger.LogWarning("Unauthorized live session attempt. Authenticated: {IsAuthenticated}, ProjectId: {ProjectId}, ApiKey: {ApiKey}", 
+                        Context.User.Identity?.IsAuthenticated, projectId, string.IsNullOrEmpty(apiKey) ? "null" : "provided");
                     await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
                     return;
                 }
