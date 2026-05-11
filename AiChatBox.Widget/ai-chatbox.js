@@ -272,6 +272,15 @@
       return headers;
     }
 
+    getSelectedModel() {
+      const select = this.shadowRoot.getElementById("model-select");
+      const option = select?.selectedOptions?.[0];
+      return {
+        modelName: select?.value || this.modelName,
+        provider: option?.dataset?.provider || this.provider
+      };
+    }
+
     async safeJson(response) {
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -440,9 +449,11 @@
                             <div class="input-footer">
                                 <div class="model-selector-wrapper">
                                     <select class="modern-model-select" id="model-select">
-                                        ${(this.config?.enabledModels?.length > 0 ? this.config.enabledModels : ["gemini-3.1-flash-lite-preview", "gemini-3-flash", "gemini-2.5-flash-lite"]).map(m => `
-                                            <option value="${m}" ${m === this.modelName ? 'selected' : ''}>${m.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>
-                                        `).join('')}
+                                        ${(this.config?.enabledModels?.length > 0 ? this.config.enabledModels : [{model: "gemini-3.1-flash-lite-preview", provider: "gemini"}, {model: "gemini-3-flash", provider: "gemini"}, {model: "gemini-2.5-flash-lite", provider: "gemini"}]).map(item => {
+                                            const name = typeof item === 'string' ? item : item.model;
+                                            const prov = typeof item === 'string' ? this.provider : item.provider;
+                                            return `<option value="${name}" data-provider="${prov}" ${name === this.modelName ? 'selected' : ''}>${name.split('-').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')}</option>`;
+                                        }).join('')}
                                     </select>
                                     <select class="modern-model-select" id="voice-select">
                                         <option value="Puck">Puck</option>
@@ -664,6 +675,7 @@
 
       try {
         this.abortController = new AbortController();
+        const { modelName: selectedModel, provider: selectedProvider } = this.getSelectedModel();
         const response = await fetch(`${this.apiUrl}/api/chat`, {
           method: "POST",
           headers: { ...this.getHeaders(), "Content-Type": "application/json" },
@@ -673,8 +685,8 @@
             sessionId: this.currentSessionId,
             projectId: this.projectId,
             configurationId: this.configurationId,
-            provider: this.provider,
-            modelName: this.shadowRoot.getElementById("model-select").value,
+            provider: selectedProvider,
+            modelName: selectedModel,
             attachedFileId,
             imageDataUrl
           }),
@@ -797,14 +809,15 @@
       }
 
       // Send result back to API to continue conversation
+      const { modelName: toolModel, provider: toolProvider } = this.getSelectedModel();
       const response = await fetch(`${this.apiUrl}/api/chat`, {
         method: "POST",
         headers: { ...this.getHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
           message: "",
           sessionId: this.currentSessionId,
-          provider: this.provider,
-          modelName: this.shadowRoot.getElementById("model-select").value,
+          provider: toolProvider,
+          modelName: toolModel,
           toolResult: {
             toolName: toolName,
             result: result
@@ -1055,7 +1068,15 @@
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
-        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null, this.projectId || null, this.configurationId || null);
+        
+        // Use separate hub methods for widget (API key) vs dashboard (JWT) auth
+        if (this.apiKey) {
+          await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey);
+        } else if (this.authToken) {
+          await this.liveConnection.invoke("StartLiveDashboard", this.userId, voice, this.projectId || "", this.configurationId || "");
+        } else {
+          throw new Error("No API key or auth token configured");
+        }
 
         const workletUrl = `${this.apiUrl}/widget/audio-processor.js`;
         console.log("Loading audio worklet from:", workletUrl);

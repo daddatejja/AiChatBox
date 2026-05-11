@@ -1,111 +1,162 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
+import { computed } from 'vue';
+
+const props = defineProps<{
+    collapsed: boolean;
+}>();
 
 const router = useRouter();
-const username = ref('Developer');
+const route = useRoute();
 
-onMounted(() => {
-    const savedName = localStorage.getItem('acb_username');
-    if (savedName) username.value = savedName;
+const navItems = [
+    {
+        id: 'projects',
+        label: 'Projects',
+        icon: 'pi-th-large',
+        to: '/',
+        exact: true
+    },
+    {
+        id: 'logs',
+        label: 'Logs',
+        icon: 'pi-file',
+        to: '/logs'
+    },
+    {
+        id: 'playground',
+        label: 'Playground',
+        icon: 'pi-box',
+        to: '/playground'
+    },
+    {
+        id: 'docs',
+        label: 'Documentation',
+        icon: 'pi-book',
+        to: '/docs'
+    }
+];
 
-    // Initialize theme
-    const savedTheme = localStorage.getItem('acb_theme') || 'dark';
-    document.documentElement.setAttribute('data-theme', savedTheme);
-});
-
-const toggleTheme = () => {
-    const currentTheme = document.documentElement.getAttribute('data-theme') || 'dark';
-    const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-    document.documentElement.setAttribute('data-theme', newTheme);
-    localStorage.setItem('acb_theme', newTheme);
-};
-
-const logout = () => {
-    localStorage.removeItem('acb_token');
-    localStorage.removeItem('acb_username');
-    router.push('/login');
-};
+function isActive(item: typeof navItems[0]): boolean {
+    if (item.exact) {
+        return route.path === item.to;
+    }
+    return route.path.startsWith(item.to);
+}
 </script>
 
 <template>
-    <aside class="sidebar">
-        <a href="/" class="logo" @click.prevent="router.push('/')">
-            <div class="logo-icon"></div>
-            <span>AiChatBox</span>
-        </a>
-        <nav>
+    <aside :class="['sidebar', { collapsed }]">
+        <!-- Logo -->
+        <router-link to="/" class="logo-link">
+            <div class="logo-icon">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <path d="M19 9l1.25-2.75L23 5l-2.75-1.25L19 1l-1.25 2.75L15 5l2.75 1.25L19 9zm-7.5.5L9 4 6.5 9.5 1 12l5.5 2.5L9 20l2.5-5.5L17 12l-5.5-2.5z" fill="currentColor"/>
+                </svg>
+            </div>
+            <Transition name="label-fade">
+                <span v-if="!collapsed" class="logo-text">AiChatBox</span>
+            </Transition>
+        </router-link>
+
+        <!-- Navigation -->
+        <nav class="nav-section">
             <ul class="nav-menu">
-                <li class="nav-item">
-                    <router-link to="/" class="nav-link" exact-active-class="active">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>
-                        Projects
-                    </router-link>
-                </li>
-                <li class="nav-item">
-                    <router-link to="/logs" class="nav-link" active-class="active">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>
-                        Logs
-                    </router-link>
-                </li>
-                <li class="nav-item">
-                    <router-link to="/playground" class="nav-link" active-class="active">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                        Playground
-                    </router-link>
-                </li>
-                <li class="nav-item">
-                    <router-link to="/docs" class="nav-link" active-class="active">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"></path><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"></path></svg>
-                        Documentation
+                <li v-for="item in navItems" :key="item.id" class="nav-item">
+                    <router-link
+                        :to="item.to"
+                        :class="['nav-link', { active: isActive(item) }]"
+                        :title="collapsed ? item.label : undefined"
+                    >
+                        <i :class="['pi', item.icon, 'nav-icon']"></i>
+                        <Transition name="label-fade">
+                            <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+                        </Transition>
                     </router-link>
                 </li>
             </ul>
         </nav>
-        <div class="theme-toggle">
-            <button class="btn-theme" @click="toggleTheme">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="5"></circle><line x1="12" y1="1" x2="12" y2="3"></line><line x1="12" y1="21" x2="12" y2="23"></line><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"></line><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"></line><line x1="1" y1="12" x2="3" y2="12"></line><line x1="21" y1="12" x2="23" y2="12"></line><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"></line><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"></line></svg>
-                Toggle Theme
-            </button>
-        </div>
-        <div class="user-profile">
-            <div class="user-info">
-                <div class="avatar"></div>
-                <span class="username">{{ username }}</span>
+
+        <!-- Bottom section -->
+        <div class="sidebar-footer">
+            <Transition name="label-fade">
+                <div v-if="!collapsed" class="footer-badge">
+                    <i class="pi pi-bolt"></i>
+                    <span>v1.0</span>
+                </div>
+            </Transition>
+            <div v-if="collapsed" class="footer-badge-collapsed">
+                <i class="pi pi-bolt"></i>
             </div>
-            <a href="#" @click.prevent="logout" class="sign-out">Sign Out</a>
         </div>
     </aside>
 </template>
 
 <style scoped>
 .sidebar {
-    width: 260px;
-    background-color: var(--p-surface-100);
-    border-right: 1px solid var(--p-surface-700);
-    padding: 24px;
+    width: var(--sidebar-width);
+    min-width: var(--sidebar-width);
+    background-color: var(--p-surface-50);
+    border-right: 1px solid var(--p-surface-200);
+    padding: 20px 12px;
     display: flex;
     flex-direction: column;
     height: 100vh;
     box-sizing: border-box;
+    transition: width var(--sidebar-transition), min-width var(--sidebar-transition), padding var(--sidebar-transition);
+    overflow: hidden;
+    position: sticky;
+    top: 0;
+    z-index: 110;
 }
 
-.logo {
+.sidebar.collapsed {
+    width: var(--sidebar-collapsed-width);
+    min-width: var(--sidebar-collapsed-width);
+    padding: 20px 10px;
+}
+
+/* Logo */
+.logo-link {
     display: flex;
     align-items: center;
     gap: 12px;
     text-decoration: none;
     color: var(--p-surface-900);
-    font-size: 1.25rem;
-    font-weight: 700;
-    margin-bottom: 40px;
+    padding: 8px 12px;
+    margin-bottom: 32px;
+    border-radius: 10px;
+    transition: background-color 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+}
+
+.logo-link:hover {
+    background-color: var(--p-surface-100);
+    text-decoration: none;
 }
 
 .logo-icon {
-    width: 24px;
-    height: 24px;
-    background-color: var(--p-primary-500);
-    border-radius: 6px;
+    width: 32px;
+    height: 32px;
+    min-width: 32px;
+    background: linear-gradient(135deg, var(--p-primary-500), var(--p-primary-700));
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: white;
+}
+
+.logo-text {
+    font-size: 1.15rem;
+    font-weight: 700;
+    letter-spacing: -0.02em;
+}
+
+/* Navigation */
+.nav-section {
+    flex: 1;
 }
 
 .nav-menu {
@@ -114,85 +165,104 @@ const logout = () => {
     margin: 0;
     display: flex;
     flex-direction: column;
-    gap: 8px;
+    gap: 4px;
 }
 
 .nav-link {
     display: flex;
     align-items: center;
     gap: 12px;
-    padding: 10px 16px;
-    border-radius: 8px;
-    color: var(--p-surface-400);
+    padding: 10px 12px;
+    border-radius: 10px;
+    color: var(--p-surface-500);
     text-decoration: none;
     font-weight: 500;
+    font-size: 0.9rem;
     transition: all 0.2s ease;
+    white-space: nowrap;
+    overflow: hidden;
+    position: relative;
 }
 
-.nav-link:hover, .nav-link.active {
-    background-color: var(--p-surface-200);
+.nav-link:hover {
+    background-color: var(--p-surface-100);
     color: var(--p-surface-900);
+    text-decoration: none;
 }
 
-.theme-toggle {
-    margin-top: auto;
-    padding-bottom: 24px;
-    border-bottom: 1px solid var(--p-surface-700);
-    margin-bottom: 24px;
+.nav-link.active {
+    background-color: var(--p-primary-50);
+    color: var(--p-primary-600);
+    font-weight: 600;
 }
 
-.btn-theme {
-    width: 100%;
+.nav-link.active .nav-icon {
+    color: var(--p-primary-500);
+}
+
+.nav-icon {
+    font-size: 1.1rem;
+    min-width: 20px;
+    text-align: center;
+    transition: color 0.2s ease;
+}
+
+.nav-label {
+    line-height: 1;
+}
+
+/* Collapsed state — center icons */
+.collapsed .nav-link {
+    justify-content: center;
+    padding: 12px;
+}
+
+.collapsed .logo-link {
+    justify-content: center;
+    padding: 8px;
+}
+
+/* Footer */
+.sidebar-footer {
+    padding-top: 16px;
+    border-top: 1px solid var(--p-surface-200);
+    display: flex;
+    justify-content: center;
+}
+
+.footer-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 12px;
+    border-radius: 20px;
+    background-color: var(--p-surface-100);
+    color: var(--p-surface-500);
+    font-size: 0.75rem;
+    font-weight: 600;
+}
+
+.footer-badge-collapsed {
     display: flex;
     align-items: center;
     justify-content: center;
-    gap: 8px;
-    padding: 10px;
-    background-color: transparent;
-    border: 1px solid var(--p-surface-300);
-    color: var(--p-surface-700);
-    border-radius: 8px;
-    cursor: pointer;
-    font-weight: 500;
-    transition: all 0.2s ease;
-}
-
-.btn-theme:hover {
-    background-color: var(--p-surface-700);
-    color: var(--p-surface-0);
-}
-
-.user-profile {
-    display: flex;
-    flex-direction: column;
-}
-
-.user-info {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-}
-
-.avatar {
     width: 32px;
     height: 32px;
     border-radius: 50%;
-    background-color: var(--p-primary-500);
-}
-
-.username {
-    font-weight: 600;
-    font-size: 0.9rem;
-    color: var(--p-surface-900);
-}
-
-.sign-out {
+    background-color: var(--p-surface-100);
     color: var(--p-surface-400);
     font-size: 0.8rem;
-    margin-top: 12px;
-    text-decoration: none;
 }
-.sign-out:hover {
-    color: var(--p-surface-200);
+
+/* Label fade transition */
+.label-fade-enter-active {
+    transition: opacity 0.2s ease 0.1s;
+}
+.label-fade-leave-active {
+    transition: opacity 0.1s ease;
+}
+.label-fade-enter-from,
+.label-fade-leave-to {
+    opacity: 0;
 }
 </style>

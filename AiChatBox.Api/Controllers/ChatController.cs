@@ -98,26 +98,59 @@ namespace AiChatBox.Api.Controllers
 
             if (project == null) return Unauthorized(new { error = "Project not found or API key missing" });
 
-            var enabledModels = new List<string>();
+            var defaultProvider = config?.DefaultProvider ?? project.Provider;
+            var enabledModels = new List<DTOs.ModelOptionDto>();
             var rawModels = config?.EnabledModels;
+
             if (!string.IsNullOrEmpty(rawModels))
             {
-                if (rawModels.Trim().StartsWith("["))
+                var trimmed = rawModels.Trim();
+                if (trimmed.StartsWith("["))
                 {
-                    try { enabledModels = System.Text.Json.JsonSerializer.Deserialize<List<string>>(rawModels) ?? new(); }
+                    // Try parsing as JSON array of {model, provider} objects first
+                    try
+                    {
+                        var parsed = System.Text.Json.JsonSerializer.Deserialize<List<DTOs.ModelOptionDto>>(trimmed, 
+                            new System.Text.Json.JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                        if (parsed?.Count > 0 && !string.IsNullOrEmpty(parsed[0].Model))
+                        {
+                            enabledModels = parsed;
+                        }
+                    }
                     catch { }
+
+                    // Fallback: try parsing as JSON array of plain strings
+                    if (enabledModels.Count == 0)
+                    {
+                        try
+                        {
+                            var strings = System.Text.Json.JsonSerializer.Deserialize<List<string>>(trimmed);
+                            enabledModels = strings?.Select(m => new DTOs.ModelOptionDto 
+                            { 
+                                Model = m, 
+                                Provider = defaultProvider 
+                            }).ToList() ?? [];
+                        }
+                        catch { }
+                    }
                 }
-                
+
+                // Fallback: comma-separated plain strings
                 if (enabledModels.Count == 0)
                 {
-                    enabledModels = rawModels.Split(',', StringSplitOptions.RemoveEmptyEntries).Select(m => m.Trim()).ToList();
+                    enabledModels = rawModels.Split(',', StringSplitOptions.RemoveEmptyEntries)
+                        .Select(m => new DTOs.ModelOptionDto 
+                        { 
+                            Model = m.Trim(), 
+                            Provider = defaultProvider 
+                        }).ToList();
                 }
             }
 
-            return Ok(new ChatConfigDto
+            return Ok(new DTOs.ChatConfigDto
             {
                 ProjectName = project.Name,
-                DefaultProvider = config?.DefaultProvider ?? project.Provider,
+                DefaultProvider = defaultProvider,
                 DefaultModel = config?.DefaultModel ?? project.ModelName,
                 LiveVoiceEnabled = config?.LiveVoiceEnabled ?? false,
                 EnabledModels = enabledModels,

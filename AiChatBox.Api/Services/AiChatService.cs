@@ -160,15 +160,15 @@ namespace AiChatBox.Api.Services
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
 
-            var provider = !string.IsNullOrEmpty(request.Provider) && request.Provider != "gemini"
-                ? request.Provider
-                : (config != null ? config.DefaultProvider
-                : (project != null ? project.Provider : request.Provider));
-
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
                 : (config != null ? config.DefaultModel
                 : (project != null ? project.ModelName : request.ModelName));
+
+            var provider = !string.IsNullOrEmpty(request.Provider)
+                ? request.Provider
+                : (config != null ? config.DefaultProvider
+                : (project != null ? project.Provider : "gemini"));
 
             var genericMessages = contextMessages.Select(m => new GenericChatMessage
             {
@@ -178,7 +178,7 @@ namespace AiChatBox.Api.Services
                 AttachedFileId = m.AttachedFileId
             }).ToList();
 
-            var apiKeyOverride = provider?.ToLowerInvariant() switch
+            var apiKeyOverride = provider.ToLowerInvariant() switch
             {
                 "gemini" => config?.GeminiApiKey,
                 "groq" => config?.GroqApiKey,

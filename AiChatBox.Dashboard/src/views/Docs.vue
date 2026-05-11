@@ -1,125 +1,98 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
-import Button from 'primevue/button';
-import Card from 'primevue/card';
+import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import DocsGettingStarted from '../components/docs/DocsGettingStarted.vue';
+import DocsWidgetIntegration from '../components/docs/DocsWidgetIntegration.vue';
+import DocsToolCalls from '../components/docs/DocsToolCalls.vue';
+import DocsRestApi from '../components/docs/DocsRestApi.vue';
+import DocsLiveVoice from '../components/docs/DocsLiveVoice.vue';
+import DocsModels from '../components/docs/DocsModels.vue';
 
-const activeSection = ref('quickstart');
+const activeSection = ref('getting-started');
 
 const sections = [
-    { id: 'quickstart', label: 'Quickstart' },
-    { id: 'widget', label: 'Widget Integration' },
-    { id: 'tools', label: 'Tool Calls' },
-    { id: 'rest-api', label: 'REST API Reference' },
-    { id: 'models', label: 'Available Models' }
+    { id: 'getting-started', label: 'Getting Started', icon: 'pi-bolt' },
+    { id: 'widget', label: 'Widget Integration', icon: 'pi-code' },
+    { id: 'tools', label: 'Custom Tools', icon: 'pi-wrench' },
+    { id: 'rest-api', label: 'REST API', icon: 'pi-server' },
+    { id: 'live-voice', label: 'Live Voice', icon: 'pi-microphone' },
+    { id: 'models', label: 'Models & Config', icon: 'pi-cog' },
 ];
 
-const scrollTo = (id: string) => {
+function scrollTo(id: string) {
     activeSection.value = id;
-    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth' });
-};
+    const el = document.getElementById(id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function handleScroll() {
+    const container = document.querySelector('.docs-main');
+    if (!container) return;
+    for (const s of sections) {
+        const el = document.getElementById(s.id);
+        if (el) {
+            const rect = el.getBoundingClientRect();
+            if (rect.top <= 160) activeSection.value = s.id;
+        }
+    }
+}
+
+onMounted(() => {
+    const main = document.querySelector('.main-content');
+    if (main) main.addEventListener('scroll', handleScroll);
+});
+
+onUnmounted(() => {
+    const main = document.querySelector('.main-content');
+    if (main) main.removeEventListener('scroll', handleScroll);
+});
+
+const copiedId = ref('');
+function copyCode(id: string) {
+    const el = document.getElementById(id);
+    if (el) {
+        navigator.clipboard.writeText(el.textContent || '');
+        copiedId.value = id;
+        setTimeout(() => copiedId.value = '', 2000);
+    }
+}
+
+// Provide copy function to children
+import { provide } from 'vue';
+provide('copyCode', copyCode);
+provide('copiedId', copiedId);
 </script>
 
 <template>
     <div class="docs-layout">
-        <!-- Sidebar -->
-        <aside class="docs-sidebar">
-            <div class="logo">
-                <div class="logo-icon"></div>
-                <span>AiChatBox Docs</span>
-            </div>
-            <nav class="sidebar-nav">
-                <div v-for="s in sections" :key="s.id" 
-                     class="nav-item" 
-                     :class="{ active: activeSection === s.id }"
-                     @click="scrollTo(s.id)">
-                    {{ s.label }}
-                </div>
-            </nav>
-            <div class="sidebar-footer">
-                <router-link to="/">Back to Dashboard</router-link>
-            </div>
-        </aside>
-
-        <!-- Main Content -->
-        <main class="docs-content">
-            <div id="quickstart" class="content-section">
-                <h1>Quickstart</h1>
-                <p>Get up and running with AiChatBox in minutes. AiChatBox provides both a ready-to-use UI widget and a powerful REST API.</p>
-                
-                <div class="info-card">
-                    <h3>1. Create a Project</h3>
-                    <p>Head to the dashboard and create a new project. Each project can have multiple configurations (persona, model, etc.).</p>
-                </div>
-
-                <div class="info-card">
-                    <h3>2. Generate an API Key</h3>
-                    <p>Within your project, generate an API key. **Important:** Keep this key secure and restrict it via domain whitelisting in the project settings.</p>
-                </div>
+        <main class="docs-main">
+            <div class="docs-hero">
+                <div class="hero-badge">Documentation</div>
+                <h1>AiChatBox Developer Guide</h1>
+                <p>Everything you need to integrate AI chat, voice, and custom tools into your application.</p>
             </div>
 
-            <div id="widget" class="content-section">
-                <h2>Widget Integration</h2>
-                <p>The easiest way to add AI to your site is via our Web Component. It supports real-time voice, file uploads, and custom tools.</p>
-                
-                <div class="code-container">
-                    <div class="code-header">HTML Integration</div>
-                    <pre class="code-block"><code>&lt;!-- Load assets from your hosted API --&gt;
-&lt;link rel="stylesheet" href="https://api.yoursite.com/ai-chatbox.css"&gt;
-&lt;script type="module" src="https://api.yoursite.com/ai-chatbox.js"&gt;&lt;/script&gt;
-
-&lt;!-- Initialize --&gt;
-&lt;ai-chatbox 
-    api-key="acb_your_key"
-    user-id="unique_user_id"
-    suggestions='["Order Status", "Pricing"]'&gt;
-&lt;/ai-chatbox&gt;</code></pre>
-                </div>
-            </div>
-
-            <div id="tools" class="content-section">
-                <h2>Tool Calls (Function Calling)</h2>
-                <p>AiChatBox can call functions in your own application. Define the tool schema in the dashboard, and handle the execution in your frontend.</p>
-                
-                <div class="code-container">
-                    <div class="code-header">JavaScript Tool Handling</div>
-                    <pre class="code-block"><code>const widget = document.querySelector('ai-chatbox');
-
-// Register a handler for 'get_inventory' tool
-widget.registerTool('get_inventory', async (args) => {
-    const res = await fetch(`/api/inventory/${args.productId}`);
-    return await res.json();
-});</code></pre>
-                </div>
-            </div>
-
-            <div id="rest-api" class="content-section">
-                <h2>REST API Reference</h2>
-                <p>Use the REST API for custom integrations or backend-to-backend communication. Our API is OpenAI-compatible.</p>
-                
-                <Card class="endpoint-card">
-                    <template #content>
-                        <div class="endpoint">
-                            <span class="badge post">POST</span>
-                            <code>/api/chat/completions</code>
-                        </div>
-                        <p class="description">Send a message to the AI and get a completion response.</p>
-                    </template>
-                </Card>
-            </div>
+            <DocsGettingStarted />
+            <DocsWidgetIntegration />
+            <DocsToolCalls />
+            <DocsRestApi />
+            <DocsLiveVoice />
+            <DocsModels />
         </main>
 
-        <!-- Code/Reference Column -->
-        <aside class="docs-reference">
-            <div class="sticky-ref">
-                <h3>Try it with Curl</h3>
-                <pre class="ref-code"><code>curl https://api.yoursite.com/api/chat/completions \
-  -H "Authorization: Bearer YOUR_KEY" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "messages": [
-      {"role": "user", "content": "Hello!"}
-    ]
-  }'</code></pre>
+        <aside class="docs-toc">
+            <div class="toc-sticky">
+                <h4 class="toc-title">On this page</h4>
+                <nav>
+                    <button
+                        v-for="s in sections"
+                        :key="s.id"
+                        :class="['toc-item', { active: activeSection === s.id }]"
+                        @click="scrollTo(s.id)"
+                    >
+                        <i :class="['pi', s.icon]"></i>
+                        <span>{{ s.label }}</span>
+                    </button>
+                </nav>
             </div>
         </aside>
     </div>
@@ -128,182 +101,106 @@ widget.registerTool('get_inventory', async (args) => {
 <style scoped>
 .docs-layout {
     display: flex;
-    min-height: 100vh;
-    background-color: var(--p-surface-950);
-    color: var(--p-surface-0);
+    gap: 32px;
+    max-width: 1200px;
+    margin: 0 auto;
 }
 
-/* Sidebar */
-.docs-sidebar {
-    width: 280px;
-    border-right: 1px solid var(--p-surface-800);
-    display: flex;
-    flex-direction: column;
-    padding: 24px;
-    position: fixed;
-    height: 100vh;
+.docs-main {
+    flex: 1;
+    min-width: 0;
+    padding-bottom: 120px;
 }
 
-.logo {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.docs-hero {
     margin-bottom: 48px;
+    padding-bottom: 32px;
+    border-bottom: 1px solid var(--p-surface-200);
+}
+
+.hero-badge {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 12px;
+    background: linear-gradient(135deg, var(--p-primary-50), var(--p-primary-100));
+    color: var(--p-primary-600);
+    border-radius: 20px;
+    font-size: 0.75rem;
     font-weight: 700;
-    font-size: 1.1rem;
-}
-
-.logo-icon {
-    width: 28px;
-    height: 28px;
-    background: linear-gradient(135deg, var(--p-primary-500), var(--p-primary-700));
-    border-radius: 8px;
-}
-
-.sidebar-nav {
-    flex: 1;
-}
-
-.nav-item {
-    padding: 10px 16px;
-    border-radius: 8px;
-    cursor: pointer;
-    color: var(--p-surface-400);
-    transition: all 0.2s;
-    font-size: 0.95rem;
-}
-
-.nav-item:hover {
-    color: var(--p-surface-0);
-    background-color: var(--p-surface-900);
-}
-
-.nav-item.active {
-    color: var(--p-primary-400);
-    background-color: var(--p-primary-950);
-    font-weight: 600;
-}
-
-.sidebar-footer {
-    padding-top: 24px;
-    border-top: 1px solid var(--p-surface-800);
-}
-
-.sidebar-footer a {
-    color: var(--p-surface-400);
-    text-decoration: none;
-    font-size: 0.85rem;
-}
-
-/* Content */
-.docs-content {
-    margin-left: 280px;
-    flex: 1;
-    padding: 64px 48px;
-    max-width: 800px;
-}
-
-.content-section {
-    margin-bottom: 80px;
-}
-
-h1 { font-size: 2.5rem; margin-bottom: 24px; }
-h2 { font-size: 1.75rem; margin-top: 48px; margin-bottom: 16px; }
-
-p {
-    color: var(--p-surface-300);
-    line-height: 1.7;
-    margin-bottom: 24px;
-}
-
-.info-card {
-    background-color: var(--p-surface-900);
-    border: 1px solid var(--p-surface-800);
-    border-radius: 12px;
-    padding: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     margin-bottom: 16px;
 }
 
-.info-card h3 { margin-top: 0; font-size: 1.1rem; color: var(--p-primary-400); }
-.info-card p { margin-bottom: 0; font-size: 0.95rem; }
-
-/* Code Blocks */
-.code-container {
-    margin: 24px 0;
-    border: 1px solid var(--p-surface-800);
-    border-radius: 12px;
-    overflow: hidden;
+.docs-hero h1 {
+    font-size: 2.2rem;
+    font-weight: 800;
+    letter-spacing: -0.03em;
+    margin-bottom: 12px;
+    color: var(--p-surface-900);
 }
 
-.code-header {
-    background-color: var(--p-surface-900);
-    padding: 8px 16px;
-    font-size: 0.8rem;
-    color: var(--p-surface-400);
-    border-bottom: 1px solid var(--p-surface-800);
-    font-family: monospace;
-}
-
-.code-block {
+.docs-hero p {
+    color: var(--p-surface-500);
+    font-size: 1.1rem;
+    line-height: 1.6;
     margin: 0;
-    padding: 24px;
-    background-color: var(--p-surface-950);
-    overflow-x: auto;
-    font-family: 'JetBrains Mono', monospace;
-    font-size: 0.9rem;
 }
 
-.code-block code { color: var(--p-primary-300); }
-
-/* Endpoint Cards */
-.endpoint-card {
-    background-color: var(--p-surface-900);
-    border: 1px solid var(--p-surface-800);
+/* Table of Contents */
+.docs-toc {
+    width: 220px;
+    flex-shrink: 0;
 }
 
-.endpoint {
-    display: flex;
-    align-items: center;
-    gap: 12px;
+.toc-sticky {
+    position: sticky;
+    top: 24px;
+}
+
+.toc-title {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--p-surface-400);
     margin-bottom: 12px;
 }
 
-.badge {
-    padding: 4px 8px;
-    border-radius: 4px;
-    font-size: 0.75rem;
-    font-weight: 700;
+.toc-item {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    width: 100%;
+    padding: 8px 12px;
+    background: transparent;
+    border: none;
+    border-left: 2px solid transparent;
+    color: var(--p-surface-500);
+    font-size: 0.82rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    text-align: left;
 }
 
-.badge.post { background-color: var(--p-primary-900); color: var(--p-primary-300); }
-
-.description { font-size: 0.9rem; margin: 0; }
-
-/* Reference Column */
-.docs-reference {
-    width: 400px;
-    border-left: 1px solid var(--p-surface-800);
-    padding: 48px 24px;
-    display: none; /* Hidden on mobile/small screens */
+.toc-item:hover {
+    color: var(--p-surface-800);
+    background-color: var(--p-surface-50);
 }
 
-@media (min-width: 1400px) {
-    .docs-reference { display: block; }
+.toc-item.active {
+    color: var(--p-primary-600);
+    border-left-color: var(--p-primary-500);
+    background-color: var(--p-primary-50);
+    font-weight: 600;
 }
 
-.sticky-ref {
-    position: sticky;
-    top: 48px;
-}
-
-.ref-code {
-    background-color: var(--p-surface-900);
-    padding: 24px;
-    border-radius: 12px;
-    font-family: 'JetBrains Mono', monospace;
+.toc-item .pi {
     font-size: 0.85rem;
-    color: var(--p-surface-200);
-    border: 1px solid var(--p-surface-800);
+}
+
+@media (max-width: 1100px) {
+    .docs-toc { display: none; }
 }
 </style>
-

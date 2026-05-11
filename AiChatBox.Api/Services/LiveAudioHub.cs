@@ -13,101 +13,127 @@ namespace AiChatBox.Api.Services
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
         private readonly ApiKeyService _apiKeyService = apiKeyService;
 
-        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null, Guid? projectId = null, Guid? configurationId = null)
+        /// <summary>
+        /// Start a live session using an API Key (widget / end-user integration).
+        /// </summary>
+        public async Task StartLive(string userId, string? voiceName = null, string apiKey = "")
         {
             var connectionId = Context.ConnectionId;
-            _logger.LogInformation("Client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
+            _logger.LogInformation("Widget client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
+
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
+                return;
+            }
 
             try
             {
-                // Resolve project and system prompt
-                Project? project = null;
-                ProjectConfiguration? config = null;
-                string? geminiApiKeyOverride = null;
-
-                if (!string.IsNullOrEmpty(apiKey))
+                var origin = Context.GetHttpContext()?.Request.Headers.Origin.ToString();
+                var (project, config, _) = await _apiKeyService.ValidateApiKeyAsync(apiKey, origin);
+                
+                if (project == null)
                 {
-                    var origin = Context.GetHttpContext()?.Request.Headers.Origin.ToString();
-                    (project, config, _) = await _apiKeyService.ValidateApiKeyAsync(apiKey, origin);
-                    
-                    if (project == null)
-                    {
-                        _logger.LogWarning("Unauthorized live session attempt with API Key from origin: {Origin}", origin);
-                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Invalid API Key or Origin.");
-                        return;
-                    }
-
-                    systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project?.SystemPrompt;
-                    geminiApiKeyOverride = config?.GeminiApiKey;
-                }
-                else if (projectId.HasValue && Context.User.Identity?.IsAuthenticated == true)
-                {
-                    // If authenticated via JWT (Dashboard), allow session by ProjectId
-                    var authUserId = Context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
-                    project = await _apiKeyService.GetProjectByIdAsync(projectId.Value, authUserId);
-                    
-                    if (project == null)
-                    {
-                        await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Project not found or access denied.");
-                        return;
-                    }
-
-                    if (configurationId.HasValue)
-                    {
-                        config = await _apiKeyService.GetConfigurationByIdAsync(configurationId.Value, projectId.Value);
-                    }
-                    
-                    if (config == null)
-                    {
-                        config = await _apiKeyService.GetDefaultConfigurationAsync(projectId.Value);
-                    }
-
-                    systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project.SystemPrompt;
-                    geminiApiKeyOverride = config?.GeminiApiKey;
-                }
-                else
-                {
-                    _logger.LogWarning("Unauthorized live session attempt. Authenticated: {IsAuthenticated}, ProjectId: {ProjectId}, ApiKey: {ApiKey}", 
-                        Context.User.Identity?.IsAuthenticated, projectId, string.IsNullOrEmpty(apiKey) ? "null" : "provided");
-                    await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: API Key required.");
+                    _logger.LogWarning("Unauthorized live session attempt with API Key from origin: {Origin}", origin);
+                    await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Invalid API Key or Origin.");
                     return;
                 }
 
-                await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,
-                    async (pcmData) => 
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveAudioChunk", pcmData);
-                    },
-                    async (text, isThought) => 
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveTextChunk", text, isThought);
-                    },
-                    async (text) => 
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveInputTranscription", text);
-                    },
-                    async (id, name, args) =>
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
-                    },
-                    project?.Id,
-                    geminiApiKeyOverride
-                );
+                var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
+                var geminiApiKeyOverride = config?.GeminiApiKey;
 
-                var session = _sessionManager.GetSession(connectionId);
-                if (session != null)
-                {
-                    session.OnError += async (error) =>
-                    {
-                        await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveError", error);
-                    };
-                }
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Failed to start live session for {ConnectionId}", connectionId);
+                _logger.LogError(ex, "Failed to start live session for widget client {ConnectionId}", connectionId);
                 await Clients.Caller.SendAsync("ReceiveError", "Failed to connect to Gemini.");
             }
+        }
+
+        /// <summary>
+        /// Start a live session using JWT authentication (Dashboard Playground).
+        /// ProjectId and ConfigurationId are strings parsed internally.
+        /// </summary>
+        public async Task StartLiveDashboard(string userId, string? voiceName = null, string? projectId = null, string? configurationId = null)
+        {
+            var connectionId = Context.ConnectionId;
+            _logger.LogInformation("Dashboard client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
+
+            if (Context.User?.Identity?.IsAuthenticated != true)
+            {
+                await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Authentication required.");
+                return;
+            }
+
+            if (string.IsNullOrEmpty(projectId) || !Guid.TryParse(projectId, out var parsedProjectId))
+            {
+                await Clients.Caller.SendAsync("ReceiveError", "Invalid or missing Project ID.");
+                return;
+            }
+
+            try
+            {
+                var authUserId = Context.User.FindFirst(System.Security.Claims.ClaimTypes.NameIdentifier)?.Value;
+                var project = await _apiKeyService.GetProjectByIdAsync(parsedProjectId, authUserId);
+
+                if (project == null)
+                {
+                    await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Project not found or access denied.");
+                    return;
+                }
+
+                ProjectConfiguration? config = null;
+                if (!string.IsNullOrEmpty(configurationId) && Guid.TryParse(configurationId, out var parsedConfigId))
+                {
+                    config = await _apiKeyService.GetConfigurationByIdAsync(parsedConfigId, parsedProjectId);
+                }
+                
+                config ??= await _apiKeyService.GetDefaultConfigurationAsync(parsedProjectId);
+
+                var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
+                var geminiApiKeyOverride = config?.GeminiApiKey;
+
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start live session for dashboard client {ConnectionId}", connectionId);
+                await Clients.Caller.SendAsync("ReceiveError", "Failed to connect to Gemini.");
+            }
+        }
+
+        /// <summary>
+        /// Shared session initialization logic used by both StartLive and StartLiveDashboard.
+        /// </summary>
+        private async Task StartSessionInternal(string connectionId, string userId, string? voiceName, string? systemPrompt, Guid? projectId, string? geminiApiKeyOverride)
+        {
+            await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,
+                async (pcmData) => 
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveAudioChunk", pcmData);
+                },
+                async (text, isThought) => 
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveTextChunk", text, isThought);
+                },
+                async (text) => 
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveInputTranscription", text);
+                },
+                async (id, name, args) =>
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
+                },
+                projectId,
+                geminiApiKeyOverride
+            );
+
+            var session = _sessionManager.GetSession(connectionId);
+            session?.OnError += async (error) =>
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveError", error);
+                };
         }
 
         public async Task SendAudio(string data)

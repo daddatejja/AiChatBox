@@ -11,12 +11,6 @@ const router = createRouter({
       meta: { requiresAuth: false }
     },
     {
-      path: '/docs',
-      name: 'docs',
-      component: () => import('../views/Docs.vue'),
-      meta: { requiresAuth: false }
-    },
-    {
       path: '/',
       component: AppLayout,
       meta: { requiresAuth: true },
@@ -45,22 +39,25 @@ const router = createRouter({
           path: 'playground',
           name: 'playground',
           component: () => import('../views/Playground.vue')
+        },
+        {
+          path: 'docs',
+          name: 'docs',
+          component: () => import('../views/Docs.vue')
         }
       ]
     }
   ]
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach((to) => {
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
   const token = localStorage.getItem('acb_token');
 
   if (requiresAuth && !token) {
-    next('/login');
+    return '/login';
   } else if (to.path === '/login' && token) {
-    next('/');
-  } else {
-    next();
+    return '/';
   }
 });
 

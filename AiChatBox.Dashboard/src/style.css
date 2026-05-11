@@ -9,6 +9,14 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+
+  /* Layout dimensions */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 72px;
+  --topbar-height: 60px;
+
+  /* Transition tokens */
+  --sidebar-transition: 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 body {
@@ -63,4 +71,20 @@ a:hover {
 /* Custom primevue overrides for Terminal Prime */
 .p-button {
   font-weight: 600;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--p-surface-300);
+  border-radius: 3px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--p-surface-400);
 }
