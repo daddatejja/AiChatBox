@@ -16,6 +16,11 @@ const { apiFetch } = useApi();
 const projectId = computed(() => route.params.projectId as string);
 const configId = computed(() => route.params.configId as string);
 
+interface ModelEntry {
+    model: string;
+    provider: string;
+}
+
 const config = reactive({ 
     name: '', 
     systemPrompt: '', 
@@ -28,11 +33,13 @@ const config = reactive({
     enabledModels: '' 
 });
 
-const defaultProviders = [
-    { label: 'Gemini', value: 'gemini' },
-    { label: 'Groq', value: 'groq' },
-    { label: 'OpenAI', value: 'openai' }
-];
+// Default model options derived from enabled models list
+const defaultModelOptions = computed(() => {
+    return enabledModels.value.map(e => ({
+        label: `${e.model} (${e.provider})`,
+        value: e.model
+    }));
+});
 
 const providersList = [
     { key: 'geminiApiKey', label: 'Google Gemini', id: 'gemini' },
@@ -42,9 +49,43 @@ const providersList = [
 
 const fetchingModels = ref<string | null>(null);
 const providerModels = reactive<Record<string, any[]>>({});
-const enabledModelIds = ref<string[]>([]);
+const enabledModels = ref<ModelEntry[]>([]);
 const saving = ref(false);
 const saved = ref(false);
+
+// Check if a model from a given provider is currently enabled
+function isModelEnabled(modelId: string, providerId: string): boolean {
+    return enabledModels.value.some(e => e.model === modelId && e.provider === providerId);
+}
+
+// Toggle a model on/off for a given provider
+function toggleModel(modelId: string, providerId: string) {
+    const idx = enabledModels.value.findIndex(e => e.model === modelId && e.provider === providerId);
+    if (idx >= 0) {
+        enabledModels.value.splice(idx, 1);
+        // If the removed model was the default, clear it
+        if (config.defaultModel === modelId) {
+            config.defaultModel = enabledModels.value.length > 0 ? enabledModels.value[0].model : '';
+            config.defaultProvider = enabledModels.value.length > 0 ? enabledModels.value[0].provider : 'gemini';
+        }
+    } else {
+        enabledModels.value.push({ model: modelId, provider: providerId });
+        // Auto-select first model as default if none set
+        if (!config.defaultModel) {
+            config.defaultModel = modelId;
+            config.defaultProvider = providerId;
+        }
+    }
+}
+
+// When default model changes, auto-set the provider
+function onDefaultModelChange(modelId: string) {
+    config.defaultModel = modelId;
+    const entry = enabledModels.value.find(e => e.model === modelId);
+    if (entry) {
+        config.defaultProvider = entry.provider;
+    }
+}
 
 async function load() {
     const res = await apiFetch(`/api/configuration/${configId.value}`);
@@ -52,7 +93,21 @@ async function load() {
         const data = await res.json();
         Object.assign(config, data);
         if (data.enabledModels) {
-            try { enabledModelIds.value = JSON.parse(data.enabledModels); } catch {}
+            try {
+                const parsed = JSON.parse(data.enabledModels);
+                if (Array.isArray(parsed) && parsed.length > 0) {
+                    if (typeof parsed[0] === 'object' && parsed[0].model) {
+                        // New format: [{model, provider}]
+                        enabledModels.value = parsed;
+                    } else {
+                        // Legacy format: ["model1", "model2"] — use defaultProvider
+                        enabledModels.value = parsed.map((m: string) => ({ 
+                            model: m, 
+                            provider: config.defaultProvider || 'gemini' 
+                        }));
+                    }
+                }
+            } catch {}
         }
     }
 }
@@ -87,7 +142,7 @@ async function save() {
             groqApiKey: config.groqApiKey,
             openAiApiKey: config.openAiApiKey,
             liveVoiceEnabled: config.liveVoiceEnabled,
-            enabledModels: JSON.stringify(enabledModelIds.value)
+            enabledModels: JSON.stringify(enabledModels.value)
         })
     });
     saving.value = false;
@@ -118,15 +173,18 @@ onMounted(load);
                         <Textarea v-model="config.systemPrompt" rows="5" fluid />
                     </div>
                     
-                    <div class="grid-2">
-                        <div class="form-group">
-                            <label>Default Provider</label>
-                            <Select v-model="config.defaultProvider" :options="defaultProviders" optionLabel="label" optionValue="value" fluid />
-                        </div>
-                        <div class="form-group">
-                            <label>Default Model</label>
-                            <InputText v-model="config.defaultModel" fluid />
-                        </div>
+                    <div class="form-group">
+                        <label>Default Model</label>
+                        <Select 
+                            :modelValue="config.defaultModel" 
+                            @update:modelValue="onDefaultModelChange" 
+                            :options="defaultModelOptions" 
+                            optionLabel="label" 
+                            optionValue="value" 
+                            placeholder="Enable models below, then select a default" 
+                            fluid 
+                        />
+                        <span v-if="enabledModels.length === 0" class="info-text">Add provider API keys and enable models below first</span>
                     </div>
                     
                     <div class="form-group checkbox-group">
@@ -160,9 +218,14 @@ onMounted(load);
 
                     <div v-if="providerModels[provider.id] && providerModels[provider.id].length" class="models-list">
                         <p class="models-title">Available models (check to enable):</p>
-                        <div v-for="m in providerModels[provider.id]" :key="m.id" class="model-item">
-                            <Checkbox v-model="enabledModelIds" :inputId="m.id" :value="m.id" />
-                            <label :for="m.id" class="model-name">{{ m.name }}</label>
+                        <div v-for="m in providerModels[provider.id]" :key="provider.id + '-' + m.id" class="model-item">
+                            <Checkbox 
+                                :modelValue="isModelEnabled(m.id, provider.id)" 
+                                @update:modelValue="toggleModel(m.id, provider.id)" 
+                                :binary="true"
+                                :inputId="provider.id + '-' + m.id" 
+                            />
+                            <label :for="provider.id + '-' + m.id" class="model-name">{{ m.name }}</label>
                             <span class="model-desc">{{ m.description }}</span>
                         </div>
                     </div>

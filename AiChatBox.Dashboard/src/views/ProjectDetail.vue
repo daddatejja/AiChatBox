@@ -25,14 +25,9 @@ const isEditingTool = ref(false);
 const editingToolId = ref<string | null>(null);
 const generatedKey = ref('');
 
-const newConfig = reactive({ name: '', provider: 'gemini', model: 'gemini-1.5-flash', systemPrompt: '' });
+const newConfig = reactive({ name: '', systemPrompt: '' });
 const newKey = reactive({ label: '', configId: null as string | null });
 const newTool = reactive({ name: '', description: '', parametersJsonSchema: '{\n  "type": "object",\n  "properties": {}\n}' });
-
-const providers = [
-    { label: 'Google Gemini', value: 'gemini' },
-    { label: 'Groq', value: 'groq' }
-];
 
 async function loadProject() {
     try {
@@ -67,13 +62,11 @@ async function createConfig() {
         method: 'POST', 
         body: JSON.stringify({ 
             name: newConfig.name, 
-            systemPrompt: newConfig.systemPrompt, 
-            defaultProvider: newConfig.provider, 
-            defaultModel: newConfig.model 
+            systemPrompt: newConfig.systemPrompt
         })
     });
     showNewConfig.value = false;
-    newConfig.name = ''; newConfig.systemPrompt = ''; newConfig.model = 'gemini-1.5-flash';
+    newConfig.name = ''; newConfig.systemPrompt = '';
     loadConfigs();
 }
 
@@ -309,17 +302,10 @@ onMounted(() => {
                     <InputText v-model="newConfig.name" placeholder="Production" required fluid />
                 </div>
                 <div class="form-group">
-                    <label>Provider</label>
-                    <Select v-model="newConfig.provider" :options="providers" optionLabel="label" optionValue="value" fluid />
-                </div>
-                <div class="form-group">
-                    <label>Model</label>
-                    <InputText v-model="newConfig.model" placeholder="gemini-1.5-flash" fluid />
-                </div>
-                <div class="form-group">
                     <label>System Prompt</label>
                     <Textarea v-model="newConfig.systemPrompt" rows="4" fluid />
                 </div>
+                <span class="info-text">You can configure API keys, models, and voice mode after creation.</span>
                 <div class="dialog-actions">
                     <Button label="Cancel" severity="secondary" outlined @click="showNewConfig = false" />
                     <Button type="submit" label="Create" />
@@ -524,5 +510,10 @@ onMounted(() => {
     color: var(--p-surface-500);
     font-size: 0.8rem;
     margin-top: 8px;
+}
+.info-text {
+    color: var(--p-surface-500);
+    font-size: 0.8rem;
+    margin-top: 4px;
 }
 </style>
