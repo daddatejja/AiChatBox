@@ -13,7 +13,7 @@ namespace AiChatBox.Api.Services
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
         private readonly ApiKeyService _apiKeyService = apiKeyService;
 
-        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null, Guid? projectId = null)
+        public async Task StartLive(string userId, string? voiceName = null, string? apiKey = null, string? systemPrompt = null, Guid? projectId = null, Guid? configurationId = null)
         {
             var connectionId = Context.ConnectionId;
             _logger.LogInformation("Client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
@@ -22,12 +22,12 @@ namespace AiChatBox.Api.Services
             {
                 // Resolve project and system prompt
                 Project? project = null;
+                ProjectConfiguration? config = null;
                 string? geminiApiKeyOverride = null;
 
                 if (!string.IsNullOrEmpty(apiKey))
                 {
                     var origin = Context.GetHttpContext()?.Request.Headers.Origin.ToString();
-                    ProjectConfiguration? config;
                     (project, config, _) = await _apiKeyService.ValidateApiKeyAsync(apiKey, origin);
                     
                     if (project == null)
@@ -52,8 +52,18 @@ namespace AiChatBox.Api.Services
                         return;
                     }
 
-                    systemPrompt = systemPrompt ?? project.SystemPrompt;
-                    // For dashboard preview, use project default key if config not selected
+                    if (configurationId.HasValue)
+                    {
+                        config = await _apiKeyService.GetConfigurationByIdAsync(configurationId.Value, projectId.Value);
+                    }
+                    
+                    if (config == null)
+                    {
+                        config = await _apiKeyService.GetDefaultConfigurationAsync(projectId.Value);
+                    }
+
+                    systemPrompt = systemPrompt ?? config?.SystemPrompt ?? project.SystemPrompt;
+                    geminiApiKeyOverride = config?.GeminiApiKey;
                 }
                 else
                 {

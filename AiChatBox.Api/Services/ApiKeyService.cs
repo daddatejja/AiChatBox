@@ -39,6 +39,18 @@ namespace AiChatBox.Api.Services
             return await query.FirstOrDefaultAsync(p => p.Id == id);
         }
 
+        public async Task<ProjectConfiguration?> GetConfigurationByIdAsync(Guid id, Guid projectId)
+        {
+            return await _db.Configurations
+                .FirstOrDefaultAsync(c => c.Id == id && c.ProjectId == projectId);
+        }
+
+        public async Task<ProjectConfiguration?> GetDefaultConfigurationAsync(Guid projectId)
+        {
+            return await _db.Configurations
+                .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+        }
+
         public async Task<(Project? Project, ProjectConfiguration? Configuration, ApiKey? ApiKey)> ValidateApiKeyAsync(string rawKey, string? origin = null)
         {
             var keyHash = HashKey(rawKey);

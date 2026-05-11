@@ -206,6 +206,7 @@
       this.apiKey = null;
       this.authToken = null;
       this.projectId = null;
+      this.configurationId = null;
       this.userId = null;
       this.provider = null;
       this.modelName = null;
@@ -302,6 +303,7 @@
       this.apiKey = this.getAttribute("api-key") || null;
       this.authToken = this.getAttribute("auth-token") || null;
       this.projectId = this.getAttribute("project-id") || null;
+      this.configurationId = this.getAttribute("configuration-id") || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
       this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
@@ -669,6 +671,8 @@
           body: JSON.stringify({
             message: text,
             sessionId: this.currentSessionId,
+            projectId: this.projectId,
+            configurationId: this.configurationId,
             provider: this.provider,
             modelName: this.shadowRoot.getElementById("model-select").value,
             attachedFileId,
@@ -1032,7 +1036,9 @@
         }
 
         this.liveConnection = new window.signalR.HubConnectionBuilder()
-          .withUrl(`${this.apiUrl}/liveAudioHub`)
+          .withUrl(`${this.apiUrl}/liveAudioHub`, {
+            accessTokenFactory: () => this.authToken
+          })
           .withAutomaticReconnect()
           .build();
 
@@ -1049,7 +1055,7 @@
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
-        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null, this.projectId || null);
+        await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, null, this.projectId || null, this.configurationId || null);
 
         const workletUrl = `${this.apiUrl}/widget/audio-processor.js`;
         console.log("Loading audio worklet from:", workletUrl);

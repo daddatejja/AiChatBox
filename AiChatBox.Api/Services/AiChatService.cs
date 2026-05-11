@@ -37,7 +37,7 @@ namespace AiChatBox.Api.Services
         private ProjectConfiguration? CurrentConfiguration => _httpContextAccessor.HttpContext?.Items["CurrentConfiguration"] as ProjectConfiguration;
         private ApiKey? CurrentApiKey => _httpContextAccessor.HttpContext?.Items["CurrentApiKey"] as ApiKey;
 
-        public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId)
+        public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId, Guid? projectId = null, Guid? configurationId = null)
         {
             if (sessionId.HasValue)
             {
@@ -71,8 +71,8 @@ namespace AiChatBox.Api.Services
             var session = new ChatSession
             {
                 UserId = userId,
-                ProjectId = CurrentProject?.Id,
-                ConfigurationId = configId,
+                ProjectId = projectId ?? CurrentProject?.Id,
+                ConfigurationId = configurationId ?? configId,
                 Title = "New Chat",
                 CreatedAt = DateTime.UtcNow,
                 LastMessageAt = DateTime.UtcNow
@@ -117,7 +117,7 @@ namespace AiChatBox.Api.Services
         public async IAsyncEnumerable<ChatStreamChunk> StreamChatAsync(ChatRequest request, string userId, [EnumeratorCancellation] CancellationToken cancellationToken)
         {
             var startTime = DateTime.UtcNow;
-            var session = await GetOrCreateSessionAsync(userId, request.SessionId);
+            var session = await GetOrCreateSessionAsync(userId, request.SessionId, request.ProjectId, request.ConfigurationId);
 
             // Yield initial session ID
             yield return new ChatStreamChunk { SessionId = session.Id };
@@ -136,9 +136,11 @@ namespace AiChatBox.Api.Services
             
             // Resolve config: Session Pinned Config > Configuration > Request > Project > Default
             var project = CurrentProject;
-            var config = session.ConfigurationId.HasValue 
-                ? await _db.Configurations.FindAsync(session.ConfigurationId.Value)
-                : CurrentConfiguration;
+            var config = request.ConfigurationId.HasValue 
+                ? await _db.Configurations.FindAsync(request.ConfigurationId.Value)
+                : (session.ConfigurationId.HasValue 
+                    ? await _db.Configurations.FindAsync(session.ConfigurationId.Value)
+                    : CurrentConfiguration);
 
             // If we're in the Playground (authenticated via JWT), project/config won't be in HttpContext.Items
             if (project == null && request.ProjectId.HasValue)

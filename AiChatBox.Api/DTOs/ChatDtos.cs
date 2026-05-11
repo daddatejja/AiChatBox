@@ -7,6 +7,7 @@ namespace AiChatBox.Api.DTOs
         public string? Message { get; set; }
         public Guid? SessionId { get; set; }
         public Guid? ProjectId { get; set; }
+        public Guid? ConfigurationId { get; set; }
         public string? ImageDataUrl { get; set; }
         public Guid? AttachedFileId { get; set; }
 

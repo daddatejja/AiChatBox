@@ -42,6 +42,11 @@ namespace AiChatBox.Api.Services
             var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
             if (string.IsNullOrEmpty(apiKey)) throw new Exception("Gemini API key missing");
 
+            if (!string.IsNullOrEmpty(ApiKeyOverride))
+                _logger.LogInformation("Connecting to Gemini Live with override key (ends with ...{KeyTail})", apiKey.Substring(Math.Max(0, apiKey.Length - 4)));
+            else
+                _logger.LogInformation("Connecting to Gemini Live with global key (ends with ...{KeyTail})", apiKey.Substring(Math.Max(0, apiKey.Length - 4)));
+
             _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _setupTcs = new TaskCompletionSource<bool>();
             _webSocket = new ClientWebSocket();

@@ -129,6 +129,7 @@ async function sendMessage() {
                 message: textToSubmit,
                 sessionId: sessionId.value,
                 projectId: selectedProject.value?.id,
+                configurationId: selectedConfig.value?.id,
                 provider: selectedConfig.value?.defaultProvider,
                 modelName: selectedConfig.value?.defaultModel,
                 systemPrompt: selectedConfig.value?.systemPrompt
@@ -353,6 +354,7 @@ async function openWidgetPreview() {
         <ai-chatbox 
             v-if="showWidget" 
             :project-id="selectedProject?.id" 
+            :configuration-id="selectedConfig?.id"
             :api-base="API_BASE" 
             :auth-token="getToken()"
             @close="showWidget = false"
