@@ -66,6 +66,19 @@ builder.Services.AddAuthentication(options => {
         ValidateIssuer = false,
         ValidateAudience = false
     };
+    options.Events = new JwtBearerEvents
+    {
+        OnMessageReceived = context =>
+        {
+            var accessToken = context.Request.Query["access_token"];
+            var path = context.HttpContext.Request.Path;
+            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/liveAudioHub"))
+            {
+                context.Token = accessToken;
+            }
+            return Task.CompletedTask;
+        }
+    };
 })
 .AddGoogle(options => {
     options.ClientId = builder.Configuration["Authentication:Google:ClientId"] ?? "placeholder";
@@ -106,11 +119,7 @@ builder.Services.AddSignalR(options => {
 });
 
 builder.Services.AddSingleton<IAuthorizationHandler, ApiKeyOrJwtHandler>();
-builder.Services.AddAuthorization(options =>
-{
-    options.AddPolicy("ApiKeyOrJwt", policy =>
-        policy.AddRequirements(new ApiKeyOrJwtRequirement()));
-});
+builder.Services.AddAuthorizationBuilder().AddPolicy("ApiKeyOrJwt", policy => policy.AddRequirements(new ApiKeyOrJwtRequirement()));
 
 // CORS
 builder.Services.AddCors(options =>
@@ -131,7 +140,7 @@ var forwardedOptions = new ForwardedHeadersOptions
 {
     ForwardedHeaders = Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedFor | Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto
 };
-forwardedOptions.KnownNetworks.Clear();
+forwardedOptions.KnownIPNetworks.Clear();
 forwardedOptions.KnownProxies.Clear();
 app.UseForwardedHeaders(forwardedOptions);
 
@@ -191,7 +200,7 @@ app.UseHttpsRedirection();
 app.UseSerilogIngestion();
 app.UseSerilogRequestLogging();
 
-app.UseMiddleware<AiChatBox.Api.Middleware.ApiKeyMiddleware>();
+app.UseMiddleware<ApiKeyMiddleware>();
 app.UseAuthentication();
 app.UseAuthorization();
 
