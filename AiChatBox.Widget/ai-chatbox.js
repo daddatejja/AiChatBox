@@ -300,6 +300,9 @@
           this.config = await this.safeJson(response);
           if (this.config.defaultModel) this.modelName = this.config.defaultModel;
           if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
+          if (this.config.suggestionsJson) {
+            try { this.suggestions = JSON.parse(this.config.suggestionsJson); } catch(e) {}
+          }
         }
       } catch (err) {
         console.error("Failed to fetch widget config:", err);
@@ -330,7 +333,7 @@
     }
 
     render() {
-      const stylePath = this.getAttribute("css-path") || `${this.apiUrl}/ai-chatbox.css`;
+      const stylePath = this.getAttribute("css-path") || `${this.apiUrl}/widget/ai-chatbox.css`;
       this.shadowRoot.innerHTML = `
                 <link rel="stylesheet" href="${stylePath}">
                 
@@ -1553,14 +1556,46 @@
     }
     formatMarkdown(text) {
       if (!text) return "";
-      return text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
-                 .replace(/```([\s\S]*?)```/g, "<pre><code>$1</code></pre>")
-                 .replace(/`([^`]+)`/g, "<code>$1</code>")
-                 .replace(/\n/g, "<br>");
+      let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
+                     .replace(/`([^`]+)`/g, "<code>$1</code>")
+                     .replace(/\n/g, "<br>");
+      
+      // Handle code blocks with copy button
+      html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>|```([\s\S]*?)```/g, (match, p1, p2) => {
+        const code = (p1 || p2 || "").replace(/<br>/g, "\n");
+        const id = 'code-' + Math.random().toString(36).substr(2, 9);
+        return `
+          <div class="code-block-wrapper">
+            <div class="code-header">
+              <span>Code</span>
+              <button class="copy-code-btn" data-code-id="${id}">${this.icons.copy} Copy</button>
+            </div>
+            <pre><code id="${id}">${code}</code></pre>
+          </div>
+        `;
+      });
+
+      return html;
     }
     scrollToBottom() {
       const m = this.shadowRoot.getElementById("messages-container");
-      if (m) m.scrollTop = m.scrollHeight;
+      if (m) {
+        m.scrollTop = m.scrollHeight;
+        
+        // Attach copy listeners to new code blocks
+        m.querySelectorAll(".copy-code-btn").forEach(btn => {
+          if (btn.dataset.listener) return;
+          btn.dataset.listener = "true";
+          btn.onclick = () => {
+            const codeId = btn.getAttribute("data-code-id");
+            const code = this.shadowRoot.getElementById(codeId).innerText;
+            navigator.clipboard.writeText(code);
+            const original = btn.innerHTML;
+            btn.innerHTML = `${this.icons.check} Copied`;
+            setTimeout(() => btn.innerHTML = original, 2000);
+          };
+        });
+      }
     }
   }
 

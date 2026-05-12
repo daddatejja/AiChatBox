@@ -1,6 +1,7 @@
 using AiChatBox.Api.Models;
 using Microsoft.AspNetCore.Identity.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Data
 {
@@ -17,10 +18,14 @@ namespace AiChatBox.Api.Data
         public DbSet<AiRequestLog> AiRequestLogs { get; set; }
         public DbSet<UploadedFile> UploadedFiles { get; set; }
         public DbSet<ConfigurationHistory> ConfigurationHistories { get; set; }
+        public DbSet<KnowledgeDocument> KnowledgeDocuments { get; set; }
+        public DbSet<DocumentChunk> DocumentChunks { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+            
+            modelBuilder.HasPostgresExtension("vector");
 
             modelBuilder.Entity<Project>()
                 .HasOne(p => p.User)
@@ -70,6 +75,19 @@ namespace AiChatBox.Api.Data
                 .WithMany(p => p.Sessions)
                 .HasForeignKey(s => s.ProjectId)
                 .IsRequired(false);
+
+            // Knowledge Base
+            modelBuilder.Entity<KnowledgeDocument>()
+                .HasMany(d => d.Chunks)
+                .WithOne(c => c.Document)
+                .HasForeignKey(c => c.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Project>()
+                .HasMany(p => p.KnowledgeDocuments)
+                .WithOne(d => d.Project)
+                .HasForeignKey(d => d.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

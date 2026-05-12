@@ -212,6 +212,19 @@ onMounted(() => {
             </Card>
         </section>
 
+        <!-- Knowledge Base (RAG) -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Knowledge Base (RAG)</h2>
+                    <p class="section-subtitle">Upload documents to provide private context to your AI assistant.</p>
+                </div>
+                <router-link :to="'/project/' + projectId + '/knowledge'" custom v-slot="{ navigate }">
+                    <Button label="Manage Knowledge" icon="pi pi-book" severity="secondary" outlined @click="navigate" />
+                </router-link>
+            </div>
+        </section>
+
         <!-- Configurations -->
         <section class="section">
             <div class="section-header">
@@ -524,5 +537,55 @@ onMounted(() => {
     color: var(--p-surface-500);
     font-size: 0.8rem;
     margin-top: 8px;
+}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+        margin-bottom: 32px;
+    }
+    .header-actions {
+        align-self: stretch;
+    }
+    .header-actions :deep(.p-button) {
+        width: 100%;
+    }
+    .section-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+    .section-header :deep(.p-button) {
+        align-self: flex-start;
+    }
+    .list-card-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+    .actions {
+        flex-wrap: wrap;
+        justify-content: flex-start;
+    }
+    .info {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+    }
+    .key-config {
+        margin-left: 0;
+    }
+}
+
+@media (max-width: 480px) {
+    .header {
+        margin-bottom: 24px;
+    }
+    .section {
+        margin-bottom: 32px;
+    }
 }
 </style>

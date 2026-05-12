@@ -6,6 +6,8 @@ using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
+using Pgvector.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Services
 {
@@ -16,6 +18,8 @@ namespace AiChatBox.Api.Services
                                 IChatContextService contextService,
                                 IAiLoggingService loggingService,
                                 FileProcessingService fileProcessingService,
+                                EncryptionService encryptionService,
+                                EmbeddingService embeddingService,
                                 IHttpContextAccessor httpContextAccessor,
                                 ILogger<AiChatService> logger) : IAiChatService
     {
@@ -26,6 +30,8 @@ namespace AiChatBox.Api.Services
         private readonly IChatContextService _contextService = contextService;
         private readonly IAiLoggingService _loggingService = loggingService;
         private readonly FileProcessingService _fileProcessingService = fileProcessingService;
+        private readonly EncryptionService _encryption = encryptionService;
+        private readonly EmbeddingService _embeddingService = embeddingService;
         private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
         private readonly ILogger<AiChatService> _logger = logger;
 
@@ -154,11 +160,59 @@ namespace AiChatBox.Api.Services
                 config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == "Default");
             }
 
+            if (config != null)
+            {
+                if (config.MaxSpendLimit > 0 && config.CurrentSpend >= config.MaxSpendLimit)
+                {
+                    yield return new ChatStreamChunk { Error = "Budget limit reached for this project.", Done = true, SessionId = session.Id };
+                    yield break;
+                }
+
+                if (config.RateLimitRequests > 0)
+                {
+                    var windowStart = DateTime.UtcNow.AddMinutes(-config.RateLimitWindowMinutes);
+                    var requestCount = await _db.AiRequestLogs.CountAsync(l => l.Session.ConfigurationId == config.Id && l.CreatedAt > windowStart);
+                    if (requestCount >= config.RateLimitRequests)
+                    {
+                        yield return new ChatStreamChunk { Error = "Rate limit exceeded. Please try again later.", Done = true, SessionId = session.Id };
+                        yield break;
+                    }
+                }
+            }
+
             var systemPrompt = !string.IsNullOrEmpty(request.SystemPrompt) 
                 ? request.SystemPrompt 
                 : (!string.IsNullOrEmpty(config?.SystemPrompt) ? config.SystemPrompt 
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
+
+            if (project != null && !string.IsNullOrWhiteSpace(request.Message))
+            {
+                var hasDocs = await _db.KnowledgeDocuments.AnyAsync(d => d.ProjectId == project.Id && d.IsProcessed);
+                if (hasDocs)
+                {
+                    try
+                    {
+                        var queryEmbedding = await _embeddingService.GetEmbeddingAsync(request.Message);
+                        var relevantChunks = await _db.DocumentChunks
+                            .Where(c => c.Document!.ProjectId == project.Id)
+                            .OrderBy(c => c.Embedding!.CosineDistance(queryEmbedding))
+                            .Take(5)
+                            .Select(c => c.Content)
+                            .ToListAsync();
+
+                        if (relevantChunks.Count > 0)
+                        {
+                            var contextText = "\n\nContext from Knowledge Base:\n" + string.Join("\n---\n", relevantChunks);
+                            systemPrompt += contextText;
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "RAG retrieval failed");
+                    }
+                }
+            }
 
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
@@ -178,13 +232,16 @@ namespace AiChatBox.Api.Services
                 AttachedFileId = m.AttachedFileId
             }).ToList();
 
-            var apiKeyOverride = provider.ToLowerInvariant() switch
+            var encryptedApiKey = provider.ToLowerInvariant() switch
             {
                 "gemini" => config?.GeminiApiKey,
                 "groq" => config?.GroqApiKey,
                 "grok" => config?.GroqApiKey,
                 _ => null
             };
+
+            // Decrypt the API key — keys are stored encrypted at rest
+            var apiKeyOverride = _encryption.Decrypt(encryptedApiKey);
 
             var finalResponseText = new StringBuilder();
             string? errorMessage = null;
@@ -263,6 +320,23 @@ namespace AiChatBox.Api.Services
                 RawResponse = finalResponseText.ToString(),
                 ErrorMessage = errorMessage
             });
+
+            // Update Spend
+            if (config != null)
+            {
+                var inTokens = GeminiServerService.StaticEstimateTokenCount(request.Message ?? "");
+                var outTokens = GeminiServerService.StaticEstimateTokenCount(finalResponseText.ToString());
+                // Simple cost estimate: $1 per 1M tokens
+                var estimatedCost = (inTokens + outTokens) * 0.000001m;
+                
+                await using var bgDb = await _dbFactory.CreateDbContextAsync();
+                var dbConfig = await bgDb.Configurations.FindAsync(config.Id);
+                if (dbConfig != null)
+                {
+                    dbConfig.CurrentSpend += estimatedCost;
+                    await bgDb.SaveChangesAsync();
+                }
+            }
 
             if (errorChunk != null)
             {

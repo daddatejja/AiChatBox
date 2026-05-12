@@ -1,12 +1,14 @@
 <script setup lang="ts">
-import { useRouter, useRoute } from 'vue-router';
-import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 
-const props = defineProps<{
+defineProps<{
     collapsed: boolean;
 }>();
 
-const router = useRouter();
+const emit = defineEmits<{
+    (e: 'navigate'): void;
+}>();
+
 const route = useRoute();
 
 const navItems = [
@@ -43,6 +45,10 @@ function isActive(item: typeof navItems[0]): boolean {
     }
     return route.path.startsWith(item.to);
 }
+
+function handleNavigate() {
+    emit('navigate');
+}
 </script>
 
 <template>
@@ -67,6 +73,7 @@ function isActive(item: typeof navItems[0]): boolean {
                         :to="item.to"
                         :class="['nav-link', { active: isActive(item) }]"
                         :title="collapsed ? item.label : undefined"
+                        @click="handleNavigate"
                     >
                         <i :class="['pi', item.icon, 'nav-icon']"></i>
                         <Transition name="label-fade">

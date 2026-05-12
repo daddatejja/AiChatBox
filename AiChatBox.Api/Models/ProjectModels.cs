@@ -1,6 +1,7 @@
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Microsoft.AspNetCore.Identity;
+using Pgvector;
 
 namespace AiChatBox.Api.Models
 {
@@ -8,6 +9,14 @@ namespace AiChatBox.Api.Models
     {
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Project> Projects { get; set; } = [];
+    }
+
+    public enum KnowledgeDocumentStatus
+    {
+        Pending,
+        Processing,
+        Completed,
+        Failed
     }
 
     public class Project
@@ -39,6 +48,7 @@ namespace AiChatBox.Api.Models
         public ICollection<CustomTool> CustomTools { get; set; } = [];
         public ICollection<ChatSession> Sessions { get; set; } = [];
         public ICollection<ProjectConfiguration> Configurations { get; set; } = [];
+        public ICollection<KnowledgeDocument> KnowledgeDocuments { get; set; } = [];
     }
 
     public class ProjectConfiguration
@@ -72,6 +82,13 @@ namespace AiChatBox.Api.Models
 
         public ICollection<ApiKey> ApiKeys { get; set; } = [];
         public ICollection<ChatSession> Sessions { get; set; } = [];
+
+        // Admin Controls & Limits
+        public int RateLimitRequests { get; set; } = 0; // 0 = disabled
+        public int RateLimitWindowMinutes { get; set; } = 1;
+        public decimal MaxSpendLimit { get; set; } = 0; // 0 = disabled
+        public decimal CurrentSpend { get; set; } = 0;
+        public string? SuggestionsJson { get; set; } // JSON array of strings
     }
 
     public class ApiKey
@@ -135,5 +152,47 @@ namespace AiChatBox.Api.Models
 
         public bool IsActive { get; set; } = true;
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+    }
+
+    public class KnowledgeDocument
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid ProjectId { get; set; }
+        public Project? Project { get; set; }
+
+        [Required]
+        [MaxLength(255)]
+        public string FileName { get; set; } = string.Empty;
+
+        public string? ContentType { get; set; }
+        public long FileSize { get; set; }
+
+        public bool IsProcessed { get; set; }
+        public KnowledgeDocumentStatus Status { get; set; } = KnowledgeDocumentStatus.Pending;
+        public string? ErrorMessage { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<DocumentChunk> Chunks { get; set; } = [];
+    }
+
+    public class DocumentChunk
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid DocumentId { get; set; }
+        public KnowledgeDocument? Document { get; set; }
+
+        [Required]
+        public string Content { get; set; } = string.Empty;
+
+        [Column(TypeName = "vector(768)")] // Default for Gemini text-embedding-004
+        public Vector? Embedding { get; set; }
+
+        public int ChunkIndex { get; set; }
     }
 }

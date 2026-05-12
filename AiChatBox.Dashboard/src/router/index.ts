@@ -31,6 +31,11 @@ const router = createRouter({
           component: () => import('../views/ConfigDetail.vue')
         },
         {
+          path: 'project/:projectId/knowledge',
+          name: 'knowledge-base',
+          component: () => import('../views/KnowledgeBase.vue')
+        },
+        {
           path: 'logs',
           name: 'logs',
           component: () => import('../views/Logs.vue')

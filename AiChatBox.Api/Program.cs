@@ -34,12 +34,15 @@ builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
 
 // Database
-builder.Services.AddDbContext<ChatDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")));
+var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-builder.Services.AddDbContextFactory<ChatDbContext>(options =>
-    options.UseNpgsql(builder.Configuration.GetConnectionString("DefaultConnection")),
-    ServiceLifetime.Scoped);
+builder.Services.AddDbContext<ChatDbContext>(options => {
+    options.UseNpgsql(connectionString, o => o.UseVector());
+});
+
+builder.Services.AddDbContextFactory<ChatDbContext>((sp, options) => {
+    options.UseNpgsql(connectionString, o => o.UseVector());
+}, ServiceLifetime.Scoped);
 
 // Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options => {
@@ -89,6 +92,9 @@ builder.Services.AddAuthentication(options => {
     options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"] ?? "placeholder";
 });
 
+// Encryption
+builder.Services.AddSingleton<EncryptionService>();
+
 // AI Services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GeminiServerService>();
@@ -98,6 +104,9 @@ builder.Services.AddScoped<IChatContextService, ChatContextService>();
 builder.Services.AddScoped<IAiLoggingService, AiLoggingService>();
 builder.Services.AddScoped<GroqAudioService>();
 builder.Services.AddScoped<GeminiTtsService>();
+builder.Services.AddScoped<EmbeddingService>();
+builder.Services.AddHttpClient<GeminiServerService>();
+builder.Services.AddHttpClient<EmbeddingService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<FileProcessingService>();
 

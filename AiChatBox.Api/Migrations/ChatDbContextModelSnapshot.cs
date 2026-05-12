@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
@@ -20,6 +21,7 @@ namespace AiChatBox.Api.Migrations
                 .HasAnnotation("ProductVersion", "10.0.7")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
+            NpgsqlModelBuilderExtensions.HasPostgresExtension(modelBuilder, "vector");
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
             modelBuilder.Entity("AiChatBox.Api.Models.AiRequestLog", b =>
@@ -66,6 +68,8 @@ namespace AiChatBox.Api.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
+
+                    b.HasIndex("SessionId");
 
                     b.ToTable("AiRequestLogs");
                 });
@@ -321,6 +325,65 @@ namespace AiChatBox.Api.Migrations
                     b.ToTable("CustomTools");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.DocumentChunk", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("ChunkIndex")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("Content")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Vector>("Embedding")
+                        .HasColumnType("vector(768)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId");
+
+                    b.ToTable("DocumentChunks");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ContentType")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<long>("FileSize")
+                        .HasColumnType("bigint");
+
+                    b.Property<bool>("IsProcessed")
+                        .HasColumnType("boolean");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("KnowledgeDocuments");
+                });
+
             modelBuilder.Entity("AiChatBox.Api.Models.Project", b =>
                 {
                     b.Property<Guid>("Id")
@@ -376,6 +439,9 @@ namespace AiChatBox.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<decimal>("CurrentSpend")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("DefaultModel")
                         .IsRequired()
                         .HasColumnType("text");
@@ -397,6 +463,9 @@ namespace AiChatBox.Api.Migrations
                     b.Property<bool>("LiveVoiceEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<decimal>("MaxSpendLimit")
+                        .HasColumnType("numeric");
+
                     b.Property<string>("Name")
                         .IsRequired()
                         .HasMaxLength(100)
@@ -407,6 +476,15 @@ namespace AiChatBox.Api.Migrations
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("RateLimitRequests")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("RateLimitWindowMinutes")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("SuggestionsJson")
+                        .HasColumnType("text");
 
                     b.Property<string>("SystemPrompt")
                         .IsRequired()
@@ -597,7 +675,13 @@ namespace AiChatBox.Api.Migrations
                         .WithMany()
                         .HasForeignKey("ProjectId");
 
+                    b.HasOne("AiChatBox.Api.Models.ChatSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId");
+
                     b.Navigation("Project");
+
+                    b.Navigation("Session");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.ApiKey", b =>
@@ -666,6 +750,28 @@ namespace AiChatBox.Api.Migrations
                 {
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany("CustomTools")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.DocumentChunk", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.KnowledgeDocument", "Document")
+                        .WithMany("Chunks")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
+                        .WithMany("KnowledgeDocuments")
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -756,6 +862,11 @@ namespace AiChatBox.Api.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
+                {
+                    b.Navigation("Chunks");
+                });
+
             modelBuilder.Entity("AiChatBox.Api.Models.Project", b =>
                 {
                     b.Navigation("ApiKeys");
@@ -763,6 +874,8 @@ namespace AiChatBox.Api.Migrations
                     b.Navigation("Configurations");
 
                     b.Navigation("CustomTools");
+
+                    b.Navigation("KnowledgeDocuments");
 
                     b.Navigation("Sessions");
                 });

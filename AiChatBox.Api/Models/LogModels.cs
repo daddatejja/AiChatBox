@@ -11,6 +11,9 @@ namespace AiChatBox.Api.Models
         public Guid? SessionId { get; set; }
         public Guid? ProjectId { get; set; }
 
+        [ForeignKey(nameof(SessionId))]
+        public virtual ChatSession? Session { get; set; }
+
         [ForeignKey(nameof(ProjectId))]
         public virtual Project? Project { get; set; }
 

@@ -292,4 +292,35 @@ onMounted(() => {
     margin: 0;
     border: 1px solid var(--p-surface-800);
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+    .header-actions {
+        flex-direction: column;
+        gap: 12px;
+    }
+    .header-actions :deep(.w-64) {
+        width: 100% !important;
+    }
+    .header-actions :deep(.p-iconfield) {
+        width: 100%;
+    }
+    .header-actions :deep(.p-inputtext) {
+        width: 100% !important;
+    }
+    .header-actions :deep(.p-select) {
+        width: 100% !important;
+    }
+    .logs-container {
+        padding: 8px;
+        border-radius: 0;
+        border-left: none;
+        border-right: none;
+    }
+}
 </style>

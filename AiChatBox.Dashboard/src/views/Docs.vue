@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, nextTick } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
 import DocsGettingStarted from '../components/docs/DocsGettingStarted.vue';
 import DocsWidgetIntegration from '../components/docs/DocsWidgetIntegration.vue';
 import DocsToolCalls from '../components/docs/DocsToolCalls.vue';

@@ -281,4 +281,19 @@ const closeMenu = () => {
     opacity: 0;
     transform: translateY(-4px);
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+    .topbar {
+        padding: 0 12px;
+    }
+    .user-name,
+    .chevron-icon {
+        display: none;
+    }
+    .user-chip {
+        padding: 6px;
+        border-radius: 50%;
+    }
+}
 </style>

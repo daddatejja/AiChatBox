@@ -88,3 +88,13 @@ a:hover {
 ::-webkit-scrollbar-thumb:hover {
   background: var(--p-surface-400);
 }
+
+/* ── Mobile Responsive Breakpoints ── */
+@media (max-width: 768px) {
+  h1 {
+    font-size: 24px;
+  }
+  h2 {
+    font-size: 20px;
+  }
+}

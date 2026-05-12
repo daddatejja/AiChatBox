@@ -199,4 +199,16 @@ onMounted(load);
     gap: 12px;
     margin-top: 24px;
 }
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+    .header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 16px;
+    }
+    .grid {
+        grid-template-columns: 1fr;
+    }
+}
 </style>

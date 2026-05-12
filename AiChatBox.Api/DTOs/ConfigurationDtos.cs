@@ -12,6 +12,9 @@ namespace AiChatBox.Api.DTOs
         public bool HasGeminiKey { get; set; }
         public bool HasGroqKey { get; set; }
         public bool HasOpenAiKey { get; set; }
+        public int RateLimitRequests { get; set; }
+        public decimal MaxSpendLimit { get; set; }
+        public decimal CurrentSpend { get; set; }
         public DateTime CreatedAt { get; set; }
         public int ApiKeyCount { get; set; }
     }
@@ -22,13 +25,18 @@ namespace AiChatBox.Api.DTOs
         public Guid ProjectId { get; set; }
         public string Name { get; set; } = string.Empty;
         public string SystemPrompt { get; set; } = string.Empty;
-        public string? GeminiApiKey { get; set; }
-        public string? GroqApiKey { get; set; }
-        public string? OpenAiApiKey { get; set; }
+        public bool HasGeminiKey { get; set; }
+        public bool HasGroqKey { get; set; }
+        public bool HasOpenAiKey { get; set; }
         public string DefaultProvider { get; set; } = "gemini";
         public string DefaultModel { get; set; } = "gemini-1.5-flash";
         public bool LiveVoiceEnabled { get; set; }
         public string? EnabledModels { get; set; }
+        public int RateLimitRequests { get; set; }
+        public int RateLimitWindowMinutes { get; set; }
+        public decimal MaxSpendLimit { get; set; }
+        public decimal CurrentSpend { get; set; }
+        public string? SuggestionsJson { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -51,6 +59,10 @@ namespace AiChatBox.Api.DTOs
         public string? DefaultModel { get; set; }
         public bool? LiveVoiceEnabled { get; set; }
         public string? EnabledModels { get; set; }
+        public int? RateLimitRequests { get; set; }
+        public int? RateLimitWindowMinutes { get; set; }
+        public decimal? MaxSpendLimit { get; set; }
+        public string? SuggestionsJson { get; set; }
     }
 
     public class ProviderModelsRequest

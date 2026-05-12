@@ -947,9 +947,140 @@
 }
 .chatbox-resize-handle:hover { opacity: 1; }
 
+/* ── Mobile Responsive ── */
 @media (max-width: 600px) {
-  .chatbox-container { width: calc(100vw - 16px); right: 8px; left: 8px; bottom: 70px; height: 80vh; }
-  .chatbox-fullscreen { width: 100vw !important; height: 100dvh !important; bottom: 0 !important; right: 0 !important; left: 0 !important; top: 0 !important; }
+  .chatbox-toggle-btn {
+    bottom: 16px;
+    right: 16px;
+    width: 50px;
+    height: 50px;
+    border-radius: 14px;
+  }
+
+  .chatbox-container {
+    width: calc(100vw - 16px);
+    right: 8px;
+    left: 8px;
+    bottom: 70px;
+    height: 80vh;
+    max-height: calc(100dvh - 80px);
+    border-radius: 16px;
+  }
+
+  .chatbox-container.chatbox-fullscreen {
+    width: 100vw !important;
+    height: 100dvh !important;
+    max-height: 100dvh !important;
+    bottom: 0 !important;
+    right: 0 !important;
+    left: 0 !important;
+    top: 0 !important;
+    border-radius: 0 !important;
+  }
+
+  .chatbox-header {
+    padding: 10px 12px;
+  }
+
+  .chatbox-title span {
+    font-size: 14px;
+  }
+
+  .chatbox-header-actions {
+    gap: 0;
+  }
+
+  .header-action-btn {
+    padding: 5px;
+  }
+
+  .chatbox-messages {
+    padding: 12px;
+    gap: 10px;
+  }
+
+  .message {
+    max-width: 90%;
+  }
+
+  .chatbox-empty-state {
+    padding: 24px 16px;
+  }
+
+  .empty-state-icon-wrap {
+    width: 60px;
+    height: 60px;
+    border-radius: 18px;
+    margin-bottom: 16px;
+  }
+
+  .chatbox-empty-state h3 {
+    font-size: 18px;
+  }
+
+  .suggestion-chips {
+    grid-template-columns: 1fr;
+    max-width: 100%;
+    gap: 8px;
+  }
+
+  .suggestion-chip {
+    padding: 10px 14px;
+    border-radius: 14px;
+  }
+
+  .chatbox-input-area {
+    padding: 0 10px 10px;
+  }
+
+  .modern-input-wrapper {
+    border-radius: 22px;
+    padding: 8px 12px 6px;
+  }
+
+  .chatbox-history-drawer {
+    width: 100%;
+  }
+
+  .chatbox-minimized-live {
+    bottom: 16px;
+    right: 16px;
+  }
+
+  .live-orb-section {
+    height: 140px;
+  }
+
+  .live-controls-bar {
+    padding: 10px 12px 12px;
+  }
+
+  .live-ctrl-btn {
+    padding: 6px 14px;
+    font-size: 11px;
+  }
+}
+
+@media (max-width: 380px) {
+  .chatbox-container {
+    width: 100vw;
+    right: 0;
+    left: 0;
+    bottom: 60px;
+    height: calc(100dvh - 66px);
+    border-radius: 12px 12px 0 0;
+  }
+
+  .chatbox-toggle-btn {
+    bottom: 10px;
+    right: 10px;
+    width: 46px;
+    height: 46px;
+  }
+
+  .live-action-buttons {
+    gap: 4px;
+  }
 }
 /* ── Tool Calling Indicator ── */
 .tool-calling-indicator {
@@ -1028,3 +1159,63 @@
   border-radius: 12px;
 }
 
+
+
+/* -- Code Blocks (Premium) -- */
+.code-block-wrapper {
+  margin: 12px 0;
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid var(--border-color);
+  background: #1e293b;
+}
+.code-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #0f172a;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.copy-code-btn {
+  background: transparent;
+  border: 1px solid #334155;
+  color: #94a3b8;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 10px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: all 0.2s;
+}
+.copy-code-btn:hover {
+  background: #1e293b;
+  color: white;
+  border-color: var(--primary-color);
+}
+.ai-message pre {
+  margin: 0;
+  padding: 14px;
+  overflow-x: auto;
+  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #e2e8f0;
+}
+.ai-message code {
+  font-family: inherit;
+  color: inherit;
+}
+.ai-message p code {
+  background: #f1f5f9;
+  color: #0f172a;
+  padding: 2px 5px;
+  border-radius: 4px;
+  font-size: 12px;
+}

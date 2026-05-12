@@ -594,4 +594,53 @@ async function openWidgetPreview() {
     overflow-y: auto;
     white-space: pre-wrap;
 }
+
+/* ── Responsive ── */
+@media (max-width: 1280px) {
+    .config-sidebar {
+        display: none;
+    }
+}
+
+@media (max-width: 1024px) {
+    .sessions-sidebar {
+        display: none;
+    }
+    .playground-content {
+        gap: 0;
+    }
+}
+
+@media (max-width: 768px) {
+    .playground-layout {
+        height: calc(100vh - 80px);
+        gap: 12px;
+    }
+    .playground-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+        padding-bottom: 16px;
+    }
+    .header-controls {
+        flex-direction: column;
+        gap: 12px;
+        align-items: stretch;
+    }
+    .control-group {
+        width: 100%;
+    }
+    .control-group :deep(.p-select) {
+        width: 100% !important;
+    }
+    .header-controls :deep(.w-64) {
+        width: 100% !important;
+    }
+    .chat-input-area {
+        padding: 12px;
+    }
+    .chat-messages {
+        padding: 12px;
+    }
+}
 </style>

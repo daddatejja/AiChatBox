@@ -9,6 +9,7 @@ import Select from 'primevue/select';
 import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Password from 'primevue/password';
+import InputNumber from 'primevue/inputnumber';
 
 const route = useRoute();
 const { apiFetch } = useApi();
@@ -20,12 +21,24 @@ const config = reactive({
     name: '', 
     systemPrompt: '', 
     defaultProvider: 'gemini', 
-    defaultModel: 'gemini-1.5-flash', 
-    geminiApiKey: '', 
-    groqApiKey: '', 
-    openAiApiKey: '', 
+    defaultModel: 'gemini-3.1-flash-lite-preview', 
+    hasGeminiKey: false,
+    hasGroqKey: false,
+    hasOpenAiKey: false,
     liveVoiceEnabled: false, 
-    enabledModels: '' 
+    enabledModels: '',
+    rateLimitRequests: 0,
+    rateLimitWindowMinutes: 60,
+    maxSpendLimit: 0,
+    currentSpend: 0,
+    suggestionsJson: ''
+});
+
+// Separate reactive objects for key inputs — only sent on save, never pre-populated
+const keyInputs = reactive({
+    geminiApiKey: '',
+    groqApiKey: '',
+    openAiApiKey: ''
 });
 
 const defaultProviders = [
@@ -35,9 +48,9 @@ const defaultProviders = [
 ];
 
 const providersList = [
-    { key: 'geminiApiKey', label: 'Google Gemini', id: 'gemini' },
-    { key: 'groqApiKey', label: 'Groq', id: 'groq' },
-    { key: 'openAiApiKey', label: 'OpenAI', id: 'openai' }
+    { key: 'geminiApiKey', hasKey: 'hasGeminiKey', label: 'Google Gemini', id: 'gemini' },
+    { key: 'groqApiKey', hasKey: 'hasGroqKey', label: 'Groq', id: 'groq' },
+    { key: 'openAiApiKey', hasKey: 'hasOpenAiKey', label: 'OpenAI', id: 'openai' }
 ];
 
 const fetchingModels = ref<string | null>(null);
@@ -58,12 +71,9 @@ async function load() {
 }
 
 async function fetchModels(providerId: string) {
-    const keyField = providerId === 'gemini' ? 'geminiApiKey' : providerId === 'groq' ? 'groqApiKey' : 'openAiApiKey';
-    if (!config[keyField as keyof typeof config]) return;
-    
     fetchingModels.value = providerId;
     try {
-        const res = await apiFetch(`/api/provider/models?provider=${providerId}&apiKey=${encodeURIComponent(config[keyField as keyof typeof config] as string)}`);
+        const res = await apiFetch(`/api/configuration/${configId.value}/models/${providerId}`);
         if (res.ok) {
             providerModels[providerId] = await res.json();
         }
@@ -76,23 +86,47 @@ async function fetchModels(providerId: string) {
 async function save() {
     saving.value = true;
     saved.value = false;
+
+    const body: Record<string, any> = {
+        name: config.name, 
+        systemPrompt: config.systemPrompt,
+        defaultProvider: config.defaultProvider, 
+        defaultModel: config.defaultModel,
+        liveVoiceEnabled: config.liveVoiceEnabled,
+        enabledModels: JSON.stringify(enabledModelIds.value),
+        rateLimitRequests: config.rateLimitRequests,
+        rateLimitWindowMinutes: config.rateLimitWindowMinutes,
+        maxSpendLimit: config.maxSpendLimit,
+        suggestionsJson: config.suggestionsJson
+    };
+
+    if (keyInputs.geminiApiKey) body.geminiApiKey = keyInputs.geminiApiKey;
+    if (keyInputs.groqApiKey) body.groqApiKey = keyInputs.groqApiKey;
+    if (keyInputs.openAiApiKey) body.openAiApiKey = keyInputs.openAiApiKey;
+
     await apiFetch(`/api/configuration/${configId.value}`, {
         method: 'PUT',
-        body: JSON.stringify({
-            name: config.name, 
-            systemPrompt: config.systemPrompt,
-            defaultProvider: config.defaultProvider, 
-            defaultModel: config.defaultModel,
-            geminiApiKey: config.geminiApiKey, 
-            groqApiKey: config.groqApiKey,
-            openAiApiKey: config.openAiApiKey,
-            liveVoiceEnabled: config.liveVoiceEnabled,
-            enabledModels: JSON.stringify(enabledModelIds.value)
-        })
+        body: JSON.stringify(body)
     });
     saving.value = false;
     saved.value = true;
+
+    await load();
+
+    keyInputs.geminiApiKey = '';
+    keyInputs.groqApiKey = '';
+    keyInputs.openAiApiKey = '';
+
     setTimeout(() => saved.value = false, 3000);
+}
+
+async function clearKey(providerId: string) {
+    const keyField = providerId === 'gemini' ? 'geminiApiKey' : providerId === 'groq' ? 'groqApiKey' : 'openAiApiKey';
+    await apiFetch(`/api/configuration/${configId.value}`, {
+        method: 'PUT',
+        body: JSON.stringify({ [keyField]: '' })
+    });
+    await load();
 }
 
 onMounted(load);
@@ -129,10 +163,49 @@ onMounted(load);
                         </div>
                     </div>
                     
-                    <div class="form-group checkbox-group">
-                        <Checkbox v-model="config.liveVoiceEnabled" :binary="true" :disabled="!config.geminiApiKey" inputId="liveVoice" />
+                    <div v-if="!config.hasGeminiKey" class="form-group checkbox-group">
+                        <Checkbox v-model="config.liveVoiceEnabled" :binary="true" :disabled="!config.hasGeminiKey" inputId="liveVoice" />
                         <label for="liveVoice">Live Voice Mode</label>
-                        <span v-if="!config.geminiApiKey" class="info-text">(requires Gemini API key)</span>
+                        <span class="info-text">(requires Gemini API key)</span>
+                    </div>
+                </template>
+            </Card>
+
+            <h2 class="section-title">Administrative Controls</h2>
+            <Card class="admin-card">
+                <template #content>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Rate Limit (Requests)</label>
+                            <InputNumber v-model="config.rateLimitRequests" placeholder="0 = No limit" fluid />
+                            <small class="info-text">Maximum requests allowed within the window.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Window (Minutes)</label>
+                            <InputNumber v-model="config.rateLimitWindowMinutes" fluid />
+                            <small class="info-text">Time window for rate limiting.</small>
+                        </div>
+                    </div>
+
+                    <div class="grid-2 mt-4">
+                        <div class="form-group">
+                            <label>Spending Cap (USD)</label>
+                            <InputNumber v-model="config.maxSpendLimit" mode="currency" currency="USD" locale="en-US" placeholder="0 = No limit" fluid />
+                            <small class="info-text">Total budget for this configuration.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Current Spend (Read-only)</label>
+                            <div class="spend-display">
+                                <span class="spend-value">${{ config.currentSpend.toFixed(6) }}</span>
+                                <span class="spend-progress" :style="{ width: config.maxSpendLimit > 0 ? (Math.min(config.currentSpend / config.maxSpendLimit, 1) * 100) + '%' : '0%' }"></span>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="form-group mt-4">
+                        <label>Chat Suggestions (JSON Array)</label>
+                        <Textarea v-model="config.suggestionsJson" rows="3" placeholder='["Tell me about your services", "How can I contact support?"]' fluid />
+                        <small class="info-text">Suggested prompts shown to the user on start.</small>
                     </div>
                 </template>
             </Card>
@@ -143,18 +216,34 @@ onMounted(load);
                 <template #title>
                     <div class="provider-header">
                         <h3>{{ provider.label }}</h3>
-                        <span v-if="config[provider.key as keyof typeof config]" class="badge badge-success">Configured</span>
+                        <span v-if="config[provider.hasKey as keyof typeof config]" class="badge badge-success">Configured</span>
                     </div>
                 </template>
                 <template #content>
                     <div class="api-key-input">
-                        <Password v-model="config[provider.key as keyof typeof config] as string" :feedback="false" toggleMask :placeholder="provider.label + ' API key'" fluid class="flex-1" />
+                        <Password 
+                            v-model="keyInputs[provider.key as keyof typeof keyInputs]" 
+                            :feedback="false" 
+                            toggleMask 
+                            :placeholder="config[provider.hasKey as keyof typeof config] ? '••••••••••••••••••••' : provider.label + ' API key'" 
+                            fluid 
+                            class="flex-1" 
+                        />
                         <Button 
                             :label="fetchingModels === provider.id ? 'Loading...' : 'Fetch Models'" 
                             severity="secondary" 
                             outlined 
-                            :disabled="!config[provider.key as keyof typeof config] || fetchingModels === provider.id" 
+                            :disabled="!config[provider.hasKey as keyof typeof config] || fetchingModels === provider.id" 
                             @click="fetchModels(provider.id)" 
+                        />
+                        <Button 
+                            v-if="config[provider.hasKey as keyof typeof config]"
+                            icon="pi pi-trash" 
+                            severity="danger" 
+                            text 
+                            rounded 
+                            @click="clearKey(provider.id)" 
+                            v-tooltip="'Remove key'"
                         />
                     </div>
 
@@ -199,10 +288,35 @@ onMounted(load);
     border: 1px solid var(--p-surface-200);
     margin-bottom: 32px;
 }
-.provider-card {
+.provider-card, .admin-card {
     background-color: var(--p-surface-0);
     border: 1px solid var(--p-surface-200);
     margin-bottom: 16px;
+}
+.mt-4 { margin-top: 1.5rem; }
+.spend-display {
+    background: var(--p-surface-100);
+    border-radius: 6px;
+    padding: 8px 12px;
+    position: relative;
+    overflow: hidden;
+    height: 38px;
+    display: flex;
+    align-items: center;
+}
+.spend-value {
+    position: relative;
+    z-index: 2;
+    font-family: monospace;
+    font-weight: 600;
+}
+.spend-progress {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    background: var(--p-primary-100);
+    transition: width 0.3s ease;
 }
 .section-title {
     margin-bottom: 16px;
@@ -242,6 +356,14 @@ onMounted(load);
     grid-template-columns: 1fr 1fr;
     gap: 24px;
 }
+@media (max-width: 768px) {
+    .grid-2 {
+        grid-template-columns: 1fr;
+    }
+    .api-key-input {
+        flex-direction: column;
+    }
+}
 .checkbox-group {
     flex-direction: row;
     align-items: center;
@@ -260,6 +382,7 @@ onMounted(load);
     display: flex;
     gap: 16px;
     margin-top: 16px;
+    align-items: center;
 }
 .flex-1 {
     flex: 1;
@@ -301,5 +424,36 @@ onMounted(load);
 .saved-text {
     color: var(--p-green-600);
     font-weight: 500;
+}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 768px) {
+    .grid-2 {
+        grid-template-columns: 1fr;
+        gap: 16px;
+    }
+    .api-key-input {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .provider-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 8px;
+    }
+    .provider-header .p-button {
+        align-self: flex-start;
+    }
+    .actions {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .model-item {
+        flex-wrap: wrap;
+    }
+    .model-desc {
+        flex-basis: 100%;
+        margin-left: 36px; /* Align with label text */
+    }
 }
 </style>

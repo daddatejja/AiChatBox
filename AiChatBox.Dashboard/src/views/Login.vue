@@ -1,20 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useApi } from '../composables/useApi';
-import InputText from 'primevue/inputtext';
-import Password from 'primevue/password';
 import Button from 'primevue/button';
-import Message from 'primevue/message';
 
 const router = useRouter();
 const route = useRoute();
-const { apiFetch, API_BASE } = useApi();
-
-const email = ref('');
-const password = ref('');
-const loading = ref(false);
-const errorMsg = ref('');
+const { API_BASE } = useApi();
 
 onMounted(() => {
     // Check if we just returned from an OAuth callback
@@ -28,32 +20,6 @@ onMounted(() => {
         router.replace('/');
     }
 });
-
-const login = async () => {
-    loading.value = true;
-    errorMsg.value = '';
-    
-    try {
-        const res = await apiFetch('/api/auth/login', {
-            method: 'POST',
-            body: JSON.stringify({ email: email.value, password: password.value })
-        });
-        
-        if (res.ok) {
-            const data = await res.json();
-            localStorage.setItem('acb_token', data.token);
-            localStorage.setItem('acb_username', data.username);
-            router.push('/');
-        } else {
-            errorMsg.value = 'Invalid email or password';
-        }
-    } catch (err) {
-        console.error(err);
-        errorMsg.value = 'Failed to connect to the server';
-    } finally {
-        loading.value = false;
-    }
-};
 
 const oauthLogin = (provider: string) => {
     window.location.href = `${API_BASE}/api/auth/external-login/${provider}`;
@@ -198,5 +164,22 @@ const oauthLogin = (provider: string) => {
     display: flex;
     flex-direction: column;
     gap: 12px;
+}
+
+/* ── Mobile Responsive ── */
+@media (max-width: 480px) {
+    .login-box {
+        padding: 32px 24px;
+        border-radius: 0;
+        border: none;
+        box-shadow: none;
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+    }
+    .login-container {
+        padding: 0;
+    }
 }
 </style>

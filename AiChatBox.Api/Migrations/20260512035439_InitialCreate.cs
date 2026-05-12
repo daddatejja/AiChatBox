@@ -1,17 +1,21 @@
 ﻿using System;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
+using Pgvector;
 
 #nullable disable
 
 namespace AiChatBox.Api.Migrations
 {
     /// <inheritdoc />
-    public partial class PostgresInitial : Migration
+    public partial class InitialCreate : Migration
     {
         /// <inheritdoc />
         protected override void Up(MigrationBuilder migrationBuilder)
         {
+            migrationBuilder.AlterDatabase()
+                .Annotation("Npgsql:PostgresExtension:vector", ",,");
+
             migrationBuilder.CreateTable(
                 name: "AspNetRoles",
                 columns: table => new
@@ -203,33 +207,6 @@ namespace AiChatBox.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "AiRequestLogs",
-                columns: table => new
-                {
-                    Id = table.Column<Guid>(type: "uuid", nullable: false),
-                    SessionId = table.Column<Guid>(type: "uuid", nullable: true),
-                    ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
-                    UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
-                    Endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
-                    InputTokens = table.Column<int>(type: "integer", nullable: false),
-                    OutputTokens = table.Column<int>(type: "integer", nullable: false),
-                    DurationMs = table.Column<int>(type: "integer", nullable: false),
-                    RawRequest = table.Column<string>(type: "text", nullable: true),
-                    RawResponse = table.Column<string>(type: "text", nullable: true),
-                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_AiRequestLogs", x => x.Id);
-                    table.ForeignKey(
-                        name: "FK_AiRequestLogs_Projects_ProjectId",
-                        column: x => x.ProjectId,
-                        principalTable: "Projects",
-                        principalColumn: "Id");
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Configurations",
                 columns: table => new
                 {
@@ -244,7 +221,12 @@ namespace AiChatBox.Api.Migrations
                     DefaultModel = table.Column<string>(type: "text", nullable: false),
                     LiveVoiceEnabled = table.Column<bool>(type: "boolean", nullable: false),
                     EnabledModels = table.Column<string>(type: "character varying(4000)", maxLength: 4000, nullable: true),
-                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false),
+                    RateLimitRequests = table.Column<int>(type: "integer", nullable: false),
+                    RateLimitWindowMinutes = table.Column<int>(type: "integer", nullable: false),
+                    MaxSpendLimit = table.Column<decimal>(type: "numeric", nullable: false),
+                    CurrentSpend = table.Column<decimal>(type: "numeric", nullable: false),
+                    SuggestionsJson = table.Column<string>(type: "text", nullable: true)
                 },
                 constraints: table =>
                 {
@@ -274,6 +256,29 @@ namespace AiChatBox.Api.Migrations
                     table.PrimaryKey("PK_CustomTools", x => x.Id);
                     table.ForeignKey(
                         name: "FK_CustomTools_Projects_ProjectId",
+                        column: x => x.ProjectId,
+                        principalTable: "Projects",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "KnowledgeDocuments",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
+                    FileName = table.Column<string>(type: "character varying(255)", maxLength: 255, nullable: false),
+                    ContentType = table.Column<string>(type: "text", nullable: true),
+                    FileSize = table.Column<long>(type: "bigint", nullable: false),
+                    IsProcessed = table.Column<bool>(type: "boolean", nullable: false),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_KnowledgeDocuments", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_KnowledgeDocuments_Projects_ProjectId",
                         column: x => x.ProjectId,
                         principalTable: "Projects",
                         principalColumn: "Id",
@@ -363,6 +368,59 @@ namespace AiChatBox.Api.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "DocumentChunks",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    DocumentId = table.Column<Guid>(type: "uuid", nullable: false),
+                    Content = table.Column<string>(type: "text", nullable: false),
+                    Embedding = table.Column<Vector>(type: "vector(768)", nullable: true),
+                    ChunkIndex = table.Column<int>(type: "integer", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_DocumentChunks", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_DocumentChunks_KnowledgeDocuments_DocumentId",
+                        column: x => x.DocumentId,
+                        principalTable: "KnowledgeDocuments",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "AiRequestLogs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    SessionId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
+                    UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
+                    Endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    InputTokens = table.Column<int>(type: "integer", nullable: false),
+                    OutputTokens = table.Column<int>(type: "integer", nullable: false),
+                    DurationMs = table.Column<int>(type: "integer", nullable: false),
+                    RawRequest = table.Column<string>(type: "text", nullable: true),
+                    RawResponse = table.Column<string>(type: "text", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_AiRequestLogs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_AiRequestLogs_ChatSessions_SessionId",
+                        column: x => x.SessionId,
+                        principalTable: "ChatSessions",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_AiRequestLogs_Projects_ProjectId",
+                        column: x => x.ProjectId,
+                        principalTable: "Projects",
+                        principalColumn: "Id");
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ChatMessages",
                 columns: table => new
                 {
@@ -395,6 +453,11 @@ namespace AiChatBox.Api.Migrations
                 name: "IX_AiRequestLogs_ProjectId",
                 table: "AiRequestLogs",
                 column: "ProjectId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiRequestLogs_SessionId",
+                table: "AiRequestLogs",
+                column: "SessionId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_ApiKeys_ConfigurationId",
@@ -479,6 +542,16 @@ namespace AiChatBox.Api.Migrations
                 column: "ProjectId");
 
             migrationBuilder.CreateIndex(
+                name: "IX_DocumentChunks_DocumentId",
+                table: "DocumentChunks",
+                column: "DocumentId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_KnowledgeDocuments_ProjectId",
+                table: "KnowledgeDocuments",
+                column: "ProjectId");
+
+            migrationBuilder.CreateIndex(
                 name: "IX_Projects_UserId",
                 table: "Projects",
                 column: "UserId");
@@ -518,6 +591,9 @@ namespace AiChatBox.Api.Migrations
                 name: "CustomTools");
 
             migrationBuilder.DropTable(
+                name: "DocumentChunks");
+
+            migrationBuilder.DropTable(
                 name: "AspNetRoles");
 
             migrationBuilder.DropTable(
@@ -525,6 +601,9 @@ namespace AiChatBox.Api.Migrations
 
             migrationBuilder.DropTable(
                 name: "UploadedFiles");
+
+            migrationBuilder.DropTable(
+                name: "KnowledgeDocuments");
 
             migrationBuilder.DropTable(
                 name: "Configurations");

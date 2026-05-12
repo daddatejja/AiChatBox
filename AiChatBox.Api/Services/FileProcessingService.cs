@@ -1,13 +1,15 @@
 using AiChatBox.Api.Data;
 using AiChatBox.Api.Models;
 using Microsoft.EntityFrameworkCore;
+using Pgvector;
 using UglyToad.PdfPig;
 
 namespace AiChatBox.Api.Services
 {
-    public class FileProcessingService(ChatDbContext db, IConfiguration configuration, ILogger<FileProcessingService> logger)
+    public class FileProcessingService(ChatDbContext db, IConfiguration configuration, EmbeddingService embeddingService, ILogger<FileProcessingService> logger)
     {
         private readonly ChatDbContext _db = db;
+        private readonly EmbeddingService _embeddingService = embeddingService;
         private readonly ILogger<FileProcessingService> _logger = logger;
         private readonly string _uploadBasePath = configuration["FileStorage:BasePath"] ?? Path.Combine("wwwroot", "uploads", "chat");
         private const long MaxFileSizeBytes = 10 * 1024 * 1024; // 10 MB
@@ -75,6 +77,102 @@ namespace AiChatBox.Api.Services
             await _db.SaveChangesAsync();
 
             return fileModel;
+        }
+
+        public async Task<KnowledgeDocument> ProcessKnowledgeDocumentAsync(Guid projectId, Stream fileStream, string fileName, string contentType)
+        {
+            if (!SupportedContentTypes.Contains(contentType))
+                throw new InvalidOperationException($"Unsupported file type: {contentType}");
+
+            var projectDir = Path.Combine(_uploadBasePath, "knowledge", projectId.ToString());
+            Directory.CreateDirectory(projectDir);
+
+            var extension = Path.GetExtension(fileName);
+            var storedFileName = $"{Guid.NewGuid():N}{extension}";
+            var filePath = Path.Combine(projectDir, storedFileName);
+
+            long fileSize;
+            using (var output = new FileStream(filePath, FileMode.Create))
+            {
+                await fileStream.CopyToAsync(output);
+                fileSize = output.Length;
+            }
+
+            string extractedText = "";
+            if (contentType.StartsWith("text/") || contentType == "application/json")
+            {
+                extractedText = await File.ReadAllTextAsync(filePath);
+            }
+            else if (contentType == "application/pdf")
+            {
+                extractedText = ExtractFullPdfText(filePath);
+            }
+
+            var docModel = new KnowledgeDocument
+            {
+                ProjectId = projectId,
+                FileName = fileName,
+                ContentType = contentType,
+                FileSize = fileSize,
+                IsProcessed = false
+            };
+
+            _db.KnowledgeDocuments.Add(docModel);
+            await _db.SaveChangesAsync();
+
+            // Chunks & Embeddings
+            var chunks = ChunkText(extractedText, 1000); // 1000 characters per chunk
+            int index = 0;
+            foreach (var chunkText in chunks)
+            {
+                try
+                {
+                    var embedding = await _embeddingService.GetEmbeddingAsync(chunkText);
+                    var chunk = new DocumentChunk
+                    {
+                        DocumentId = docModel.Id,
+                        Content = chunkText,
+                        Embedding = embedding,
+                        ChunkIndex = index++
+                    };
+                    _db.DocumentChunks.Add(chunk);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "Failed to embed chunk {Index} of document {DocId}", index, docModel.Id);
+                }
+            }
+
+            docModel.IsProcessed = true;
+            await _db.SaveChangesAsync();
+
+            return docModel;
+        }
+
+        private static List<string> ChunkText(string text, int chunkSize)
+        {
+            var chunks = new List<string>();
+            if (string.IsNullOrEmpty(text)) return chunks;
+
+            for (int i = 0; i < text.Length; i += chunkSize)
+            {
+                var length = Math.Min(chunkSize, text.Length - i);
+                chunks.Add(text.Substring(i, length));
+            }
+            return chunks;
+        }
+
+        private static string ExtractFullPdfText(string filePath)
+        {
+            try
+            {
+                using var pdf = PdfDocument.Open(filePath);
+                return string.Join("\n", pdf.GetPages().Select(p => p.Text));
+            }
+            catch (Exception ex)
+            {
+                return $"[PDF Extraction Failed: {ex.Message}]";
+            }
         }
 
         public async Task<UploadedFile?> GetFileAsync(Guid fileId) => await _db.UploadedFiles.FindAsync(fileId);

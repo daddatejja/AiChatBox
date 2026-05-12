@@ -6,12 +6,14 @@ namespace AiChatBox.Api.Services
     public class LiveAudioHub(ILogger<LiveAudioHub> logger, 
                             LiveSessionManager sessionManager, 
                             IHubContext<LiveAudioHub> hubContext,
-                            ApiKeyService apiKeyService) : Hub
+                            ApiKeyService apiKeyService,
+                            EncryptionService encryptionService) : Hub
     {
         private readonly ILogger<LiveAudioHub> _logger = logger;
         private readonly LiveSessionManager _sessionManager = sessionManager;
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
         private readonly ApiKeyService _apiKeyService = apiKeyService;
+        private readonly EncryptionService _encryption = encryptionService;
 
         /// <summary>
         /// Start a live session using an API Key (widget / end-user integration).
@@ -40,7 +42,7 @@ namespace AiChatBox.Api.Services
                 }
 
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
-                var geminiApiKeyOverride = config?.GeminiApiKey;
+                var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
                 await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
             }
@@ -92,7 +94,7 @@ namespace AiChatBox.Api.Services
                 config ??= await _apiKeyService.GetDefaultConfigurationAsync(parsedProjectId);
 
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
-                var geminiApiKeyOverride = config?.GeminiApiKey;
+                var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
                 await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
             }
