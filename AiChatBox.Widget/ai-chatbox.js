@@ -300,8 +300,8 @@
           this.config = await this.safeJson(response);
           if (this.config.defaultModel) this.modelName = this.config.defaultModel;
           if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
-          if (this.config.suggestionsJson) {
-            try { this.suggestions = JSON.parse(this.config.suggestionsJson); } catch(e) {}
+          if (this.config.suggestions && Array.isArray(this.config.suggestions) && this.config.suggestions.length > 0) {
+            this.suggestions = this.config.suggestions;
           }
         }
       } catch (err) {
@@ -320,15 +320,21 @@
       this.provider = this.getAttribute("provider") || "gemini";
       this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
       this.suggestions = JSON.parse(
-        this.getAttribute("suggestions") ||
-          '["Record a new entry", "Show my last session", "What can you do?", "Help with my budget"]',
+        this.getAttribute("suggestions") || '[]',
       );
+      if (this.suggestions.length === 0) {
+          this.suggestions = ["Good morning", "How can you help me?", "Tell me a joke"];
+      }
 
       await this.fetchConfig();
       this.render();
       this.setupEventListeners();
       this.setupDraggable();
-      if (this.currentSessionId) this.loadSessionMessages(this.currentSessionId);
+      if (this.currentSessionId) {
+        this.loadSessionMessages(this.currentSessionId);
+      } else {
+        this.renderEmptyState();
+      }
       this.loadSessions();
     }
 
@@ -917,9 +923,13 @@
       if (this.liveConnection) {
         try {
           await this.liveConnection.invoke("SendToolResult", name, JSON.stringify(result));
-          div.querySelector(".live-msg-bubble").innerHTML = `<span>Tool <strong>${name}</strong> executed successfully.</span>`;
+          div.style.opacity = '0';
+          div.style.transition = 'opacity 0.3s ease';
+          setTimeout(() => div.remove(), 300);
         } catch (err) {
           console.error("Failed to send tool result:", err);
+          div.querySelector(".live-msg-bubble").innerHTML = `<span style="color:var(--danger-color)">Failed to execute <strong>${name}</strong></span>`;
+          setTimeout(() => div.remove(), 5000);
         }
       }
     }

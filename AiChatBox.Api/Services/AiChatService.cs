@@ -186,34 +186,6 @@ namespace AiChatBox.Api.Services
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
 
-            if (project != null && !string.IsNullOrWhiteSpace(request.Message))
-            {
-                var hasDocs = await _db.KnowledgeDocuments.AnyAsync(d => d.ProjectId == project.Id && d.IsProcessed);
-                if (hasDocs)
-                {
-                    try
-                    {
-                        var queryEmbedding = await _embeddingService.GetEmbeddingAsync(request.Message);
-                        var relevantChunks = await _db.DocumentChunks
-                            .Where(c => c.Document!.ProjectId == project.Id)
-                            .OrderBy(c => c.Embedding!.CosineDistance(queryEmbedding))
-                            .Take(5)
-                            .Select(c => c.Content)
-                            .ToListAsync();
-
-                        if (relevantChunks.Count > 0)
-                        {
-                            var contextText = "\n\nContext from Knowledge Base:\n" + string.Join("\n---\n", relevantChunks);
-                            systemPrompt += contextText;
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "RAG retrieval failed");
-                    }
-                }
-            }
-
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
                 : (config != null ? config.DefaultModel
@@ -240,8 +212,46 @@ namespace AiChatBox.Api.Services
                 _ => null
             };
 
-            // Decrypt the API key — keys are stored encrypted at rest
             var apiKeyOverride = _encryption.Decrypt(encryptedApiKey);
+
+            // For RAG retrieval, we always need the Gemini API Key for embeddings
+            var geminiApiKeyForRag = provider.ToLowerInvariant() == "gemini" 
+                ? apiKeyOverride 
+                : _encryption.Decrypt(config?.GeminiApiKey);
+
+            if (project != null && !string.IsNullOrWhiteSpace(request.Message))
+            {
+                var hasDocs = await _db.KnowledgeDocuments.AnyAsync(d => d.ProjectId == project.Id && d.IsProcessed);
+                if (hasDocs)
+                {
+                    try
+                    {
+                        // Use the Gemini API key specifically for embeddings
+                        var queryEmbedding = await _embeddingService.GetEmbeddingAsync(request.Message, apiKeyOverride: geminiApiKeyForRag, projectId: project?.Id, userId: userId);
+                        var relevantChunks = await _db.DocumentChunks
+                            .Where(c => c.Document!.ProjectId == project.Id)
+                            .OrderBy(c => c.Embedding!.CosineDistance(queryEmbedding))
+                            .Take(5)
+                            .Select(c => c.Content)
+                            .ToListAsync();
+
+                        if (relevantChunks.Count > 0)
+                        {
+                            _logger.LogInformation("RAG found {Count} relevant chunks for project {ProjectId}", relevantChunks.Count, project.Id);
+                            var contextText = "\n\nContext from Knowledge Base:\n" + string.Join("\n---\n", relevantChunks);
+                            systemPrompt += contextText;
+                        }
+                        else
+                        {
+                            _logger.LogInformation("RAG found no relevant chunks for project {ProjectId}", project.Id);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogWarning(ex, "RAG retrieval failed for project {ProjectId}", project.Id);
+                    }
+                }
+            }
 
             var finalResponseText = new StringBuilder();
             string? errorMessage = null;
@@ -280,6 +290,11 @@ namespace AiChatBox.Api.Services
                     if (bgSession != null) bgSession.LastMessageAt = DateTime.UtcNow;
                     await bgDb.SaveChangesAsync();
                 }
+                else
+                {
+                    _logger.LogWarning("AI returned an empty response for session {SessionId}, project {ProjectId}, provider {Provider}, model {Model}", 
+                        session.Id, project?.Id, provider, modelName);
+                }
             }
 
             var enumerator = StreamInternal().GetAsyncEnumerator(cancellationToken);
@@ -312,6 +327,8 @@ namespace AiChatBox.Api.Services
                 SessionId = session.Id,
                 UserId = userId,
                 ProjectId = project?.Id,
+                Provider = provider,
+                Model = modelName,
                 Endpoint = "/api/chat",
                 InputTokens = GeminiServerService.StaticEstimateTokenCount(request.Message ?? ""),
                 OutputTokens = GeminiServerService.StaticEstimateTokenCount(finalResponseText.ToString()),

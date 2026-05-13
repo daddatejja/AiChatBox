@@ -38,6 +38,7 @@ namespace AiChatBox.Api.Controllers
                     HasGeminiKey = c.GeminiApiKey != null,
                     HasGroqKey = c.GroqApiKey != null,
                     HasOpenAiKey = c.OpenAiApiKey != null,
+                    HasFirecrawlKey = c.FirecrawlApiKey != null,
                     RateLimitRequests = c.RateLimitRequests,
                     MaxSpendLimit = c.MaxSpendLimit,
                     CurrentSpend = c.CurrentSpend,
@@ -67,6 +68,7 @@ namespace AiChatBox.Api.Controllers
                 HasGeminiKey = config.GeminiApiKey != null,
                 HasGroqKey = config.GroqApiKey != null,
                 HasOpenAiKey = config.OpenAiApiKey != null,
+                HasFirecrawlKey = config.FirecrawlApiKey != null,
                 DefaultProvider = config.DefaultProvider,
                 DefaultModel = config.DefaultModel,
                 LiveVoiceEnabled = config.LiveVoiceEnabled,
@@ -126,6 +128,7 @@ namespace AiChatBox.Api.Controllers
             if (model.GeminiApiKey != null) config.GeminiApiKey = model.GeminiApiKey == "" ? null : _encryption.Encrypt(model.GeminiApiKey);
             if (model.GroqApiKey != null) config.GroqApiKey = model.GroqApiKey == "" ? null : _encryption.Encrypt(model.GroqApiKey);
             if (model.OpenAiApiKey != null) config.OpenAiApiKey = model.OpenAiApiKey == "" ? null : _encryption.Encrypt(model.OpenAiApiKey);
+            if (model.FirecrawlApiKey != null) config.FirecrawlApiKey = model.FirecrawlApiKey == "" ? null : _encryption.Encrypt(model.FirecrawlApiKey);
 
             if (model.DefaultProvider != null) config.DefaultProvider = model.DefaultProvider;
             if (model.DefaultModel != null) config.DefaultModel = model.DefaultModel;

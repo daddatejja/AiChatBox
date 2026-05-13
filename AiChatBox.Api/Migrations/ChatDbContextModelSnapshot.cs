@@ -46,11 +46,19 @@ namespace AiChatBox.Api.Migrations
                     b.Property<int>("InputTokens")
                         .HasColumnType("integer");
 
+                    b.Property<string>("Model")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
                     b.Property<int>("OutputTokens")
                         .HasColumnType("integer");
 
                     b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<string>("Provider")
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
 
                     b.Property<string>("RawRequest")
                         .HasColumnType("text");
@@ -342,7 +350,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<Vector>("Embedding")
-                        .HasColumnType("vector(768)");
+                        .HasColumnType("vector(3072)");
 
                     b.HasKey("Id");
 
@@ -363,6 +371,9 @@ namespace AiChatBox.Api.Migrations
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
                     b.Property<string>("FileName")
                         .IsRequired()
                         .HasMaxLength(255)
@@ -376,6 +387,12 @@ namespace AiChatBox.Api.Migrations
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("StoredFileName")
+                        .HasColumnType("text");
 
                     b.HasKey("Id");
 
@@ -453,6 +470,9 @@ namespace AiChatBox.Api.Migrations
                     b.Property<string>("EnabledModels")
                         .HasMaxLength(4000)
                         .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("FirecrawlApiKey")
+                        .HasColumnType("text");
 
                     b.Property<string>("GeminiApiKey")
                         .HasColumnType("text");
@@ -535,6 +555,44 @@ namespace AiChatBox.Api.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("UploadedFiles");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.WebsiteCrawlJob", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BaseUrl")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ErrorMessage")
+                        .HasColumnType("text");
+
+                    b.Property<string>("FirecrawlJobId")
+                        .HasColumnType("text");
+
+                    b.Property<int>("MaxPages")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("PagesCrawled")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Status")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("WebsiteCrawlJobs");
                 });
 
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRole", b =>
@@ -801,6 +859,17 @@ namespace AiChatBox.Api.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.WebsiteCrawlJob", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
+                        .WithMany("WebsiteCrawlJobs")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
             modelBuilder.Entity("Microsoft.AspNetCore.Identity.IdentityRoleClaim<string>", b =>
                 {
                     b.HasOne("Microsoft.AspNetCore.Identity.IdentityRole", null)
@@ -878,6 +947,8 @@ namespace AiChatBox.Api.Migrations
                     b.Navigation("KnowledgeDocuments");
 
                     b.Navigation("Sessions");
+
+                    b.Navigation("WebsiteCrawlJobs");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.ProjectConfiguration", b =>

@@ -217,6 +217,7 @@ namespace AiChatBox.Api.Migrations
                     GeminiApiKey = table.Column<string>(type: "text", nullable: true),
                     GroqApiKey = table.Column<string>(type: "text", nullable: true),
                     OpenAiApiKey = table.Column<string>(type: "text", nullable: true),
+                    FirecrawlApiKey = table.Column<string>(type: "text", nullable: true),
                     DefaultProvider = table.Column<string>(type: "text", nullable: false),
                     DefaultModel = table.Column<string>(type: "text", nullable: false),
                     LiveVoiceEnabled = table.Column<bool>(type: "boolean", nullable: false),
@@ -272,6 +273,9 @@ namespace AiChatBox.Api.Migrations
                     ContentType = table.Column<string>(type: "text", nullable: true),
                     FileSize = table.Column<long>(type: "bigint", nullable: false),
                     IsProcessed = table.Column<bool>(type: "boolean", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    StoredFileName = table.Column<string>(type: "text", nullable: true),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -279,6 +283,31 @@ namespace AiChatBox.Api.Migrations
                     table.PrimaryKey("PK_KnowledgeDocuments", x => x.Id);
                     table.ForeignKey(
                         name: "FK_KnowledgeDocuments_Projects_ProjectId",
+                        column: x => x.ProjectId,
+                        principalTable: "Projects",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
+                name: "WebsiteCrawlJobs",
+                columns: table => new
+                {
+                    Id = table.Column<Guid>(type: "uuid", nullable: false),
+                    ProjectId = table.Column<Guid>(type: "uuid", nullable: false),
+                    BaseUrl = table.Column<string>(type: "text", nullable: false),
+                    MaxPages = table.Column<int>(type: "integer", nullable: false),
+                    PagesCrawled = table.Column<int>(type: "integer", nullable: false),
+                    Status = table.Column<int>(type: "integer", nullable: false),
+                    FirecrawlJobId = table.Column<string>(type: "text", nullable: true),
+                    ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_WebsiteCrawlJobs", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_WebsiteCrawlJobs_Projects_ProjectId",
                         column: x => x.ProjectId,
                         principalTable: "Projects",
                         principalColumn: "Id",
@@ -374,7 +403,7 @@ namespace AiChatBox.Api.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     DocumentId = table.Column<Guid>(type: "uuid", nullable: false),
                     Content = table.Column<string>(type: "text", nullable: false),
-                    Embedding = table.Column<Vector>(type: "vector(768)", nullable: true),
+                    Embedding = table.Column<Vector>(type: "vector(3072)", nullable: true),
                     ChunkIndex = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
@@ -397,6 +426,8 @@ namespace AiChatBox.Api.Migrations
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
                     UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
                     Endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
+                    Provider = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
+                    Model = table.Column<string>(type: "character varying(100)", maxLength: 100, nullable: true),
                     InputTokens = table.Column<int>(type: "integer", nullable: false),
                     OutputTokens = table.Column<int>(type: "integer", nullable: false),
                     DurationMs = table.Column<int>(type: "integer", nullable: false),
@@ -555,6 +586,11 @@ namespace AiChatBox.Api.Migrations
                 name: "IX_Projects_UserId",
                 table: "Projects",
                 column: "UserId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_WebsiteCrawlJobs_ProjectId",
+                table: "WebsiteCrawlJobs",
+                column: "ProjectId");
         }
 
         /// <inheritdoc />
@@ -592,6 +628,9 @@ namespace AiChatBox.Api.Migrations
 
             migrationBuilder.DropTable(
                 name: "DocumentChunks");
+
+            migrationBuilder.DropTable(
+                name: "WebsiteCrawlJobs");
 
             migrationBuilder.DropTable(
                 name: "AspNetRoles");

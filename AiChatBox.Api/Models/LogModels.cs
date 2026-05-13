@@ -22,6 +22,12 @@ namespace AiChatBox.Api.Models
 
         [MaxLength(200)]
         public string? Endpoint { get; set; }
+        
+        [MaxLength(50)]
+        public string? Provider { get; set; }
+        
+        [MaxLength(100)]
+        public string? Model { get; set; }
 
         public int InputTokens { get; set; }
         public int OutputTokens { get; set; }

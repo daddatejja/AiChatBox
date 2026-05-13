@@ -1,4 +1,5 @@
 using AiChatBox.Api.Models;
+using Pgvector;
 
 namespace AiChatBox.Api.Interfaces
 {
@@ -11,6 +12,11 @@ namespace AiChatBox.Api.Interfaces
     public interface IAiLoggingService
     {
         Task LogRequestAsync(AiRequestLog log);
+    }
+
+    public interface IEmbeddingService
+    {
+        Task<Vector> GetEmbeddingAsync(string text, string? apiKeyOverride = null, Guid? projectId = null, string? userId = null);
     }
 
     public interface IFileService
@@ -39,5 +45,6 @@ namespace AiChatBox.Api.Interfaces
         Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default);
         Task SendTextMessageAsync(string text, CancellationToken cancellationToken = default);
         Task CompleteTurnAsync(CancellationToken cancellationToken = default);
+        Task SendToolResponseAsync(string id, string name, object response, CancellationToken cancellationToken = default);
     }
 }

@@ -4,15 +4,27 @@ using System.Text.Json;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Models;
+using AiChatBox.Api.Data;
+using Microsoft.EntityFrameworkCore;
+using Pgvector.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Services
 {
-    public class GeminiLiveService(IConfiguration config, ILogger<GeminiLiveService> logger, IChatContextService contextService, IAiLoggingService aiLogger) : IGeminiLiveService
+    public class GeminiLiveService(IConfiguration config, 
+                                   ILogger<GeminiLiveService> logger, 
+                                   IChatContextService contextService, 
+                                   IAiLoggingService aiLogger,
+                                   IDbContextFactory<ChatDbContext> dbFactory,
+                                   IEmbeddingService embeddingService,
+                                   ToolRegistry toolRegistry) : IGeminiLiveService
     {
         private readonly string _apiKey = config["Gemini:ApiKey"] ?? "";
         private readonly ILogger<GeminiLiveService> _logger = logger;
         private readonly IChatContextService _contextService = contextService;
         private readonly IAiLoggingService _aiLogger = aiLogger;
+        private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
+        private readonly IEmbeddingService _embeddingService = embeddingService;
+        private readonly ToolRegistry _toolRegistry = toolRegistry;
         
         private ClientWebSocket? _webSocket;
         private CancellationTokenSource? _cts;
@@ -79,6 +91,8 @@ namespace AiChatBox.Api.Services
                     {
                         ProjectId = this.ProjectId,
                         UserId = this.UserId,
+                        Provider = "gemini",
+                        Model = "gemini-2.5-flash-native-audio-latest",
                         Endpoint = "GeminiLive/Connect",
                         ErrorMessage = ex.Message,
                         DurationMs = (int)(DateTime.UtcNow - _sessionStart).TotalMilliseconds
@@ -123,6 +137,7 @@ namespace AiChatBox.Api.Services
                     {
                         Parts = [new GeminiLivePart { Text = systemPrompt }]
                     },
+                    Tools = BuildToolDeclarations(),
                     InputAudioTranscription = new { },
                     OutputAudioTranscription = new { }
                 }
@@ -248,6 +263,8 @@ namespace AiChatBox.Api.Services
                         {
                             ProjectId = this.ProjectId,
                             UserId = this.UserId,
+                            Provider = "gemini",
+                            Model = "gemini-2.5-flash-native-audio-latest",
                             Endpoint = "GeminiLive/ApiError",
                             ErrorMessage = response.Error.Message,
                             RawResponse = json
@@ -313,12 +330,17 @@ namespace AiChatBox.Api.Services
                         {
                             ProjectId = this.ProjectId,
                             UserId = this.UserId,
+                            Provider = "gemini",
+                            Model = "models/gemini-2.5-flash-native-audio-latest",
                             Endpoint = "GeminiLive/ToolCall",
                             RawResponse = JsonSerializer.Serialize(fc, _jsonOptions),
                             DurationMs = 0
                         });
                         
                         if (OnToolCall != null) await OnToolCall.Invoke(fc.Id, fc.Name, fc.Args);
+
+                        // Auto-execute tools in Live mode
+                        await ExecuteAndSendToolResponseAsync(fc, cancellationToken);
                     }
                 }
             }
@@ -326,6 +348,77 @@ namespace AiChatBox.Api.Services
             {
                 _logger.LogError(ex, "Error parsing Gemini message");
             }
+        }
+
+        private object[] BuildToolDeclarations()
+        {
+            var tools = new List<ITool>(_toolRegistry.GetAllTools());
+            if (ProjectId.HasValue)
+            {
+                var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
+                tools.Add(new Services.Tools.KnowledgeSearchTool(_dbFactory, _embeddingService, ProjectId.Value, apiKey));
+            }
+
+            return new[]
+            {
+                new
+                {
+                    function_declarations = tools.Select(t => new
+                    {
+                        name = t.Name,
+                        description = t.Description,
+                        parameters = t.ParametersSchema
+                    }).ToArray()
+                }
+            };
+        }
+
+        private async Task ExecuteAndSendToolResponseAsync(GeminiLiveFunctionCall fc, CancellationToken cancellationToken)
+        {
+            try
+            {
+                var tools = new List<ITool>(_toolRegistry.GetAllTools());
+                if (ProjectId.HasValue)
+                {
+                    var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
+                    tools.Add(new Services.Tools.KnowledgeSearchTool(_dbFactory, _embeddingService, ProjectId.Value, apiKey));
+                }
+
+                var tool = tools.FirstOrDefault(t => t.Name == fc.Name);
+                if (tool == null)
+                {
+                    await SendToolResponseAsync(fc.Id, fc.Name, new { error = $"Tool '{fc.Name}' not found." }, cancellationToken);
+                    return;
+                }
+
+                var argsJson = JsonSerializer.Serialize(fc.Args);
+                var result = await tool.ExecuteAsync(argsJson, UserId ?? "live-user");
+
+                await SendToolResponseAsync(fc.Id, fc.Name, new { result = result.Content }, cancellationToken);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to execute tool {ToolName} in Live mode", fc.Name);
+                await SendToolResponseAsync(fc.Id, fc.Name, new { error = ex.Message }, cancellationToken);
+            }
+        }
+
+        public async Task SendToolResponseAsync(string id, string name, object response, CancellationToken cancellationToken = default)
+        {
+            var req = new GeminiLiveClientContentRequest
+            {
+                ToolResponse = new GeminiLiveToolResponse
+                {
+                    FunctionResponses = [new GeminiLiveFunctionResponse
+                    {
+                        Id = id,
+                        Name = name,
+                        Response = response
+                    }]
+                }
+            };
+            var json = JsonSerializer.Serialize(req, _jsonOptions);
+            await SendJsonAsync(json, cancellationToken);
         }
 
         public async ValueTask DisposeAsync()
@@ -338,6 +431,8 @@ namespace AiChatBox.Api.Services
                     {
                         ProjectId = this.ProjectId,
                         UserId = this.UserId,
+                        Provider = "gemini",
+                        Model = "gemini-2.5-flash-native-audio-latest",
                         Endpoint = "GeminiLive/Session",
                         RawRequest = _sessionInput.ToString(),
                         RawResponse = _sessionOutput.ToString(),

@@ -49,6 +49,27 @@ namespace AiChatBox.Api.Models
         public ICollection<ChatSession> Sessions { get; set; } = [];
         public ICollection<ProjectConfiguration> Configurations { get; set; } = [];
         public ICollection<KnowledgeDocument> KnowledgeDocuments { get; set; } = [];
+        public ICollection<WebsiteCrawlJob> WebsiteCrawlJobs { get; set; } = [];
+    }
+
+    public class WebsiteCrawlJob
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid ProjectId { get; set; }
+        public Project? Project { get; set; }
+
+        [Required]
+        public string BaseUrl { get; set; } = string.Empty;
+
+        public int MaxPages { get; set; } = 10; // Default limit for safety
+        public int PagesCrawled { get; set; } = 0;
+        public KnowledgeDocumentStatus Status { get; set; } = KnowledgeDocumentStatus.Pending;
+        public string? FirecrawlJobId { get; set; }
+        public string? ErrorMessage { get; set; }
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
     public class ProjectConfiguration
@@ -69,9 +90,10 @@ namespace AiChatBox.Api.Models
         public string? GeminiApiKey { get; set; }
         public string? GroqApiKey { get; set; }
         public string? OpenAiApiKey { get; set; }
+        public string? FirecrawlApiKey { get; set; }
 
         public string DefaultProvider { get; set; } = "gemini";
-        public string DefaultModel { get; set; } = "gemini-1.5-flash";
+        public string DefaultModel { get; set; } = "gemini-3.1-flash-lite-preview";
 
         public bool LiveVoiceEnabled { get; set; }
 
@@ -173,6 +195,7 @@ namespace AiChatBox.Api.Models
         public bool IsProcessed { get; set; }
         public KnowledgeDocumentStatus Status { get; set; } = KnowledgeDocumentStatus.Pending;
         public string? ErrorMessage { get; set; }
+        public string? StoredFileName { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
         public ICollection<DocumentChunk> Chunks { get; set; } = [];
@@ -190,7 +213,7 @@ namespace AiChatBox.Api.Models
         [Required]
         public string Content { get; set; } = string.Empty;
 
-        [Column(TypeName = "vector(768)")] // Default for Gemini text-embedding-004
+        [Column(TypeName = "vector(3072)")]
         public Vector? Embedding { get; set; }
 
         public int ChunkIndex { get; set; }

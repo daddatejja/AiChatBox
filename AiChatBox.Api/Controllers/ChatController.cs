@@ -154,6 +154,9 @@ namespace AiChatBox.Api.Controllers
                 DefaultModel = config?.DefaultModel ?? project.ModelName,
                 LiveVoiceEnabled = config?.LiveVoiceEnabled ?? false,
                 EnabledModels = enabledModels,
+                Suggestions = !string.IsNullOrEmpty(config?.SuggestionsJson) 
+                    ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(config.SuggestionsJson) ?? [] 
+                    : [],
                 SystemPrompt = config?.SystemPrompt ?? project.SystemPrompt
             });
         }

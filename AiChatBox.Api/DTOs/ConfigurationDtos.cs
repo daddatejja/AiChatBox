@@ -12,6 +12,7 @@ namespace AiChatBox.Api.DTOs
         public bool HasGeminiKey { get; set; }
         public bool HasGroqKey { get; set; }
         public bool HasOpenAiKey { get; set; }
+        public bool HasFirecrawlKey { get; set; }
         public int RateLimitRequests { get; set; }
         public decimal MaxSpendLimit { get; set; }
         public decimal CurrentSpend { get; set; }
@@ -28,6 +29,7 @@ namespace AiChatBox.Api.DTOs
         public bool HasGeminiKey { get; set; }
         public bool HasGroqKey { get; set; }
         public bool HasOpenAiKey { get; set; }
+        public bool HasFirecrawlKey { get; set; }
         public string DefaultProvider { get; set; } = "gemini";
         public string DefaultModel { get; set; } = "gemini-1.5-flash";
         public bool LiveVoiceEnabled { get; set; }
@@ -55,6 +57,7 @@ namespace AiChatBox.Api.DTOs
         public string? GeminiApiKey { get; set; }
         public string? GroqApiKey { get; set; }
         public string? OpenAiApiKey { get; set; }
+        public string? FirecrawlApiKey { get; set; }
         public string? DefaultProvider { get; set; }
         public string? DefaultModel { get; set; }
         public bool? LiveVoiceEnabled { get; set; }

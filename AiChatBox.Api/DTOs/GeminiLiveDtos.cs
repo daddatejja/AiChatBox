@@ -128,7 +128,30 @@ namespace AiChatBox.Api.DTOs
     public class GeminiLiveClientContentRequest
     {
         [JsonPropertyName("clientContent")]
-        public GeminiLiveClientContent ClientContent { get; set; }
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public GeminiLiveClientContent? ClientContent { get; set; }
+
+        [JsonPropertyName("toolResponse")]
+        [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+        public GeminiLiveToolResponse? ToolResponse { get; set; }
+    }
+
+    public class GeminiLiveToolResponse
+    {
+        [JsonPropertyName("functionResponses")]
+        public GeminiLiveFunctionResponse[] FunctionResponses { get; set; }
+    }
+
+    public class GeminiLiveFunctionResponse
+    {
+        [JsonPropertyName("id")]
+        public string Id { get; set; }
+
+        [JsonPropertyName("name")]
+        public string Name { get; set; }
+
+        [JsonPropertyName("response")]
+        public object Response { get; set; }
     }
 
     public class GeminiLiveClientContent

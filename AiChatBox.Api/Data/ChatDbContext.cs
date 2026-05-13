@@ -20,12 +20,19 @@ namespace AiChatBox.Api.Data
         public DbSet<ConfigurationHistory> ConfigurationHistories { get; set; }
         public DbSet<KnowledgeDocument> KnowledgeDocuments { get; set; }
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
+        public DbSet<WebsiteCrawlJob> WebsiteCrawlJobs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
             
             modelBuilder.HasPostgresExtension("vector");
+
+            modelBuilder.Entity<Project>()
+                .HasMany(p => p.WebsiteCrawlJobs)
+                .WithOne(j => j.Project)
+                .HasForeignKey(j => j.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Project>()
                 .HasOne(p => p.User)
@@ -88,6 +95,10 @@ namespace AiChatBox.Api.Data
                 .WithOne(d => d.Project)
                 .HasForeignKey(d => d.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<DocumentChunk>()
+                .Property(c => c.Embedding)
+                .HasColumnType("vector(3072)");
         }
     }
 }

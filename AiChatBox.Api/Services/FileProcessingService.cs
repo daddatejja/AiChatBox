@@ -79,7 +79,7 @@ namespace AiChatBox.Api.Services
             return fileModel;
         }
 
-        public async Task<KnowledgeDocument> ProcessKnowledgeDocumentAsync(Guid projectId, Stream fileStream, string fileName, string contentType)
+        public async Task<KnowledgeDocument> ProcessKnowledgeDocumentAsync(Guid projectId, Stream fileStream, string fileName, string contentType, string? geminiApiKey = null)
         {
             if (!SupportedContentTypes.Contains(contentType))
                 throw new InvalidOperationException($"Unsupported file type: {contentType}");
@@ -108,44 +108,81 @@ namespace AiChatBox.Api.Services
                 extractedText = ExtractFullPdfText(filePath);
             }
 
-            var docModel = new KnowledgeDocument
-            {
-                ProjectId = projectId,
-                FileName = fileName,
-                ContentType = contentType,
-                FileSize = fileSize,
-                IsProcessed = false
-            };
+            var docModel = await _db.KnowledgeDocuments
+                .FirstOrDefaultAsync(d => d.ProjectId == projectId && d.FileName == fileName && d.FileSize == fileSize);
 
-            _db.KnowledgeDocuments.Add(docModel);
-            await _db.SaveChangesAsync();
-
-            // Chunks & Embeddings
-            var chunks = ChunkText(extractedText, 1000); // 1000 characters per chunk
-            int index = 0;
-            foreach (var chunkText in chunks)
+            if (docModel == null)
             {
-                try
+                docModel = new KnowledgeDocument
                 {
-                    var embedding = await _embeddingService.GetEmbeddingAsync(chunkText);
-                    var chunk = new DocumentChunk
-                    {
-                        DocumentId = docModel.Id,
-                        Content = chunkText,
-                        Embedding = embedding,
-                        ChunkIndex = index++
-                    };
-                    _db.DocumentChunks.Add(chunk);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Failed to embed chunk {Index} of document {DocId}", index, docModel.Id);
-                }
+                    ProjectId = projectId,
+                    FileName = fileName,
+                    ContentType = contentType,
+                    FileSize = fileSize,
+                    StoredFileName = storedFileName,
+                    Status = KnowledgeDocumentStatus.Processing
+                };
+                _db.KnowledgeDocuments.Add(docModel);
+            }
+            else
+            {
+                // Clean up old chunks if retrying
+                var oldChunks = _db.DocumentChunks.Where(c => c.DocumentId == docModel.Id);
+                _db.DocumentChunks.RemoveRange(oldChunks);
+                docModel.Status = KnowledgeDocumentStatus.Processing;
+                docModel.ErrorMessage = null;
+                docModel.StoredFileName = storedFileName; 
             }
 
-            docModel.IsProcessed = true;
             await _db.SaveChangesAsync();
 
+            try
+            {
+                var chunks = ChunkText(extractedText, 1000);
+                int index = 0;
+                int successCount = 0;
+
+                foreach (var chunkText in chunks)
+                {
+                    try
+                    {
+                        var embedding = await _embeddingService.GetEmbeddingAsync(chunkText, geminiApiKey, projectId: projectId);
+                        var chunk = new DocumentChunk
+                        {
+                            DocumentId = docModel.Id,
+                            Content = chunkText,
+                            Embedding = embedding,
+                            ChunkIndex = index++
+                        };
+                        _db.DocumentChunks.Add(chunk);
+                        successCount++;
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex, "Failed to embed chunk {Index} of document {DocId}", index, docModel.Id);
+                        // We continue with other chunks, but we'll report if overall it fails
+                    }
+                }
+
+                if (successCount == 0 && chunks.Count > 0)
+                {
+                    docModel.Status = KnowledgeDocumentStatus.Failed;
+                    docModel.ErrorMessage = "Failed to generate embeddings for any of the document chunks. Check your API key.";
+                }
+                else
+                {
+                    docModel.Status = KnowledgeDocumentStatus.Completed;
+                    docModel.IsProcessed = true;
+                }
+            }
+            catch (Exception ex)
+            {
+                docModel.Status = KnowledgeDocumentStatus.Failed;
+                docModel.ErrorMessage = ex.Message;
+                _logger.LogError(ex, "Unexpected error processing document {DocId}", docModel.Id);
+            }
+
+            await _db.SaveChangesAsync();
             return docModel;
         }
 

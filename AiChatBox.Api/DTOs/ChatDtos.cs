@@ -101,6 +101,7 @@ namespace AiChatBox.Api.DTOs
         public string DefaultModel { get; set; } = "gemini-3.1-flash-lite-preview";
         public bool LiveVoiceEnabled { get; set; }
         public List<ModelOptionDto> EnabledModels { get; set; } = [];
+        public List<string> Suggestions { get; set; } = [];
         public string? SystemPrompt { get; set; }
     }
 

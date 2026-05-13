@@ -183,8 +183,58 @@ namespace AiChatBox.Api.Services
 
             foreach (var msg in messages)
             {
-                var role = msg.Role == "user" ? "user" : "assistant";
-                openAiMessages.Add(new { role, content = msg.Content });
+                if (msg.Role == "user")
+                {
+                    openAiMessages.Add(new { role = "user", content = msg.Content });
+                }
+                else if (msg.Role == "model")
+                {
+                    if (!string.IsNullOrEmpty(msg.Content) && msg.Content.TrimStart().StartsWith("{"))
+                    {
+                        try
+                        {
+                            using var doc = JsonDocument.Parse(msg.Content);
+                            if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
+                            {
+                                var id = toolCall.TryGetProperty("id", out var idEl) ? idEl.GetString() : Guid.NewGuid().ToString();
+                                var name = toolCall.GetProperty("name").GetString();
+                                var args = toolCall.GetProperty("args").GetRawText();
+                                
+                                openAiMessages.Add(new 
+                                { 
+                                    role = "assistant", 
+                                    tool_calls = new[] 
+                                    { 
+                                        new { id, type = "function", function = new { name, arguments = args } } 
+                                    } 
+                                });
+                                continue;
+                            }
+                        }
+                        catch { }
+                    }
+                    openAiMessages.Add(new { role = "assistant", content = msg.Content });
+                }
+                else if (msg.Role == "function")
+                {
+                    try
+                    {
+                        using var doc = JsonDocument.Parse(msg.Content);
+                        var toolCallId = doc.RootElement.TryGetProperty("toolCallId", out var idEl) ? idEl.GetString() : "";
+                        var result = doc.RootElement.GetProperty("result").GetRawText();
+                        
+                        openAiMessages.Add(new 
+                        { 
+                            role = "tool", 
+                            tool_call_id = toolCallId, 
+                            content = result 
+                        });
+                    }
+                    catch 
+                    {
+                        openAiMessages.Add(new { role = "assistant", content = msg.Content });
+                    }
+                }
             }
 
             var body = new Dictionary<string, object>

@@ -194,7 +194,8 @@ namespace AiChatBox.Api.Services
                 {
                     try
                     {
-                        var parsed = JsonDocument.Parse(msg.Content).RootElement;
+                        using var doc = JsonDocument.Parse(msg.Content);
+                        var parsed = doc.RootElement;
                         var toolName = parsed.GetProperty("toolName").GetString();
                         var result = parsed.GetProperty("result");
                         
@@ -203,7 +204,7 @@ namespace AiChatBox.Api.Services
                             role = "function", 
                             parts = new[] 
                             { 
-                                new { functionResponse = new { name = toolName, response = result } } 
+                                new { functionResponse = new { name = toolName, response = result.Clone() } } 
                             } 
                         });
                         continue;
@@ -226,14 +227,12 @@ namespace AiChatBox.Api.Services
                         if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
                         {
                             var name = toolCall.GetProperty("name").GetString();
-                            var args = toolCall.GetProperty("args").GetRawText();
-                            
                             contents.Add(new
                             {
                                 role = "model",
                                 parts = new[]
                                 {
-                                    new { functionCall = new { name, args = JsonDocument.Parse(args).RootElement } }
+                                    new { functionCall = new { name, args = toolCall.GetProperty("args").Clone() } }
                                 }
                             });
                             continue;

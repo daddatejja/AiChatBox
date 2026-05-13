@@ -36,13 +36,13 @@ builder.Services.AddSwaggerGen();
 // Database
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
 
-builder.Services.AddDbContext<ChatDbContext>(options => {
+builder.Services.AddDbContextFactory<ChatDbContext>(options => {
     options.UseNpgsql(connectionString, o => o.UseVector());
 });
 
-builder.Services.AddDbContextFactory<ChatDbContext>((sp, options) => {
+builder.Services.AddDbContext<ChatDbContext>(options => {
     options.UseNpgsql(connectionString, o => o.UseVector());
-}, ServiceLifetime.Scoped);
+}, ServiceLifetime.Scoped, ServiceLifetime.Singleton);
 
 // Identity
 builder.Services.AddIdentity<ApplicationUser, IdentityRole>(options => {
@@ -104,11 +104,13 @@ builder.Services.AddScoped<IChatContextService, ChatContextService>();
 builder.Services.AddScoped<IAiLoggingService, AiLoggingService>();
 builder.Services.AddScoped<GroqAudioService>();
 builder.Services.AddScoped<GeminiTtsService>();
-builder.Services.AddScoped<EmbeddingService>();
-builder.Services.AddHttpClient<GeminiServerService>();
+builder.Services.AddScoped<IEmbeddingService, EmbeddingService>();
 builder.Services.AddHttpClient<EmbeddingService>();
+builder.Services.AddHttpClient<GeminiServerService>();
 builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<FileProcessingService>();
+builder.Services.AddScoped<FirecrawlService>();
+builder.Services.AddHttpClient<FirecrawlService>();
 
 // Agent & Tools
 builder.Services.AddScoped<ITool, SqlTool>();
@@ -118,6 +120,7 @@ builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<WebhookService>();
+builder.Services.AddHostedService<FirecrawlBackgroundService>();
 
 // Live Mode
 builder.Services.AddSingleton<LiveSessionManager>();

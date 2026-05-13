@@ -100,13 +100,13 @@ namespace AiChatBox.Api.Services
                 messages.Add(new GenericChatMessage 
                 { 
                     Role = "model", 
-                    Content = JsonSerializer.Serialize(new { toolCall = new { name = currentToolCall.Name, args = currentToolCall.ArgumentsJson } }) 
+                    Content = JsonSerializer.Serialize(new { toolCall = new { id = currentToolCall.Id, name = currentToolCall.Name, args = JsonNode.Parse(currentToolCall.ArgumentsJson) } }) 
                 });
                 
                 messages.Add(new GenericChatMessage 
                 { 
                     Role = "function", 
-                    Content = JsonSerializer.Serialize(new { toolName = currentToolCall.Name, result = result.Content }) 
+                    Content = JsonSerializer.Serialize(new { toolCallId = currentToolCall.Id, toolName = currentToolCall.Name, result = result.Content }) 
                 });
                 
                 sb.Clear();

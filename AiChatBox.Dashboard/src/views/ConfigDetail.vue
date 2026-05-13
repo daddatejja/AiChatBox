@@ -30,20 +30,23 @@ const config = reactive({
     hasGeminiKey: false,
     hasGroqKey: false,
     hasOpenAiKey: false,
+    hasFirecrawlKey: false,
     liveVoiceEnabled: false, 
     enabledModels: '',
     rateLimitRequests: 0,
     rateLimitWindowMinutes: 60,
     maxSpendLimit: 0,
     currentSpend: 0,
-    suggestionsJson: ''
+    suggestionsJson: '',
+    suggestions: [] as string[]
 });
 
 // Separate reactive objects for key inputs — only sent on save, never pre-populated
 const keyInputs = reactive({
     geminiApiKey: '',
     groqApiKey: '',
-    openAiApiKey: ''
+    openAiApiKey: '',
+    firecrawlApiKey: ''
 });
 
 // Default model options derived from enabled models list
@@ -57,7 +60,8 @@ const defaultModelOptions = computed(() => {
 const providersList = [
     { key: 'geminiApiKey', hasKey: 'hasGeminiKey', label: 'Google Gemini', id: 'gemini' },
     { key: 'groqApiKey', hasKey: 'hasGroqKey', label: 'Groq', id: 'groq' },
-    { key: 'openAiApiKey', hasKey: 'hasOpenAiKey', label: 'OpenAI', id: 'openai' }
+    { key: 'openAiApiKey', hasKey: 'hasOpenAiKey', label: 'OpenAI', id: 'openai' },
+    { key: 'firecrawlApiKey', hasKey: 'hasFirecrawlKey', label: 'Firecrawl (Crawling)', id: 'firecrawl' }
 ];
 
 const fetchingModels = ref<string | null>(null);
@@ -105,15 +109,15 @@ async function load() {
     if (res.ok) {
         const data = await res.json();
         Object.assign(config, data);
+        
+        // Handle enabled models
         if (data.enabledModels) {
             try {
                 const parsed = JSON.parse(data.enabledModels);
                 if (Array.isArray(parsed) && parsed.length > 0) {
                     if (typeof parsed[0] === 'object' && parsed[0].model) {
-                        // New format: [{model, provider}]
                         enabledModels.value = parsed;
                     } else {
-                        // Legacy format: ["model1", "model2"] — use defaultProvider
                         enabledModels.value = parsed.map((m: string) => ({ 
                             model: m, 
                             provider: config.defaultProvider || 'gemini' 
@@ -121,6 +125,18 @@ async function load() {
                     }
                 }
             } catch {}
+        }
+
+        // Handle suggestions
+        if (data.suggestionsJson) {
+            try {
+                config.suggestions = JSON.parse(data.suggestionsJson);
+                if (!Array.isArray(config.suggestions)) config.suggestions = [];
+            } catch {
+                config.suggestions = [];
+            }
+        } else {
+            config.suggestions = [];
         }
     }
 }
@@ -152,12 +168,13 @@ async function save() {
         rateLimitRequests: config.rateLimitRequests,
         rateLimitWindowMinutes: config.rateLimitWindowMinutes,
         maxSpendLimit: config.maxSpendLimit,
-        suggestionsJson: config.suggestionsJson
+        suggestionsJson: JSON.stringify(config.suggestions.filter(s => s.trim() !== ''))
     };
 
     if (keyInputs.geminiApiKey) body.geminiApiKey = keyInputs.geminiApiKey;
     if (keyInputs.groqApiKey) body.groqApiKey = keyInputs.groqApiKey;
     if (keyInputs.openAiApiKey) body.openAiApiKey = keyInputs.openAiApiKey;
+    if (keyInputs.firecrawlApiKey) body.firecrawlApiKey = keyInputs.firecrawlApiKey;
 
     await apiFetch(`/api/configuration/${configId.value}`, {
         method: 'PUT',
@@ -171,17 +188,28 @@ async function save() {
     keyInputs.geminiApiKey = '';
     keyInputs.groqApiKey = '';
     keyInputs.openAiApiKey = '';
+    keyInputs.firecrawlApiKey = '';
 
     setTimeout(() => saved.value = false, 3000);
 }
 
 async function clearKey(providerId: string) {
-    const keyField = providerId === 'gemini' ? 'geminiApiKey' : providerId === 'groq' ? 'groqApiKey' : 'openAiApiKey';
+    const keyField = providerId === 'gemini' ? 'geminiApiKey' : providerId === 'groq' ? 'groqApiKey' : providerId === 'openai' ? 'openAiApiKey' : 'firecrawlApiKey';
     await apiFetch(`/api/configuration/${configId.value}`, {
         method: 'PUT',
         body: JSON.stringify({ [keyField]: '' })
     });
     await load();
+}
+
+function addSuggestion() {
+    if (config.suggestions.length < 4) {
+        config.suggestions.push('');
+    }
+}
+
+function removeSuggestion(index: number) {
+    config.suggestions.splice(index, 1);
 }
 
 onMounted(load);
@@ -221,46 +249,7 @@ onMounted(load);
                         <span v-if="enabledModels.length === 0" class="info-text">Add provider API keys and enable models below first</span>
                     </div>
                     
-                    <div v-if="!config.hasGeminiKey" class="form-group checkbox-group">
-                        <Checkbox v-model="config.liveVoiceEnabled" :binary="true" :disabled="!config.hasGeminiKey" inputId="liveVoice" />
-                        <label for="liveVoice">Live Voice Mode</label>
-                        <span class="info-text">(requires Gemini API key)</span>
-                    </div>
-                </template>
-            </Card>
-
-            <h2 class="section-title">Administrative Controls</h2>
-            <Card class="admin-card">
-                <template #content>
-                    <div class="grid-2">
-                        <div class="form-group">
-                            <label>Rate Limit (Requests)</label>
-                            <InputNumber v-model="config.rateLimitRequests" placeholder="0 = No limit" fluid />
-                            <small class="info-text">Maximum requests allowed within the window.</small>
-                        </div>
-                        <div class="form-group">
-                            <label>Window (Minutes)</label>
-                            <InputNumber v-model="config.rateLimitWindowMinutes" fluid />
-                            <small class="info-text">Time window for rate limiting.</small>
-                        </div>
-                    </div>
-
-                    <div class="grid-2 mt-4">
-                        <div class="form-group">
-                            <label>Spending Cap (USD)</label>
-                            <InputNumber v-model="config.maxSpendLimit" mode="currency" currency="USD" locale="en-US" placeholder="0 = No limit" fluid />
-                            <small class="info-text">Total budget for this configuration.</small>
-                        </div>
-                        <div class="form-group">
-                            <label>Current Spend (Read-only)</label>
-                            <div class="spend-display">
-                                <span class="spend-value">${{ config.currentSpend.toFixed(6) }}</span>
-                                <span class="spend-progress" :style="{ width: config.maxSpendLimit > 0 ? (Math.min(config.currentSpend / config.maxSpendLimit, 1) * 100) + '%' : '0%' }"></span>
-                            </div>
-                        </div>
-                    </div>
-                    
-                    <div v-if="!config.hasGeminiKey" class="form-group checkbox-group">
+                    <div v-if="config.hasGeminiKey" class="form-group checkbox-group">
                         <Checkbox v-model="config.liveVoiceEnabled" :binary="true" :disabled="!config.hasGeminiKey" inputId="liveVoice" />
                         <label for="liveVoice">Live Voice Mode</label>
                         <span class="info-text">(requires Gemini API key)</span>
@@ -300,9 +289,28 @@ onMounted(load);
                     </div>
 
                     <div class="form-group mt-4">
-                        <label>Chat Suggestions (JSON Array)</label>
-                        <Textarea v-model="config.suggestionsJson" rows="3" placeholder='["Tell me about your services", "How can I contact support?"]' fluid />
-                        <small class="info-text">Suggested prompts shown to the user on start.</small>
+                        <div class="flex-between">
+                            <label>Chat Suggestions</label>
+                            <Button 
+                                icon="pi pi-plus" 
+                                label="Add" 
+                                severity="secondary" 
+                                size="small" 
+                                text 
+                                @click="addSuggestion" 
+                                :disabled="config.suggestions.length >= 4" 
+                            />
+                        </div>
+                        <div class="suggestions-list">
+                            <div v-for="(suggestion, index) in config.suggestions" :key="index" class="suggestion-item">
+                                <InputText v-model="config.suggestions[index]" placeholder="Enter a suggested prompt..." fluid />
+                                <Button icon="pi pi-times" severity="danger" text rounded @click="removeSuggestion(index)" />
+                            </div>
+                            <div v-if="config.suggestions.length === 0" class="empty-suggestions">
+                                No suggestions added yet. These will appear as quick-start buttons in the chat.
+                            </div>
+                        </div>
+                        <small class="info-text">Maximum of 4 suggested prompts shown to the user on start.</small>
                     </div>
                 </template>
             </Card>
@@ -327,6 +335,7 @@ onMounted(load);
                             class="flex-1" 
                         />
                         <Button 
+                            v-if="provider.id !== 'firecrawl'"
                             :label="fetchingModels === provider.id ? 'Loading...' : 'Fetch Models'" 
                             severity="secondary" 
                             outlined 
@@ -557,5 +566,30 @@ onMounted(load);
         flex-basis: 100%;
         margin-left: 36px; /* Align with label text */
     }
+}
+.flex-between {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.suggestions-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 8px;
+}
+.suggestion-item {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+.empty-suggestions {
+    padding: 12px;
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-200);
+    border-radius: 6px;
+    color: var(--p-surface-500);
+    font-size: 0.85rem;
+    text-align: center;
 }
 </style>

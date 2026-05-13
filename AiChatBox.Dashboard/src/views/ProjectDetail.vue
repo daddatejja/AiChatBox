@@ -308,7 +308,7 @@ onMounted(() => {
         </section>
 
         <!-- New Config Modal -->
-        <Dialog v-model:visible="showNewConfig" modal header="New Configuration" :style="{ width: '400px' }">
+        <Dialog v-model:visible="showNewConfig" modal header="New Configuration" :style="{ width: '480px' }">
             <form @submit.prevent="createConfig" class="form">
                 <div class="form-group">
                     <label>Name</label>
