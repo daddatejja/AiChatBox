@@ -120,7 +120,16 @@ namespace AiChatBox.Api.Services
                 messages.Add(new GenericChatMessage 
                 { 
                     Role = "model", 
-                    Content = JsonSerializer.Serialize(new { toolCall = new { id = currentToolCall.Id, name = currentToolCall.Name, args = JsonNode.Parse(currentToolCall.ArgumentsJson) } }) 
+                    Content = JsonSerializer.Serialize(new 
+                    { 
+                        toolCall = new 
+                        { 
+                            id = currentToolCall.Id, 
+                            name = currentToolCall.Name, 
+                            args = JsonNode.Parse(currentToolCall.ArgumentsJson),
+                            thoughtSignature = currentToolCall.ThoughtSignature
+                        } 
+                    }) 
                 });
                 
                 messages.Add(new GenericChatMessage 

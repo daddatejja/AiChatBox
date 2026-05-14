@@ -131,13 +131,20 @@ namespace AiChatBox.Api.Services
 
                 if (part.TryGetProperty("functionCall", out var functionCall))
                 {
+                    var toolCall = new ToolCall
+                    {
+                        Name = functionCall.GetProperty("name").GetString() ?? "",
+                        ArgumentsJson = functionCall.GetProperty("args").GetRawText()
+                    };
+                    
+                    if (functionCall.TryGetProperty("thought_signature", out var thoughtSignature))
+                    {
+                        toolCall.ThoughtSignature = thoughtSignature.GetString();
+                    }
+
                     return new LlmResponseChunk
                     {
-                        ToolCall = new ToolCall
-                        {
-                            Name = functionCall.GetProperty("name").GetString() ?? "",
-                            ArgumentsJson = functionCall.GetProperty("args").GetRawText()
-                        }
+                        ToolCall = toolCall
                     };
                 }
 
@@ -237,12 +244,22 @@ namespace AiChatBox.Api.Services
                         if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
                         {
                             var name = toolCall.GetProperty("name").GetString();
+                            var fc = new Dictionary<string, object>
+                            {
+                                { "name", name },
+                                { "args", toolCall.GetProperty("args").Clone() }
+                            };
+                            if (toolCall.TryGetProperty("thoughtSignature", out var ts) && ts.ValueKind != JsonValueKind.Null)
+                            {
+                                fc["thought_signature"] = ts.GetString();
+                            }
+
                             contents.Add(new
                             {
                                 role = "model",
                                 parts = new[]
                                 {
-                                    new { functionCall = new { name, args = toolCall.GetProperty("args").Clone() } }
+                                    new { functionCall = fc }
                                 }
                             });
                             continue;
