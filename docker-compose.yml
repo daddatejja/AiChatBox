@@ -43,7 +43,7 @@ services:
 
   dashboard:
     build:
-      context: ./aichatbox.dashboard
+      context: ./AiChatBox.Dashboard
       args:
         - VITE_API_URL=${PUBLIC_API_URL}
         - VITE_CLARITY_ID=${VITE_CLARITY_ID}
