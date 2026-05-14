@@ -18,6 +18,7 @@ services:
       - Gemini__ApiKey=${GEMINI_API_KEY}
       - ConnectionStrings__DefaultConnection=Host=db;Database=aichatbox;Username=admin;Password=${DB_PASSWORD}
       - DashboardUrl=https://appchatbox.daddatejja.dev/login
+      - Network__PublicApiUrl=${PUBLIC_API_URL}
     networks:
       - chat-network
 
