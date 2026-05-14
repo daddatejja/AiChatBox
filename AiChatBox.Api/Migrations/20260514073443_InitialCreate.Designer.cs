@@ -13,7 +13,7 @@ using Pgvector;
 namespace AiChatBox.Api.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    [Migration("20260513041618_InitialCreate")]
+    [Migration("20260514073443_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -33,6 +33,9 @@ namespace AiChatBox.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ConfigurationId")
+                        .HasColumnType("uuid");
+
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
 
@@ -48,6 +51,9 @@ namespace AiChatBox.Api.Migrations
 
                     b.Property<int>("InputTokens")
                         .HasColumnType("integer");
+
+                    b.Property<bool>("IsPinned")
+                        .HasColumnType("boolean");
 
                     b.Property<string>("Model")
                         .HasMaxLength(100)
@@ -77,6 +83,8 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConfigurationId");
 
                     b.HasIndex("ProjectId");
 
@@ -486,6 +494,15 @@ namespace AiChatBox.Api.Migrations
                     b.Property<bool>("LiveVoiceEnabled")
                         .HasColumnType("boolean");
 
+                    b.Property<int>("LogRetentionDays")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxLogsPerSession")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("MaxSessionsPerProject")
+                        .HasColumnType("integer");
+
                     b.Property<decimal>("MaxSpendLimit")
                         .HasColumnType("numeric");
 
@@ -732,6 +749,10 @@ namespace AiChatBox.Api.Migrations
 
             modelBuilder.Entity("AiChatBox.Api.Models.AiRequestLog", b =>
                 {
+                    b.HasOne("AiChatBox.Api.Models.ProjectConfiguration", "Configuration")
+                        .WithMany()
+                        .HasForeignKey("ConfigurationId");
+
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany()
                         .HasForeignKey("ProjectId");
@@ -739,6 +760,8 @@ namespace AiChatBox.Api.Migrations
                     b.HasOne("AiChatBox.Api.Models.ChatSession", "Session")
                         .WithMany()
                         .HasForeignKey("SessionId");
+
+                    b.Navigation("Configuration");
 
                     b.Navigation("Project");
 

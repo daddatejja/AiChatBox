@@ -5,8 +5,12 @@ import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
+import { useConfirm } from 'primevue/useconfirm';
+import { useToast } from 'primevue/usetoast';
 
 const { apiFetch } = useApi();
+const confirm = useConfirm();
+const toast = useToast();
 
 const projects = ref<any[]>([]);
 const loading = ref(true);
@@ -40,9 +44,25 @@ async function createProject() {
 }
 
 async function deleteProject(id: string) {
-    if (!confirm('Delete this project?')) return;
-    await apiFetch(`/api/project/${id}`, { method: 'DELETE' });
-    load();
+    confirm.require({
+        message: 'Delete this project? All associated configurations, keys, and documents will be lost.',
+        header: 'Confirm Project Deletion',
+        icon: 'pi pi-exclamation-triangle',
+        rejectProps: {
+            label: 'Cancel',
+            severity: 'secondary',
+            outlined: true
+        },
+        acceptProps: {
+            label: 'Delete',
+            severity: 'danger'
+        },
+        accept: async () => {
+            await apiFetch(`/api/project/${id}`, { method: 'DELETE' });
+            toast.add({ severity: 'success', summary: 'Deleted', detail: 'Project removed successfully.', life: 3000 });
+            load();
+        }
+    });
 }
 
 onMounted(load);

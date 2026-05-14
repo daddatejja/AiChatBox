@@ -74,11 +74,67 @@ namespace AiChatBox.Api.Controllers
                     l.RawRequest,
                     l.RawResponse,
                     l.ErrorMessage,
+                    l.IsPinned,
                     l.CreatedAt
                 })
                 .ToListAsync();
 
             return Ok(new { items = logs, total, offset, limit });
+        }
+
+        [HttpGet("trace/{sessionId}")]
+        public async Task<IActionResult> GetSessionTrace(Guid sessionId)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized(new { error = "User not found." });
+            }
+
+            var logs = await _db.AiRequestLogs
+                .Where(l => l.SessionId == sessionId && l.Project != null && l.Project.UserId == userId)
+                .OrderBy(l => l.CreatedAt)
+                .Select(l => new
+                {
+                    l.Id,
+                    l.SessionId,
+                    l.Endpoint,
+                    l.InputTokens,
+                    l.OutputTokens,
+                    l.DurationMs,
+                    l.RawRequest,
+                    l.RawResponse,
+                    l.ErrorMessage,
+                    l.IsPinned,
+                    l.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(logs);
+        }
+
+        [HttpPost("{id}/pin")]
+        public async Task<IActionResult> TogglePin(Guid id)
+        {
+            var userId = User.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+            if (string.IsNullOrEmpty(userId))
+            {
+                return Unauthorized(new { error = "User not found." });
+            }
+
+            var log = await _db.AiRequestLogs
+                .Include(l => l.Project)
+                .FirstOrDefaultAsync(l => l.Id == id && l.Project != null && l.Project.UserId == userId);
+
+            if (log == null)
+            {
+                return NotFound(new { error = "Log not found." });
+            }
+
+            log.IsPinned = !log.IsPinned;
+            await _db.SaveChangesAsync();
+
+            return Ok(new { isPinned = log.IsPinned });
         }
     }
 }

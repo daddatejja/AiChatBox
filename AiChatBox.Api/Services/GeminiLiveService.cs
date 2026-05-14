@@ -14,6 +14,7 @@ namespace AiChatBox.Api.Services
                                    ILogger<GeminiLiveService> logger, 
                                    IChatContextService contextService, 
                                    IAiLoggingService aiLogger,
+                                   IAiChatService chatService,
                                    IDbContextFactory<ChatDbContext> dbFactory,
                                    IEmbeddingService embeddingService,
                                    ToolRegistry toolRegistry) : IGeminiLiveService
@@ -22,6 +23,7 @@ namespace AiChatBox.Api.Services
         private readonly ILogger<GeminiLiveService> _logger = logger;
         private readonly IChatContextService _contextService = contextService;
         private readonly IAiLoggingService _aiLogger = aiLogger;
+        private readonly IAiChatService _chatService = chatService;
         private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
         private readonly IEmbeddingService _embeddingService = embeddingService;
         private readonly ToolRegistry _toolRegistry = toolRegistry;
@@ -30,10 +32,13 @@ namespace AiChatBox.Api.Services
         private CancellationTokenSource? _cts;
         private Task? _receiveTask;
         private TaskCompletionSource<bool>? _setupTcs;
+        private bool _disposed = false;
         private readonly StringBuilder _sessionInput = new();
         private readonly StringBuilder _sessionOutput = new();
         private readonly DateTime _sessionStart = DateTime.UtcNow;
         public Guid? ProjectId { get; set; }
+        public Guid? ConfigurationId { get; set; }
+        public Guid? SessionId { get; set; }
         public string? UserId { get; set; }
         public string? ApiKeyOverride { get; set; }
 
@@ -42,6 +47,11 @@ namespace AiChatBox.Api.Services
         public event Func<string, Task>? OnInputTranscribed;
         public event Func<string, string, Dictionary<string, object>, Task>? OnToolCall;
         public event Action<string>? OnError;
+
+        private readonly List<TimelineEvent> _timelineEvents = new();
+        private readonly MemoryStream _userAudioBuffer = new();
+        private readonly MemoryStream _modelAudioBuffer = new();
+        private readonly StringBuilder _modelTranscriptionBuffer = new();
 
         private readonly JsonSerializerOptions _jsonOptions = new()
         {
@@ -58,6 +68,13 @@ namespace AiChatBox.Api.Services
                 _logger.LogInformation("Connecting to Gemini Live with override key (ends with ...{KeyTail})", apiKey.Substring(Math.Max(0, apiKey.Length - 4)));
             else
                 _logger.LogInformation("Connecting to Gemini Live with global key (ends with ...{KeyTail})", apiKey.Substring(Math.Max(0, apiKey.Length - 4)));
+
+            // Ensure session exists in DB before we start logging
+            if (this.SessionId != null)
+            {
+                var session = await _chatService.GetOrCreateSessionAsync(userId, this.SessionId, this.ProjectId, this.ConfigurationId);
+                this.SessionId = session.Id;
+            }
 
             _cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             _setupTcs = new TaskCompletionSource<bool>();
@@ -90,6 +107,8 @@ namespace AiChatBox.Api.Services
                     await _aiLogger.LogRequestAsync(new AiRequestLog
                     {
                         ProjectId = this.ProjectId,
+                        ConfigurationId = this.ConfigurationId,
+                        SessionId = this.SessionId,
                         UserId = this.UserId,
                         Provider = "gemini",
                         Model = "gemini-2.5-flash-native-audio-latest",
@@ -149,6 +168,9 @@ namespace AiChatBox.Api.Services
 
         public async Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default)
         {
+            var bytes = Convert.FromBase64String(base64Data);
+            _userAudioBuffer.Write(bytes, 0, bytes.Length);
+
             var req = new GeminiLiveRealtimeInputRequest
             {
                 RealtimeInput = new GeminiLiveRealtimeInput
@@ -167,6 +189,8 @@ namespace AiChatBox.Api.Services
 
         public async Task SendTextMessageAsync(string text, CancellationToken cancellationToken = default)
         {
+            _timelineEvents.Add(new TimelineEvent { Type = "UserText", Content = text });
+
             var req = new GeminiLiveClientContentRequest
             {
                 ClientContent = new GeminiLiveClientContent
@@ -222,6 +246,7 @@ namespace AiChatBox.Api.Services
                     var result = await _webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
                     if (result.MessageType == WebSocketMessageType.Close)
                     {
+                        await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                         _logger.LogInformation("Gemini closed the connection: {Status}", result.CloseStatus);
                         break;
                     }
@@ -233,7 +258,7 @@ namespace AiChatBox.Api.Services
                         var json = Encoding.UTF8.GetString(ms.ToArray());
                         ms.SetLength(0);
                         
-                        _logger.LogDebug("Received from Gemini: {Json}", json);
+                        _logger.LogInformation("Received from Gemini: {Json}", json);
                         await ProcessReceivedJsonAsync(json, cancellationToken);
                     }
                 }
@@ -262,6 +287,7 @@ namespace AiChatBox.Api.Services
                         await _aiLogger.LogRequestAsync(new AiRequestLog
                         {
                             ProjectId = this.ProjectId,
+                            ConfigurationId = this.ConfigurationId,
                             UserId = this.UserId,
                             Provider = "gemini",
                             Model = "gemini-2.5-flash-native-audio-latest",
@@ -279,6 +305,7 @@ namespace AiChatBox.Api.Services
                 if (json.Contains("setupComplete") || json.Contains("setup_complete"))
                 {
                     _logger.LogInformation("Gemini Live Session Setup Complete for User: {UserId}", UserId);
+                    _timelineEvents.Add(new TimelineEvent { Type = "System", Content = "Session Setup Complete" });
                     _setupTcs?.TrySetResult(true);
                     return;
                 }
@@ -289,15 +316,21 @@ namespace AiChatBox.Api.Services
                     {
                         if (part.InlineData != null && !string.IsNullOrEmpty(part.InlineData.Data))
                         {
-                            // Audio chunks are high volume, log as Debug
-                            _logger.LogDebug("Received audio chunk ({Size} bytes)", part.InlineData.Data.Length);
+                            _logger.LogInformation("Received audio chunk ({Size} bytes)", part.InlineData.Data.Length);
                             var audioBytes = Convert.FromBase64String(part.InlineData.Data);
+                            _modelAudioBuffer.Write(audioBytes, 0, audioBytes.Length);
                             if (OnAudioReceived != null) await OnAudioReceived.Invoke(audioBytes);
                         }
                         else if (!string.IsNullOrEmpty(part.Text))
                         {
                             _logger.LogInformation("Gemini Response Text: {Text}", part.Text);
                             _sessionOutput.AppendLine($"[Model]: {part.Text}");
+                            
+                            _timelineEvents.Add(new TimelineEvent { 
+                                Type = part.Thought == true ? "ModelThinking" : "ModelText", 
+                                Content = part.Text 
+                            });
+
                             if (OnTextReceived != null) await OnTextReceived.Invoke(part.Text, part.Thought ?? false);
                         }
                     }
@@ -308,8 +341,24 @@ namespace AiChatBox.Api.Services
                     var text = response.ServerContent.OutputTranscription.Text;
                     _logger.LogInformation("Model Speech Transcription: {Text}", text);
                     _sessionOutput.AppendLine($"[Transcription]: {text}");
+                    _modelTranscriptionBuffer.Append(text).Append(" ");
+
                     if (!string.IsNullOrEmpty(text) && OnTextReceived != null)
                         await OnTextReceived.Invoke(text, false);
+                }
+
+                if (response.ServerContent?.TurnComplete != null)
+                {
+                    if (_modelAudioBuffer.Length > 0)
+                    {
+                        var audioBytes = _modelAudioBuffer.ToArray();
+                        var base64 = Convert.ToBase64String(audioBytes);
+                        var trans = _modelTranscriptionBuffer.ToString().Trim();
+                        if (string.IsNullOrEmpty(trans)) trans = "(untranscribed)";
+                        _timelineEvents.Add(new TimelineEvent { Type = "ModelAudio", Content = base64, Transcription = trans });
+                        _modelAudioBuffer.SetLength(0);
+                        _modelTranscriptionBuffer.Clear();
+                    }
                 }
 
                 if (response.ServerContent?.InputTranscription != null)
@@ -317,6 +366,15 @@ namespace AiChatBox.Api.Services
                     var text = response.ServerContent.InputTranscription.Text;
                     _logger.LogInformation("User Speech Transcription: {Text}", text);
                     _sessionInput.AppendLine(text);
+                    
+                    if (_userAudioBuffer.Length > 0)
+                    {
+                        var audioBytes = _userAudioBuffer.ToArray();
+                        var base64 = Convert.ToBase64String(audioBytes);
+                        _timelineEvents.Add(new TimelineEvent { Type = "UserAudio", Content = base64, Transcription = text });
+                        _userAudioBuffer.SetLength(0);
+                    }
+
                     if (OnInputTranscribed != null) await OnInputTranscribed.Invoke(text);
                 }
 
@@ -325,15 +383,20 @@ namespace AiChatBox.Api.Services
                     foreach (var fc in response.ToolCall.FunctionCalls)
                     {
                         _logger.LogInformation("Tool call received: {Name}", fc.Name);
+                        var argsJson = JsonSerializer.Serialize(fc.Args, _jsonOptions);
+                        _timelineEvents.Add(new TimelineEvent { Type = "ToolCall", Meta = fc.Name, Content = argsJson });
+
                         // Log to DB
                         await _aiLogger.LogRequestAsync(new AiRequestLog
                         {
                             ProjectId = this.ProjectId,
+                            ConfigurationId = this.ConfigurationId,
+                            SessionId = this.SessionId,
                             UserId = this.UserId,
                             Provider = "gemini",
                             Model = "models/gemini-2.5-flash-native-audio-latest",
-                            Endpoint = "GeminiLive/ToolCall",
-                            RawResponse = JsonSerializer.Serialize(fc, _jsonOptions),
+                            Endpoint = $"Live Tool: {fc.Name}",
+                            RawRequest = argsJson,
                             DurationMs = 0
                         });
                         
@@ -359,8 +422,8 @@ namespace AiChatBox.Api.Services
                 tools.Add(new Services.Tools.KnowledgeSearchTool(_dbFactory, _embeddingService, ProjectId.Value, apiKey));
             }
 
-            return new[]
-            {
+            return
+            [
                 new
                 {
                     function_declarations = tools.Select(t => new
@@ -370,7 +433,7 @@ namespace AiChatBox.Api.Services
                         parameters = t.ParametersSchema
                     }).ToArray()
                 }
-            };
+            ];
         }
 
         private async Task ExecuteAndSendToolResponseAsync(GeminiLiveFunctionCall fc, CancellationToken cancellationToken)
@@ -394,11 +457,14 @@ namespace AiChatBox.Api.Services
                 var argsJson = JsonSerializer.Serialize(fc.Args);
                 var result = await tool.ExecuteAsync(argsJson, UserId ?? "live-user");
 
+                _timelineEvents.Add(new TimelineEvent { Type = "ToolResponse", Meta = fc.Name, Content = JsonSerializer.Serialize(result.Content) });
+
                 await SendToolResponseAsync(fc.Id, fc.Name, new { result = result.Content }, cancellationToken);
             }
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Failed to execute tool {ToolName} in Live mode", fc.Name);
+                _timelineEvents.Add(new TimelineEvent { Type = "ToolResponse", Meta = fc.Name, Content = ex.Message });
                 await SendToolResponseAsync(fc.Id, fc.Name, new { error = ex.Message }, cancellationToken);
             }
         }
@@ -423,19 +489,36 @@ namespace AiChatBox.Api.Services
 
         public async ValueTask DisposeAsync()
         {
-            if (_sessionInput.Length > 0 || _sessionOutput.Length > 0)
+            if (_disposed) return;
+            _disposed = true;
+
+            // Ensure any un-transcribed buffers are captured before disposing
+            if (_userAudioBuffer.Length > 0)
+            {
+                var base64 = Convert.ToBase64String(_userAudioBuffer.ToArray());
+                _timelineEvents.Add(new TimelineEvent { Type = "UserAudio", Content = base64, Transcription = "(untranscribed)" });
+            }
+            if (_modelAudioBuffer.Length > 0)
+            {
+                var base64 = Convert.ToBase64String(_modelAudioBuffer.ToArray());
+                _timelineEvents.Add(new TimelineEvent { Type = "ModelAudio", Content = base64, Transcription = "(untranscribed)" });
+            }
+
+            if (_timelineEvents.Count > 0 || _sessionInput.Length > 0 || _sessionOutput.Length > 0)
             {
                 try
                 {
                     await _aiLogger.LogRequestAsync(new AiRequestLog
                     {
                         ProjectId = this.ProjectId,
+                        ConfigurationId = this.ConfigurationId,
+                        SessionId = this.SessionId,
                         UserId = this.UserId,
                         Provider = "gemini",
                         Model = "gemini-2.5-flash-native-audio-latest",
                         Endpoint = "GeminiLive/Session",
                         RawRequest = _sessionInput.ToString(),
-                        RawResponse = _sessionOutput.ToString(),
+                        RawResponse = JsonSerializer.Serialize(_timelineEvents, _jsonOptions),
                         DurationMs = (int)(DateTime.UtcNow - _sessionStart).TotalMilliseconds
                     });
                 }
@@ -467,6 +550,11 @@ namespace AiChatBox.Api.Services
                 try { await _receiveTask; } catch { }
                 _receiveTask = null;
             }
+
+            _userAudioBuffer.Dispose();
+            _modelAudioBuffer.Dispose();
+
+            GC.SuppressFinalize(this);
         }
     }
 }

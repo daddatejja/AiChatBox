@@ -9,6 +9,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
+using Hangfire;
+using Hangfire.PostgreSql;
 using Serilog;
 using System.Text;
 
@@ -79,6 +81,13 @@ builder.Services.AddAuthentication(options => {
             {
                 context.Token = accessToken;
             }
+            else if (path.StartsWithSegments("/hangfire"))
+            {
+                if (context.HttpContext.Request.Cookies.TryGetValue("hangfire_auth", out var cookieToken))
+                {
+                    context.Token = cookieToken;
+                }
+            }
             return Task.CompletedTask;
         }
     };
@@ -120,7 +129,21 @@ builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<WebhookService>();
-builder.Services.AddHostedService<FirecrawlBackgroundService>();
+
+// Hangfire configuration
+builder.Services.AddHangfire(configuration => configuration
+    .SetDataCompatibilityLevel(CompatibilityLevel.Version_180)
+    .UseSimpleAssemblyNameTypeSerializer()
+    .UseRecommendedSerializerSettings()
+    .UsePostgreSqlStorage(options =>
+        options.UseNpgsqlConnection(connectionString)));
+
+builder.Services.AddHangfireServer(options => {
+    options.WorkerCount = Environment.ProcessorCount * 2;
+});
+
+builder.Services.AddScoped<FirecrawlBackgroundService>();
+builder.Services.AddScoped<LogPruningService>();
 
 // Live Mode
 builder.Services.AddSingleton<LiveSessionManager>();
@@ -218,5 +241,13 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<LiveAudioHub>("/liveAudioHub").DisableAntiforgery();
+
+app.UseHangfireDashboard("/hangfire", new DashboardOptions
+{
+    Authorization = new[] { new AiChatBox.Api.Filters.HangfireAuthorizationFilter() }
+});
+
+RecurringJob.AddOrUpdate<LogPruningService>("log-pruning", service => service.ExecuteAsync(), Cron.Daily);
+RecurringJob.AddOrUpdate<FirecrawlBackgroundService>("firecrawl-polling", service => service.ExecuteAsync(), Cron.Minutely);
 
 app.Run();

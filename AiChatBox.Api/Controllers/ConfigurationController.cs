@@ -77,6 +77,9 @@ namespace AiChatBox.Api.Controllers
                 MaxSpendLimit = config.MaxSpendLimit,
                 CurrentSpend = config.CurrentSpend,
                 SuggestionsJson = config.SuggestionsJson,
+                LogRetentionDays = config.LogRetentionDays,
+                MaxLogsPerSession = config.MaxLogsPerSession,
+                MaxSessionsPerProject = config.MaxSessionsPerProject,
                 CreatedAt = config.CreatedAt,
                 EnabledModels = config.EnabledModels
             });
@@ -139,6 +142,9 @@ namespace AiChatBox.Api.Controllers
             if (model.RateLimitWindowMinutes.HasValue) config.RateLimitWindowMinutes = model.RateLimitWindowMinutes.Value;
             if (model.MaxSpendLimit.HasValue) config.MaxSpendLimit = model.MaxSpendLimit.Value;
             if (model.SuggestionsJson != null) config.SuggestionsJson = model.SuggestionsJson;
+            if (model.LogRetentionDays.HasValue) config.LogRetentionDays = model.LogRetentionDays.Value;
+            if (model.MaxLogsPerSession.HasValue) config.MaxLogsPerSession = model.MaxLogsPerSession.Value;
+            if (model.MaxSessionsPerProject.HasValue) config.MaxSessionsPerProject = model.MaxSessionsPerProject.Value;
 
             await _db.SaveChangesAsync();
             return NoContent();

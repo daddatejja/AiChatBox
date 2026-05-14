@@ -18,7 +18,7 @@ namespace AiChatBox.Api.Services
         /// <summary>
         /// Start a live session using an API Key (widget / end-user integration).
         /// </summary>
-        public async Task StartLive(string userId, string? voiceName = null, string apiKey = "")
+        public async Task StartLive(string userId, string? voiceName = null, string apiKey = "", string? sessionId = null)
         {
             var connectionId = Context.ConnectionId;
             _logger.LogInformation("Widget client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
@@ -44,7 +44,8 @@ namespace AiChatBox.Api.Services
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
                 var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
-                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
+                Guid? sessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var sid) ? sid : Guid.NewGuid();
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId);
             }
             catch (Exception ex)
             {
@@ -57,7 +58,7 @@ namespace AiChatBox.Api.Services
         /// Start a live session using JWT authentication (Dashboard Playground).
         /// ProjectId and ConfigurationId are strings parsed internally.
         /// </summary>
-        public async Task StartLiveDashboard(string userId, string? voiceName = null, string? projectId = null, string? configurationId = null)
+        public async Task StartLiveDashboard(string userId, string? voiceName = null, string? projectId = null, string? configurationId = null, string? sessionId = null)
         {
             var connectionId = Context.ConnectionId;
             _logger.LogInformation("Dashboard client {ConnectionId} starting live session for user {UserId}", connectionId, userId);
@@ -96,7 +97,8 @@ namespace AiChatBox.Api.Services
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
                 var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
-                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, geminiApiKeyOverride);
+                Guid? sessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var sid) ? sid : Guid.NewGuid();
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId);
             }
             catch (Exception ex)
             {
@@ -108,7 +110,7 @@ namespace AiChatBox.Api.Services
         /// <summary>
         /// Shared session initialization logic used by both StartLive and StartLiveDashboard.
         /// </summary>
-        private async Task StartSessionInternal(string connectionId, string userId, string? voiceName, string? systemPrompt, Guid? projectId, string? geminiApiKeyOverride)
+        private async Task StartSessionInternal(string connectionId, string userId, string? voiceName, string? systemPrompt, Guid? projectId, Guid? configurationId, string? geminiApiKeyOverride, Guid? sessionId)
         {
             await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,
                 async (pcmData) => 
@@ -128,7 +130,9 @@ namespace AiChatBox.Api.Services
                     await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
                 },
                 projectId,
-                geminiApiKeyOverride
+                configurationId,
+                geminiApiKeyOverride,
+                sessionId
             );
 
             var session = _sessionManager.GetSession(connectionId);
@@ -167,6 +171,22 @@ namespace AiChatBox.Api.Services
             catch (Exception ex)
             {
                 _logger.LogError(ex, "Error in SendText hub method for {ConnectionId}", Context.ConnectionId);
+            }
+        }
+
+        public async Task SendToolResult(string callId, string result)
+        {
+            try
+            {
+                var session = _sessionManager.GetSession(Context.ConnectionId);
+                if (session != null)
+                {
+                    await session.SendToolResponseAsync(callId, "client_tool", new { result }, default);
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error in SendToolResult hub method for {ConnectionId}", Context.ConnectionId);
             }
         }
 

@@ -11,11 +11,13 @@ namespace AiChatBox.Api.Services
     public class AgentService(LlmProviderFactory llmFactory, 
                             ToolRegistry toolRegistry, 
                             WebhookService webhookService,
+                            IAiLoggingService aiLogger,
                             ILogger<AgentService> logger)
     {
         private readonly LlmProviderFactory _llmFactory = llmFactory;
         private readonly ToolRegistry _toolRegistry = toolRegistry;
         private readonly WebhookService _webhookService = webhookService;
+        private readonly IAiLoggingService _aiLogger = aiLogger;
         private readonly ILogger<AgentService> _logger = logger;
 
         public async IAsyncEnumerable<AgentChunk> ExecuteAgentAsync(
@@ -26,18 +28,23 @@ namespace AiChatBox.Api.Services
             string userId,
             Project? project,
             string? apiKeyOverride = null,
+            IEnumerable<ITool>? extraTools = null,
+            Guid? sessionId = null,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
             var providerService = _llmFactory.GetProvider(provider);
             
             // Combine built-in tools with custom tools from project
             var allTools = new List<ITool>(_toolRegistry.GetAllTools());
+            
+            if (extraTools != null)
+            {
+                allTools.AddRange(extraTools);
+            }
             if (project != null)
             {
                 foreach (var ctModel in project.CustomTools.Where(t => t.IsActive))
                 {
-                    // For now, we wrap them as ITool. 
-                    // If it's a client-side tool, we'll handle it specially below.
                     allTools.Add(new DynamicTool(ctModel, project, _webhookService));
                 }
             }
@@ -67,11 +74,8 @@ namespace AiChatBox.Api.Services
 
                 _logger.LogInformation("Agent calling tool: {ToolName}", currentToolCall.Name);
 
-                // Check if it's a built-in tool or a dynamic tool
                 var tool = allTools.FirstOrDefault(t => t.Name == currentToolCall.Name);
                 
-                // If it's a custom tool, check if it should be handled by the client
-                // Strategy: If WebhookUrl is empty and it's a CustomTool, it's a Client-side tool.
                 var customTool = project?.CustomTools.FirstOrDefault(t => t.Name == currentToolCall.Name);
                 if (customTool != null && string.IsNullOrEmpty(project?.WebhookUrl))
                 {
@@ -88,6 +92,7 @@ namespace AiChatBox.Api.Services
                 }
 
                 ToolResult result;
+                var toolStartTime = DateTime.UtcNow;
                 if (tool == null)
                 {
                     result = new ToolResult { ToolName = currentToolCall.Name, Error = $"Tool '{currentToolCall.Name}' not found." };
@@ -96,6 +101,21 @@ namespace AiChatBox.Api.Services
                 {
                     result = await tool.ExecuteAsync(currentToolCall.ArgumentsJson, userId);
                 }
+
+                var duration = (int)(DateTime.UtcNow - toolStartTime).TotalMilliseconds;
+                await _aiLogger.LogRequestAsync(new AiRequestLog
+                {
+                    ProjectId = project?.Id,
+                    SessionId = sessionId,
+                    UserId = userId,
+                    Provider = provider,
+                    Model = modelName,
+                    Endpoint = $"Tool: {currentToolCall.Name}",
+                    RawRequest = currentToolCall.ArgumentsJson,
+                    RawResponse = result.Content?.ToString(),
+                    ErrorMessage = result.Error,
+                    DurationMs = duration
+                });
 
                 messages.Add(new GenericChatMessage 
                 { 

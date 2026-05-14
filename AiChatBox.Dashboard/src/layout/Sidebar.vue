@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
+import { useApi } from '../composables/useApi';
 
 defineProps<{
     collapsed: boolean;
@@ -10,6 +11,7 @@ const emit = defineEmits<{
 }>();
 
 const route = useRoute();
+const { apiFetch, API_BASE } = useApi();
 
 const navItems = [
     {
@@ -46,9 +48,31 @@ function isActive(item: typeof navItems[0]): boolean {
     return route.path.startsWith(item.to);
 }
 
-function handleNavigate() {
-    emit('navigate');
+function handleNavigate(item: any) {
+    if (item.action) {
+        item.action();
+    } else {
+        emit('navigate');
+    }
 }
+
+async function openHangfire() {
+    try {
+        await apiFetch('/api/auth/hangfire-cookie', { credentials: 'include' });
+        window.open(`${API_BASE}/hangfire`, '_blank');
+    } catch (e) {
+        console.error("Failed to authenticate for Hangfire", e);
+    }
+}
+
+const externalItems = [
+    {
+        id: 'jobs',
+        label: 'System Jobs',
+        icon: 'pi-server',
+        action: openHangfire
+    }
+];
 </script>
 
 <template>
@@ -80,6 +104,24 @@ function handleNavigate() {
                             <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
                         </Transition>
                     </router-link>
+                </li>
+            </ul>
+
+            <div class="nav-divider" v-if="externalItems.length > 0"></div>
+            
+            <ul class="nav-menu">
+                <li v-for="item in externalItems" :key="item.id" class="nav-item">
+                    <a
+                        href="#"
+                        :class="['nav-link']"
+                        :title="collapsed ? item.label : undefined"
+                        @click.prevent="handleNavigate(item)"
+                    >
+                        <i :class="['pi', item.icon, 'nav-icon']"></i>
+                        <Transition name="label-fade">
+                            <span v-if="!collapsed" class="nav-label">{{ item.label }} <i class="pi pi-external-link ml-1" style="font-size: 0.75rem"></i></span>
+                        </Transition>
+                    </a>
                 </li>
             </ul>
         </nav>
@@ -205,6 +247,16 @@ function handleNavigate() {
 
 .nav-link.active .nav-icon {
     color: var(--p-primary-500);
+}
+
+.nav-divider {
+    height: 1px;
+    background-color: var(--p-surface-200);
+    margin: 12px 0;
+}
+
+.ml-1 {
+    margin-left: 0.25rem;
 }
 
 .nav-icon {

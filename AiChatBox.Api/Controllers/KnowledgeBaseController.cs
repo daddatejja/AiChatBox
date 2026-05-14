@@ -118,6 +118,30 @@ namespace AiChatBox.Api.Controllers
             return Ok(new { Message = "Crawl job started", JobId = job.Id });
         }
 
+        [HttpGet("crawl")]
+        public async Task<ActionResult> GetCrawlJobs(Guid projectId)
+        {
+            var project = await _db.Projects.AnyAsync(p => p.Id == projectId && p.UserId == UserId);
+            if (!project) return NotFound();
+
+            var jobs = await _db.WebsiteCrawlJobs
+                .Where(j => j.ProjectId == projectId)
+                .OrderByDescending(j => j.CreatedAt)
+                .Select(j => new
+                {
+                    j.Id,
+                    j.BaseUrl,
+                    j.MaxPages,
+                    j.PagesCrawled,
+                    Status = j.Status.ToString(),
+                    j.ErrorMessage,
+                    j.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(jobs);
+        }
+
         public class CrawlRequest
         {
             public string Url { get; set; } = string.Empty;
@@ -197,6 +221,87 @@ namespace AiChatBox.Api.Controllers
             await _db.SaveChangesAsync();
 
             return NoContent();
+        }
+        [HttpGet("{id}/content")]
+        public async Task<ActionResult> GetDocumentContent(Guid projectId, Guid id)
+        {
+            var doc = await _db.KnowledgeDocuments
+                .FirstOrDefaultAsync(d => d.Id == id && d.ProjectId == projectId && d.Project!.UserId == UserId);
+
+            if (doc == null) return NotFound();
+
+            var projectDir = Path.Combine(_uploadBasePath, "knowledge", projectId.ToString());
+            var filePath = Path.Combine(projectDir, doc.StoredFileName ?? "");
+
+            if (!System.IO.File.Exists(filePath))
+            {
+                return BadRequest("File not found on disk.");
+            }
+
+            if (doc.ContentType.Contains("text") || doc.ContentType.Contains("json") || doc.ContentType.Contains("markdown") || doc.ContentType.EndsWith("md"))
+            {
+                var content = await System.IO.File.ReadAllTextAsync(filePath);
+                return Ok(new { content, doc.FileName, doc.ContentType });
+            }
+
+            var fileStream = System.IO.File.OpenRead(filePath);
+            return File(fileStream, doc.ContentType, doc.FileName);
+        }
+
+        [HttpPost("batch/delete")]
+        public async Task<IActionResult> BatchDelete(Guid projectId, [FromBody] List<Guid> ids)
+        {
+            var project = await _db.Projects.AnyAsync(p => p.Id == projectId && p.UserId == UserId);
+            if (!project) return NotFound();
+
+            var docs = await _db.KnowledgeDocuments
+                .Where(d => d.ProjectId == projectId && ids.Contains(d.Id))
+                .ToListAsync();
+
+            if (docs.Count == 0) return Ok();
+
+            _db.KnowledgeDocuments.RemoveRange(docs);
+            await _db.SaveChangesAsync();
+
+            return NoContent();
+        }
+
+        [HttpPost("batch/retry")]
+        public async Task<IActionResult> BatchRetry(Guid projectId, [FromBody] List<Guid> ids)
+        {
+            var project = await _db.Projects
+                .Include(p => p.Configurations)
+                .FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == UserId);
+
+            if (project == null) return NotFound();
+
+            var config = project.Configurations.FirstOrDefault(c => !string.IsNullOrEmpty(c.GeminiApiKey));
+            if (config == null) return BadRequest("No Gemini API key found.");
+
+            var decryptedKey = _encryptionService.Decrypt(config.GeminiApiKey);
+
+            var docs = await _db.KnowledgeDocuments
+                .Where(d => d.ProjectId == projectId && ids.Contains(d.Id))
+                .ToListAsync();
+
+            foreach (var doc in docs)
+            {
+                try
+                {
+                    var projectDir = Path.Combine(_uploadBasePath, "knowledge", projectId.ToString());
+                    var filePath = Path.Combine(projectDir, doc.StoredFileName ?? "");
+
+                    if (System.IO.File.Exists(filePath))
+                    {
+                        using var stream = System.IO.File.OpenRead(filePath);
+                        // Process using the service
+                        _ = _fileService.ProcessKnowledgeDocumentAsync(projectId, stream, doc.FileName, doc.ContentType, decryptedKey);
+                    }
+                }
+                catch { /* Log and continue */ }
+            }
+
+            return Ok(new { Message = $"Batch retry triggered for {docs.Count} documents." });
         }
     }
 }

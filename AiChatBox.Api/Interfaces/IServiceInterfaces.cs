@@ -17,6 +17,7 @@ namespace AiChatBox.Api.Interfaces
     public interface IEmbeddingService
     {
         Task<Vector> GetEmbeddingAsync(string text, string? apiKeyOverride = null, Guid? projectId = null, string? userId = null);
+        Task<List<Vector>> GetBatchEmbeddingsAsync(List<string> texts, string? apiKeyOverride = null, Guid? projectId = null, string? userId = null);
     }
 
     public interface IFileService
@@ -34,6 +35,9 @@ namespace AiChatBox.Api.Interfaces
     public interface IGeminiLiveService : IAsyncDisposable
     {
         Guid? ProjectId { get; set; }
+        Guid? ConfigurationId { get; set; }
+        Guid? SessionId { get; set; }
+        string? UserId { get; set; }
         string? ApiKeyOverride { get; set; }
         event Func<byte[], Task>? OnAudioReceived;
         event Func<string, bool, Task>? OnTextReceived;

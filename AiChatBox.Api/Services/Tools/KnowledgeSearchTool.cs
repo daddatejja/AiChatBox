@@ -50,7 +50,7 @@ namespace AiChatBox.Api.Services.Tools
                 var relevantChunks = await db.DocumentChunks
                     .Where(c => c.Document!.ProjectId == _projectId)
                     .OrderBy(c => c.Embedding!.CosineDistance(queryEmbedding))
-                    .Take(5)
+                    .Take(10)
                     .Select(c => c.Content)
                     .ToListAsync();
 

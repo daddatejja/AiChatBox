@@ -16,6 +16,14 @@ namespace AiChatBox.Api.DTOs
         public string? ModelName { get; set; }
         public string? SystemPrompt { get; set; }
         public ToolResultDto? ToolResult { get; set; }
+        public PageContext? Context { get; set; }
+    }
+
+    public class PageContext
+    {
+        public string? Url { get; set; }
+        public string? Title { get; set; }
+        public string? Path { get; set; }
     }
 
     public class ToolResultDto

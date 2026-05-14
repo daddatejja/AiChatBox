@@ -10,6 +10,7 @@ namespace AiChatBox.Api.Middleware
         public async Task InvokeAsync(HttpContext context, ApiKeyService apiKeyService)
         {
             if (context.Request.Path.StartsWithSegments("/api/auth") ||
+                context.Request.Path.StartsWithSegments("/api/firecrawl/webhook") ||
                 context.Request.Path.StartsWithSegments("/swagger") ||
                 context.Request.Path.StartsWithSegments("/dashboard"))
             {

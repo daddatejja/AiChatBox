@@ -281,6 +281,14 @@
       };
     }
 
+    getPageContext() {
+      return {
+        url: window.location.href,
+        title: document.title,
+        path: window.location.pathname
+      };
+    }
+
     async safeJson(response) {
       const contentType = response.headers.get("content-type");
       if (contentType && contentType.includes("application/json")) {
@@ -325,6 +333,8 @@
       if (this.suggestions.length === 0) {
           this.suggestions = ["Good morning", "How can you help me?", "Tell me a joke"];
       }
+
+      await this.loadExternalScripts();
 
       await this.fetchConfig();
       this.render();
@@ -697,7 +707,8 @@
             provider: selectedProvider,
             modelName: selectedModel,
             attachedFileId,
-            imageDataUrl
+            imageDataUrl,
+            context: this.getPageContext()
           }),
         });
 
@@ -830,7 +841,8 @@
           toolResult: {
             toolName: toolName,
             result: result
-          }
+          },
+          context: this.getPageContext()
         }),
       });
 
@@ -1042,6 +1054,9 @@
     async startLiveSession() {
       this.isLive = true;
       this.shadowRoot.getElementById("live-overlay").classList.add("active");
+      
+      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
+      if (transcriptArea) transcriptArea.innerHTML = "";
       this.shadowRoot.getElementById("btn-live").classList.add("pulse-animation");
       this.visualizer.init(this.shadowRoot.getElementById("live-orb-canvas"));
       
@@ -1084,9 +1099,9 @@
         
         // Use separate hub methods for widget (API key) vs dashboard (JWT) auth
         if (this.apiKey) {
-          await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey);
+          await this.liveConnection.invoke("StartLive", this.userId, voice, this.apiKey, this.currentSessionId);
         } else if (this.authToken) {
-          await this.liveConnection.invoke("StartLiveDashboard", this.userId, voice, this.projectId || "", this.configurationId || "");
+          await this.liveConnection.invoke("StartLiveDashboard", this.userId, voice, this.projectId || "", this.configurationId || "", this.currentSessionId);
         } else {
           throw new Error("No API key or auth token configured");
         }
@@ -1333,6 +1348,10 @@
       this.currentSessionId = null;
       localStorage.removeItem("ai_chat_session_id");
       this.shadowRoot.getElementById("messages-container").innerHTML = "";
+      
+      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
+      if (transcriptArea) transcriptArea.innerHTML = "";
+      
       this.renderEmptyState();
       if (this.isHistoryOpen) this.toggleHistory();
     }
@@ -1564,13 +1583,96 @@
       this.isFullscreen = !this.isFullscreen;
       this.shadowRoot.getElementById("main-container").classList.toggle("chatbox-fullscreen", this.isFullscreen);
     }
+    async loadExternalScripts() {
+      const scripts = [
+        { id: 'marked-js', url: 'https://cdn.jsdelivr.net/npm/marked/marked.min.js' },
+        { id: 'hljs-js', url: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js' }
+      ];
+
+      const promises = scripts.map(s => {
+        if (document.getElementById(s.id)) return Promise.resolve();
+        return new Promise((resolve) => {
+          const script = document.createElement('script');
+          script.id = s.id;
+          script.src = s.url;
+          script.async = true;
+          script.onload = resolve;
+          script.onerror = resolve; // Continue even if one fails
+          document.head.appendChild(script);
+        });
+      });
+
+      await Promise.all(promises);
+
+      // Add highlight.js theme if not present
+      if (!document.getElementById('hljs-theme')) {
+        const link = document.createElement('link');
+        link.id = 'hljs-theme';
+        link.rel = 'stylesheet';
+        link.href = 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css';
+        document.head.appendChild(link);
+      }
+    }
+
     formatMarkdown(text) {
       if (!text) return "";
+      
+      try {
+        if (window.marked) {
+          // Configure marked on every call to ensure options are set (or once if you prefer)
+          window.marked.setOptions({
+            highlight: (code, lang) => {
+              if (window.hljs) {
+                if (lang && window.hljs.getLanguage(lang)) {
+                  return window.hljs.highlight(code, { language: lang }).value;
+                }
+                return window.hljs.highlightAuto(code).value;
+              }
+              return code;
+            },
+            breaks: true,
+            gfm: true,
+            headerIds: false,
+            mangle: false
+          });
+          
+          let html = window.marked.parse(text);
+          
+          // Re-apply the code block wrapper logic for the copy button
+          // Marked generates <pre><code class="language-x">...</code></pre>
+          const tempDiv = document.createElement('div');
+          tempDiv.innerHTML = html;
+          
+          tempDiv.querySelectorAll('pre code').forEach(codeEl => {
+            const pre = codeEl.parentElement;
+            const code = codeEl.innerText;
+            const id = 'code-' + Math.random().toString(36).substr(2, 9);
+            const langMatch = codeEl.className.match(/language-(\w+)/);
+            const lang = langMatch ? langMatch[1] : 'code';
+            
+            const wrapper = document.createElement('div');
+            wrapper.className = 'code-block-wrapper';
+            wrapper.innerHTML = `
+              <div class="code-header">
+                <span>${lang.toUpperCase()}</span>
+                <button class="copy-code-btn" data-code-id="${id}">${this.icons.copy} Copy</button>
+              </div>
+              <pre><code id="${id}" class="${codeEl.className}">${codeEl.innerHTML}</code></pre>
+            `;
+            pre.parentNode.replaceChild(wrapper, pre);
+          });
+          
+          return tempDiv.innerHTML;
+        }
+      } catch (e) {
+        console.warn("Markdown parsing failed, falling back to basic rendering", e);
+      }
+
+      // Fallback to basic rendering if marked is not available or fails
       let html = text.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
                      .replace(/`([^`]+)`/g, "<code>$1</code>")
                      .replace(/\n/g, "<br>");
       
-      // Handle code blocks with copy button
       html = html.replace(/<pre><code>([\s\S]*?)<\/code><\/pre>|```([\s\S]*?)```/g, (match, p1, p2) => {
         const code = (p1 || p2 || "").replace(/<br>/g, "\n");
         const id = 'code-' + Math.random().toString(36).substr(2, 9);

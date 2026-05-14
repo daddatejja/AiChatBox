@@ -138,36 +138,45 @@ namespace AiChatBox.Api.Services
 
             try
             {
-                var chunks = ChunkText(extractedText, 1000);
-                int index = 0;
-                int successCount = 0;
+                var allChunks = ChunkText(extractedText, 1000, 200);
+                int totalSuccess = 0;
+                int batchSize = 100;
 
-                foreach (var chunkText in chunks)
+                for (int i = 0; i < allChunks.Count; i += batchSize)
                 {
+                    var batch = allChunks.Skip(i).Take(batchSize).ToList();
                     try
                     {
-                        var embedding = await _embeddingService.GetEmbeddingAsync(chunkText, geminiApiKey, projectId: projectId);
-                        var chunk = new DocumentChunk
+                        var embeddings = await _embeddingService.GetBatchEmbeddingsAsync(batch, geminiApiKey, projectId: projectId);
+                        for (int j = 0; j < embeddings.Count; j++)
                         {
-                            DocumentId = docModel.Id,
-                            Content = chunkText,
-                            Embedding = embedding,
-                            ChunkIndex = index++
-                        };
-                        _db.DocumentChunks.Add(chunk);
-                        successCount++;
+                            var chunk = new DocumentChunk
+                            {
+                                DocumentId = docModel.Id,
+                                Content = batch[j],
+                                Embedding = embeddings[j],
+                                ChunkIndex = i + j
+                            };
+                            _db.DocumentChunks.Add(chunk);
+                        }
+                        totalSuccess += batch.Count;
                     }
                     catch (Exception ex)
                     {
-                        _logger.LogError(ex, "Failed to embed chunk {Index} of document {DocId}", index, docModel.Id);
-                        // We continue with other chunks, but we'll report if overall it fails
+                        _logger.LogError(ex, "Failed to embed batch starting at {Index} for document {DocId}", i, docModel.Id);
+                        docModel.ErrorMessage = ex.Message;
+                        break; 
                     }
                 }
 
-                if (successCount == 0 && chunks.Count > 0)
+                if (totalSuccess == 0 && allChunks.Count > 0)
                 {
                     docModel.Status = KnowledgeDocumentStatus.Failed;
-                    docModel.ErrorMessage = "Failed to generate embeddings for any of the document chunks. Check your API key.";
+                    docModel.ErrorMessage = "Failed to generate embeddings. " + (docModel.ErrorMessage ?? "Check your API key.");
+                }
+                else if (totalSuccess < allChunks.Count)
+                {
+                    docModel.Status = KnowledgeDocumentStatus.Failed;
                 }
                 else
                 {
@@ -186,15 +195,21 @@ namespace AiChatBox.Api.Services
             return docModel;
         }
 
-        private static List<string> ChunkText(string text, int chunkSize)
+        private static List<string> ChunkText(string text, int chunkSize, int overlap = 200)
         {
             var chunks = new List<string>();
             if (string.IsNullOrEmpty(text)) return chunks;
 
-            for (int i = 0; i < text.Length; i += chunkSize)
+            if (overlap >= chunkSize) overlap = chunkSize / 2;
+
+            int start = 0;
+            while (start < text.Length)
             {
-                var length = Math.Min(chunkSize, text.Length - i);
-                chunks.Add(text.Substring(i, length));
+                int length = Math.Min(chunkSize, text.Length - start);
+                chunks.Add(text.Substring(start, length));
+
+                start += (chunkSize - overlap);
+                if (start >= text.Length) break;
             }
             return chunks;
         }

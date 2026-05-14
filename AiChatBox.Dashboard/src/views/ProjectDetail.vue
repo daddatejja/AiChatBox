@@ -8,9 +8,13 @@ import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
 import Textarea from 'primevue/textarea';
+import { useToast } from 'primevue/usetoast';
+import { useConfirm } from 'primevue/useconfirm';
 
 const route = useRoute();
 const { apiFetch } = useApi();
+const toast = useToast();
+const confirm = useConfirm();
 
 const projectId = computed(() => route.params.id as string);
 const project = ref<any>({});
@@ -71,9 +75,25 @@ async function createConfig() {
 }
 
 async function deleteConfig(id: string) {
-    if (!confirm('Delete this configuration?')) return;
-    await apiFetch(`/api/configuration/${id}`, { method: 'DELETE' });
-    loadConfigs();
+    confirm.require({
+        message: 'Delete this configuration?',
+        header: 'Confirm Deletion',
+        icon: 'pi pi-exclamation-triangle',
+        rejectProps: {
+            label: 'Cancel',
+            severity: 'secondary',
+            outlined: true
+        },
+        acceptProps: {
+            label: 'Delete',
+            severity: 'danger'
+        },
+        accept: async () => {
+            await apiFetch(`/api/configuration/${id}`, { method: 'DELETE' });
+            toast.add({ severity: 'success', summary: 'Deleted', detail: 'Configuration removed successfully.', life: 3000 });
+            loadConfigs();
+        }
+    });
 }
 
 async function generateKey() {
@@ -89,9 +109,25 @@ async function generateKey() {
 }
 
 async function revokeKey(id: string) {
-    if (!confirm('Revoke this key?')) return;
-    await apiFetch(`/api/project/keys/${id}`, { method: 'DELETE' });
-    loadKeys();
+    confirm.require({
+        message: 'Revoke this key?',
+        header: 'Confirm Revoke',
+        icon: 'pi pi-exclamation-triangle',
+        rejectProps: {
+            label: 'Cancel',
+            severity: 'secondary',
+            outlined: true
+        },
+        acceptProps: {
+            label: 'Revoke',
+            severity: 'danger'
+        },
+        accept: async () => {
+            await apiFetch(`/api/project/keys/${id}`, { method: 'DELETE' });
+            toast.add({ severity: 'success', summary: 'Revoked', detail: 'API key revoked successfully.', life: 3000 });
+            loadKeys();
+        }
+    });
 }
 
 function openNewTool() {
@@ -137,9 +173,25 @@ async function saveTool() {
 }
 
 async function deleteTool(id: string) {
-    if (!confirm('Delete this tool?')) return;
-    await apiFetch(`/api/tool/${id}`, { method: 'DELETE' });
-    loadTools();
+    confirm.require({
+        message: 'Delete this tool?',
+        header: 'Confirm Deletion',
+        icon: 'pi pi-exclamation-triangle',
+        rejectProps: {
+            label: 'Cancel',
+            severity: 'secondary',
+            outlined: true
+        },
+        acceptProps: {
+            label: 'Delete',
+            severity: 'danger'
+        },
+        accept: async () => {
+            await apiFetch(`/api/tool/${id}`, { method: 'DELETE' });
+            toast.add({ severity: 'success', summary: 'Deleted', detail: 'Tool removed successfully.', life: 3000 });
+            loadTools();
+        }
+    });
 }
 
 async function saveProjectSettings() {
@@ -154,7 +206,7 @@ async function saveProjectSettings() {
             allowedDomains: project.value.allowedDomains
         })
     });
-    alert('Settings saved!');
+    toast.add({ severity: 'success', summary: 'Saved', detail: 'Project settings updated.', life: 3000 });
 }
 
 onMounted(() => { 

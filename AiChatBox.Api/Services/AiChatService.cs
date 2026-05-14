@@ -8,6 +8,7 @@ using AiChatBox.Api.Models;
 using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
+using AiChatBox.Api.Services.Tools;
 
 namespace AiChatBox.Api.Services
 {
@@ -186,6 +187,12 @@ namespace AiChatBox.Api.Services
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
 
+            if (request.Context != null)
+            {
+                var contextStr = $"\n\n[USER CURRENT CONTEXT]\nURL: {request.Context.Url}\nTitle: {request.Context.Title}\nPath: {request.Context.Path}\nUse this information if the user asks questions about 'this page'.";
+                systemPrompt += contextStr;
+            }
+
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
                 : (config != null ? config.DefaultModel
@@ -219,37 +226,14 @@ namespace AiChatBox.Api.Services
                 ? apiKeyOverride 
                 : _encryption.Decrypt(config?.GeminiApiKey);
 
-            if (project != null && !string.IsNullOrWhiteSpace(request.Message))
+            var extraTools = new List<ITool>();
+            if (project != null)
             {
                 var hasDocs = await _db.KnowledgeDocuments.AnyAsync(d => d.ProjectId == project.Id && d.IsProcessed);
                 if (hasDocs)
                 {
-                    try
-                    {
-                        // Use the Gemini API key specifically for embeddings
-                        var queryEmbedding = await _embeddingService.GetEmbeddingAsync(request.Message, apiKeyOverride: geminiApiKeyForRag, projectId: project?.Id, userId: userId);
-                        var relevantChunks = await _db.DocumentChunks
-                            .Where(c => c.Document!.ProjectId == project.Id)
-                            .OrderBy(c => c.Embedding!.CosineDistance(queryEmbedding))
-                            .Take(5)
-                            .Select(c => c.Content)
-                            .ToListAsync();
-
-                        if (relevantChunks.Count > 0)
-                        {
-                            _logger.LogInformation("RAG found {Count} relevant chunks for project {ProjectId}", relevantChunks.Count, project.Id);
-                            var contextText = "\n\nContext from Knowledge Base:\n" + string.Join("\n---\n", relevantChunks);
-                            systemPrompt += contextText;
-                        }
-                        else
-                        {
-                            _logger.LogInformation("RAG found no relevant chunks for project {ProjectId}", project.Id);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        _logger.LogWarning(ex, "RAG retrieval failed for project {ProjectId}", project.Id);
-                    }
+                    _logger.LogInformation("Registering KnowledgeSearchTool for project {ProjectId}", project.Id);
+                    extraTools.Add(new KnowledgeSearchTool(_dbFactory, _embeddingService, project.Id, geminiApiKeyForRag));
                 }
             }
 
@@ -259,7 +243,7 @@ namespace AiChatBox.Api.Services
 
             async IAsyncEnumerable<ChatStreamChunk> StreamInternal()
             {
-                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, cancellationToken))
+                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, extraTools, session.Id, cancellationToken))
                 {
                     if (chunk.ToolCall != null)
                     {

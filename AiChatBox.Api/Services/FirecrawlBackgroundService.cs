@@ -10,30 +10,27 @@ namespace AiChatBox.Api.Services
         IServiceScopeFactory scopeFactory,
         EncryptionService encryption,
         FirecrawlService firecrawl,
-        ILogger<FirecrawlBackgroundService> logger) : BackgroundService
+        IConfiguration configuration,
+        ILogger<FirecrawlBackgroundService> logger)
     {
         private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
         private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
         private readonly EncryptionService _encryption = encryption;
         private readonly FirecrawlService _firecrawl = firecrawl;
+        private readonly IConfiguration _configuration = configuration;
         private readonly ILogger<FirecrawlBackgroundService> _logger = logger;
 
-        protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+        public async Task ExecuteAsync()
         {
-            _logger.LogInformation("FirecrawlBackgroundService is starting.");
+            _logger.LogInformation("FirecrawlBackgroundService Job is starting.");
 
-            while (!stoppingToken.IsCancellationRequested)
+            try
             {
-                try
-                {
-                    await ProcessJobsAsync(stoppingToken);
-                }
-                catch (Exception ex)
-                {
-                    _logger.LogError(ex, "Error occurred while processing firecrawl jobs.");
-                }
-
-                await Task.Delay(TimeSpan.FromSeconds(15), stoppingToken);
+                await ProcessJobsAsync(CancellationToken.None);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Error occurred while processing firecrawl jobs.");
             }
         }
 
@@ -79,7 +76,10 @@ namespace AiChatBox.Api.Services
                     customKey = _encryption.Decrypt(config.FirecrawlApiKey);
                 }
 
-                var firecrawlJobId = await _firecrawl.StartCrawlAsync(job.BaseUrl, job.MaxPages, customKey);
+                var publicUrl = _configuration["Network:PublicApiUrl"];
+                var webhookUrl = !string.IsNullOrEmpty(publicUrl) ? $"{publicUrl.TrimEnd('/')}/api/firecrawl/webhook" : null;
+
+                var firecrawlJobId = await _firecrawl.StartCrawlAsync(job.BaseUrl, job.MaxPages, customKey, webhookUrl);
                 
                 job.FirecrawlJobId = firecrawlJobId;
                 job.Status = KnowledgeDocumentStatus.Processing;
@@ -153,14 +153,11 @@ namespace AiChatBox.Api.Services
                     int count = 0;
                     foreach (var page in results.Data)
                     {
-                        if (string.IsNullOrWhiteSpace(page.Markdown)) continue;
-
-                        var url = page.Metadata?.SourceURL ?? $"page_{count}";
-                        var fileName = url.Replace("https://", "").Replace("http://", "").Replace("/", "_");
-                        if (!fileName.EndsWith(".md")) fileName += ".md";
-
-                        using var ms = new MemoryStream(Encoding.UTF8.GetBytes(page.Markdown));
-                        await fileService.ProcessKnowledgeDocumentAsync(job.ProjectId, ms, fileName, "text/markdown", geminiKey);
+                        var fileName = _firecrawl.GenerateFileName(page);
+                        if (!await db.KnowledgeDocuments.AnyAsync(d => d.ProjectId == job.ProjectId && d.FileName == fileName, ct))
+                        {
+                            await _firecrawl.ProcessPageAsync(job.ProjectId, page, geminiKey, fileService, fileName);
+                        }
                         count++;
                     }
                     

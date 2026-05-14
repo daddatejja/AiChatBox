@@ -10,6 +10,13 @@ import InputText from 'primevue/inputtext';
 import IconField from 'primevue/iconfield';
 import InputIcon from 'primevue/inputicon';
 import Tag from 'primevue/tag';
+import Tabs from 'primevue/tabs';
+import TabList from 'primevue/tablist';
+import Tab from 'primevue/tab';
+import TabPanels from 'primevue/tabpanels';
+import TabPanel from 'primevue/tabpanel';
+import Timeline from 'primevue/timeline';
+import ScrollPanel from 'primevue/scrollpanel';
 
 const { apiFetch } = useApi();
 
@@ -95,11 +102,228 @@ const getErrorSummary = (msg: string) => {
 
 const visibleDetail = ref(false);
 const selectedLog = ref<any>(null);
+const traceLogs = ref<any[]>([]);
+const loadingTrace = ref(false);
 
-function showDetail(log: any) {
+const getLogColor = (endpoint: string) => {
+    if (!endpoint) return '#64748b';
+    if (endpoint.includes('User')) return '#3b82f6';
+    if (endpoint.includes('Model')) return '#8b5cf6';
+    if (endpoint.includes('Tool')) return '#f59e0b';
+    if (endpoint.includes('Embedding')) return '#10b981';
+    if (endpoint.includes('Generate')) return '#8b5cf6';
+    if (endpoint.includes('Error')) return '#ef4444';
+    return '#64748b';
+};
+
+const getLogIcon = (endpoint: string) => {
+    if (!endpoint) return 'pi pi-server';
+    if (endpoint.includes('User')) return 'pi pi-user';
+    if (endpoint.includes('Model')) return 'pi pi-sparkles';
+    if (endpoint.includes('Tool')) return 'pi pi-cog';
+    if (endpoint.includes('Embedding')) return 'pi pi-database';
+    if (endpoint.includes('Generate')) return 'pi pi-bolt';
+    return 'pi pi-server';
+};
+
+const formatPreview = (raw: string) => {
+    if (!raw) return '-';
+    
+    if (raw.includes('[Transcription]') || raw.includes('[Model]')) {
+        const lines = raw.split('\n').filter(l => l.trim());
+        const lastLine = lines[lines.length - 1] || '';
+        return lastLine.replace(/\[(Transcription|Model)\]:?\s*/g, '');
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        if (parsed.message) return parsed.message;
+        if (parsed.text) return parsed.text;
+        if (parsed.toolName) return `Executing: ${parsed.toolName}`;
+        if (typeof parsed === 'object') {
+            const firstKey = Object.keys(parsed)[0];
+            return `${firstKey}: ${JSON.stringify(parsed[firstKey])}`;
+        }
+    } catch {
+        return raw.length > 80 ? raw.substring(0, 80) + '...' : raw;
+    }
+    return raw;
+};
+
+async function showDetail(log: any) {
     selectedLog.value = log;
     visibleDetail.value = true;
+    traceLogs.value = [];
+    
+    const sid = log.sessionId || log.SessionId;
+    if (sid) {
+        loadingTrace.value = true;
+        try {
+            const res = await apiFetch(`/api/logs/trace/${sid}`);
+            if (res.ok) {
+                const logs = await res.json();
+                let combined: any[] = [];
+                for (const l of logs) {
+                    if (l.endpoint === 'GeminiLive/Session') {
+                        const parsedEvents = parseLiveTimeline(l.rawResponse);
+                        for (const evt of parsedEvents) {
+                            combined.push({
+                                id: evt.id || Math.random().toString(),
+                                isLiveEvent: true,
+                                createdAt: evt.timestamp,
+                                endpoint: evt.type,
+                                type: evt.type,
+                                meta: evt.meta,
+                                content: evt.content,
+                                transcription: evt.transcription,
+                                audioSrc: evt.audioSrc,
+                                rawResponse: l.rawResponse,
+                            });
+                        }
+                    } else {
+                        combined.push(l);
+                    }
+                }
+                combined.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                traceLogs.value = combined;
+            }
+        } catch(e) { console.error(e); }
+        loadingTrace.value = false;
+    }
 }
+
+async function togglePin(log: any) {
+    try {
+        const res = await apiFetch(`/api/logs/${log.id}/pin`, { method: 'POST' });
+        if (res.ok) {
+            const data = await res.json();
+            log.isPinned = data.isPinned;
+        }
+    } catch(e) { console.error(e); }
+}
+
+const pcmBase64ArrayToWavDataUrl = (base64Chunks: string[], sampleRate: number = 24000) => {
+    let totalLen = 0;
+    const binaryChunks = base64Chunks.map(b => {
+        const bin = window.atob(b);
+        totalLen += bin.length;
+        return bin;
+    });
+    
+    if (totalLen === 0) return '';
+    
+    const bytes = new Uint8Array(totalLen);
+    let offset = 0;
+    for (const bin of binaryChunks) {
+        for (let i = 0; i < bin.length; i++) {
+            bytes[offset++] = bin.charCodeAt(i);
+        }
+    }
+    
+    const numChannels = 1;
+    const bitsPerSample = 16;
+    const byteRate = sampleRate * numChannels * (bitsPerSample / 8);
+    const blockAlign = numChannels * (bitsPerSample / 8);
+    
+    const buffer = new ArrayBuffer(44 + bytes.length);
+    const view = new DataView(buffer);
+    
+    const writeString = (v: DataView, off: number, str: string) => {
+        for (let i = 0; i < str.length; i++) {
+            v.setUint8(off + i, str.charCodeAt(i));
+        }
+    };
+    
+    writeString(view, 0, 'RIFF');
+    view.setUint32(4, 36 + bytes.length, true);
+    writeString(view, 8, 'WAVE');
+    writeString(view, 12, 'fmt ');
+    view.setUint32(16, 16, true);
+    view.setUint16(20, 1, true);
+    view.setUint16(22, numChannels, true);
+    view.setUint32(24, sampleRate, true);
+    view.setUint32(28, byteRate, true);
+    view.setUint16(32, blockAlign, true);
+    view.setUint16(34, bitsPerSample, true);
+    writeString(view, 36, 'data');
+    view.setUint32(40, bytes.length, true);
+    
+    const data = new Uint8Array(buffer, 44);
+    data.set(bytes);
+    
+    const outBytes = new Uint8Array(buffer);
+    let binary = '';
+    const chunkSize = 8192;
+    for (let i = 0; i < outBytes.length; i += chunkSize) {
+        const chunk = outBytes.subarray(i, i + chunkSize);
+        binary += String.fromCharCode.apply(null, chunk as any);
+    }
+    const wavBase64 = window.btoa(binary);
+    return `data:audio/wav;base64,${wavBase64}`;
+};
+
+const formatJsonDetail = (raw: string) => {
+    if (!raw) return '';
+    try {
+        const parsed = JSON.parse(raw);
+        const truncateBase64 = (obj: any) => {
+            if (Array.isArray(obj)) {
+                obj.forEach(truncateBase64);
+            } else if (typeof obj === 'object' && obj !== null) {
+                for (const key in obj) {
+                    if (typeof obj[key] === 'string' && obj[key].length > 1000) {
+                        obj[key] = `[Binary Data Omitted - Length: ${obj[key].length}]`;
+                    } else {
+                        truncateBase64(obj[key]);
+                    }
+                }
+            }
+        };
+        truncateBase64(parsed);
+        return JSON.stringify(parsed, null, 2);
+    } catch {
+        return raw;
+    }
+};
+
+const parseLiveTimeline = (rawResponse: string) => {
+    if (!rawResponse) return [];
+    try {
+        const parsed = JSON.parse(rawResponse);
+        if (Array.isArray(parsed)) {
+            const merged: any[] = [];
+            for (const evt of parsed) {
+                const last = merged[merged.length - 1];
+                if (last && last.type === evt.type && evt.type.includes('Audio')) {
+                    last.base64Chunks.push(evt.content);
+                    if (evt.transcription && evt.transcription !== "(untranscribed)") {
+                         last.transcription = (last.transcription && last.transcription !== "(untranscribed)" ? last.transcription + " " : "") + evt.transcription;
+                    }
+                } else {
+                    evt.base64Chunks = evt.content ? [evt.content] : [];
+                    merged.push({ ...evt });
+                }
+            }
+            merged.forEach(evt => {
+                 if (evt.type.includes('Audio') && evt.base64Chunks.length > 0) {
+                     try {
+                         const rate = evt.type === 'UserAudio' ? 16000 : 24000;
+                         evt.audioSrc = pcmBase64ArrayToWavDataUrl(evt.base64Chunks, rate);
+                     } catch(e) { console.error("Audio conversion failed", e); }
+                 }
+            });
+            return merged;
+        }
+    } catch { }
+    return [];
+};
+
+const getEventTypeClass = (type: string) => {
+    if (type.includes('User')) return 'request';
+    if (type.includes('Model')) return 'response';
+    if (type.includes('Tool')) return 'tool-block';
+    return 'system-block';
+};
 
 onMounted(() => {
     loadProjects();
@@ -163,6 +387,15 @@ onMounted(() => {
                         <Tag v-else severity="success" value="Success" />
                     </template>
                 </Column>
+                <Column header="Pin" style="width: 60px">
+                    <template #body="slotProps">
+                        <Button :icon="slotProps.data.isPinned ? 'pi pi-star-fill' : 'pi pi-star'" 
+                                :severity="slotProps.data.isPinned ? 'warn' : 'secondary'" 
+                                :text="!slotProps.data.isPinned" 
+                                rounded 
+                                @click="togglePin(slotProps.data)" />
+                    </template>
+                </Column>
                 <Column header="Details" style="width: 80px">
                     <template #body="slotProps">
                         <Button icon="pi pi-eye" severity="secondary" text rounded @click="showDetail(slotProps.data)" />
@@ -173,24 +406,96 @@ onMounted(() => {
             <p v-if="!loading && !logs.length" class="empty-text">No logs found matching your criteria.</p>
         </div>
 
-        <Dialog v-model:visible="visibleDetail" modal header="Log Details" :style="{ width: '50vw' }">
+        <Dialog v-model:visible="visibleDetail" modal header="Request Details & Trace" :style="{ width: '70vw' }">
             <div v-if="selectedLog" class="log-detail">
-                <div class="detail-group">
-                    <label>Endpoint</label>
-                    <code>{{ selectedLog.endpoint }}</code>
-                </div>
-                <div class="detail-group" v-if="selectedLog.rawRequest">
-                    <label>Request Content</label>
-                    <pre class="json-block">{{ selectedLog.rawRequest }}</pre>
-                </div>
-                <div class="detail-group" v-if="selectedLog.rawResponse">
-                    <label>Response / Tool Call</label>
-                    <pre class="json-block">{{ selectedLog.rawResponse }}</pre>
-                </div>
-                <div class="detail-group" v-if="selectedLog.errorMessage">
-                    <label>Error</label>
-                    <p class="text-danger">{{ selectedLog.errorMessage }}</p>
-                </div>
+                <Tabs value="0">
+                    <TabList>
+                        <Tab value="0">General Info</Tab>
+                        <Tab value="1" v-if="selectedLog.sessionId || selectedLog.SessionId">Session Trace</Tab>
+                    </TabList>
+                    <TabPanels>
+                        <TabPanel value="0">
+                            <div class="detail-content">
+                                <div class="detail-group">
+                                    <label>Endpoint</label>
+                                    <code class="endpoint-badge">{{ selectedLog.endpoint }}</code>
+                                </div>
+                                <div class="detail-group" v-if="selectedLog.sessionId || selectedLog.SessionId">
+                                    <label>Session Trace ID</label>
+                                    <code class="text-xs">{{ selectedLog.sessionId || selectedLog.SessionId }}</code>
+                                </div>
+                                <div class="detail-group" v-if="selectedLog.rawRequest">
+                                    <label>Request Content</label>
+                                    <pre class="json-block">{{ formatJsonDetail(selectedLog.rawRequest) }}</pre>
+                                </div>
+                                <div class="detail-group" v-if="selectedLog.rawResponse">
+                                    <label>Response / Tool Content</label>
+                                    <pre class="json-block">{{ formatJsonDetail(selectedLog.rawResponse) }}</pre>
+                                </div>
+                                <div class="detail-group" v-if="selectedLog.errorMessage">
+                                    <label>Error</label>
+                                    <div class="error-panel">
+                                        <i class="pi pi-exclamation-circle"></i>
+                                        <span>{{ selectedLog.errorMessage }}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </TabPanel>
+                        <TabPanel value="1">
+                            <div v-if="loadingTrace" class="loading-trace">
+                                <i class="pi pi-spin pi-spinner" style="font-size: 2rem"></i>
+                                <p>Loading session trace...</p>
+                            </div>
+                            <ScrollPanel v-else style="width: 100%; height: 500px" class="trace-scroll">
+                                <Timeline :value="traceLogs" align="left" class="custom-timeline">
+                                    <template #marker="slotProps">
+                                        <span class="custom-marker" :style="{ backgroundColor: getLogColor(slotProps.item.endpoint) }">
+                                            <i :class="getLogIcon(slotProps.item.endpoint)"></i>
+                                        </span>
+                                    </template>
+                                    <template #content="slotProps">
+                                        <div :class="['timeline-item', { 'is-selected': slotProps.item.id === selectedLog.id }]" @click="selectedLog = slotProps.item">
+                                            <div class="item-header">
+                                                <div class="header-left">
+                                                    <span class="item-time">{{ new Date(slotProps.item.createdAt).toLocaleTimeString() }}</span>
+                                                    <span class="item-endpoint" :style="{ color: getLogColor(slotProps.item.endpoint) }">
+                                                        {{ slotProps.item.isLiveEvent ? `${slotProps.item.type} ${slotProps.item.meta ? '(' + slotProps.item.meta + ')' : ''}` : slotProps.item.endpoint }}
+                                                    </span>
+                                                </div>
+                                                <div class="item-meta">
+                                                    <Tag v-if="slotProps.item.errorMessage" severity="danger" value="Error" size="small" />
+                                                    <span v-if="slotProps.item.durationMs" class="item-duration">{{ slotProps.item.durationMs }}ms</span>
+                                                </div>
+                                            </div>
+
+                                            <div class="trace-content">
+                                                <div v-if="slotProps.item.isLiveEvent" class="live-trace-events">
+                                                    <div class="content-block" :class="getEventTypeClass(slotProps.item.type)">
+                                                        <div v-if="slotProps.item.type.includes('Audio')" class="block-audio">
+                                                            <audio v-if="slotProps.item.audioSrc" controls :src="slotProps.item.audioSrc" style="width: 100%; height: 32px;"></audio>
+                                                            <div v-if="slotProps.item.transcription" class="block-text mt-2"><i>"{{ slotProps.item.transcription }}"</i></div>
+                                                        </div>
+                                                        <div v-else class="block-text">{{ slotProps.item.content }}</div>
+                                                    </div>
+                                                </div>
+                                                <div v-else>
+                                                    <div class="content-block request mb-2">
+                                                        <span class="block-label">REQUEST</span>
+                                                        <div class="block-text">{{ formatPreview(slotProps.item.rawRequest) }}</div>
+                                                    </div>
+                                                    <div v-if="slotProps.item.rawResponse" class="content-block response">
+                                                        <span class="block-label">RESPONSE</span>
+                                                        <div class="block-text">{{ formatPreview(slotProps.item.rawResponse) }}</div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </template>
+                                </Timeline>
+                            </ScrollPanel>
+                        </TabPanel>
+                    </TabPanels>
+                </Tabs>
             </div>
         </Dialog>
     </div>
@@ -269,17 +574,29 @@ onMounted(() => {
 }
 
 .log-detail {
+    margin: -1rem;
+}
+.detail-content {
     display: flex;
     flex-direction: column;
     gap: 20px;
+    padding: 1rem;
 }
 .detail-group label {
     display: block;
     font-weight: 600;
     margin-bottom: 8px;
     color: var(--p-surface-500);
-    font-size: 0.85rem;
+    font-size: 0.75rem;
     text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.endpoint-badge {
+    background-color: var(--p-surface-100);
+    color: var(--p-surface-700);
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-family: 'JetBrains Mono', monospace;
 }
 .json-block {
     background-color: var(--p-surface-950);
@@ -291,8 +608,181 @@ onMounted(() => {
     overflow-x: auto;
     margin: 0;
     border: 1px solid var(--p-surface-800);
+    max-height: 300px;
+}
+.error-panel {
+    background-color: color-mix(in srgb, var(--p-red-500), transparent 90%);
+    border: 1px solid var(--p-red-500);
+    color: var(--p-red-500);
+    padding: 12px;
+    border-radius: 6px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
 }
 
+/* Timeline Styles */
+.loading-trace {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 4rem;
+    color: var(--p-surface-400);
+}
+.trace-scroll {
+    padding: 1.5rem;
+    background: var(--p-surface-50);
+    border-radius: 12px;
+}
+
+/* Force Timeline to the left */
+:deep(.p-timeline-event) {
+    min-height: 80px;
+}
+:deep(.p-timeline-event-opposite) {
+    display: none !important; /* Hide the empty left side */
+}
+:deep(.p-timeline-event-content) {
+    padding-left: 1rem !important;
+}
+:deep(.p-timeline-event-marker) {
+    border: none !important;
+}
+
+.custom-marker {
+    display: flex;
+    width: 2rem;
+    height: 2rem;
+    align-items: center;
+    justify-content: center;
+    color: #ffffff;
+    border-radius: 50%;
+    z-index: 1;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.custom-marker i {
+    font-size: 0.9rem;
+}
+.timeline-item {
+    background: var(--p-surface-0);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    padding: 16px;
+    cursor: pointer;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    margin-bottom: 8px;
+    position: relative;
+    overflow: hidden;
+}
+.timeline-item::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    background: transparent;
+    transition: background 0.2s;
+}
+.timeline-item:hover {
+    transform: translateX(4px);
+    border-color: var(--p-primary-300);
+}
+.timeline-item.is-selected {
+    border-color: var(--p-primary-500);
+    background: color-mix(in srgb, var(--p-primary-500), transparent 98%);
+    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+}
+.timeline-item.is-selected::before {
+    background: var(--p-primary-500);
+}
+.item-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 12px;
+}
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.item-time {
+    font-size: 0.75rem;
+    color: var(--p-surface-400);
+    font-weight: 500;
+}
+.item-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.item-endpoint {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+.item-duration {
+    font-size: 0.75rem;
+    color: var(--p-surface-400);
+    font-family: 'JetBrains Mono', monospace;
+}
+.trace-content {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.content-block {
+    padding: 8px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    position: relative;
+}
+.content-block.request {
+    background: var(--p-surface-50);
+    border-left: 3px solid var(--p-surface-300);
+}
+.content-block.response {
+    background: color-mix(in srgb, var(--p-primary-500), transparent 96%);
+    border-left: 3px solid var(--p-primary-500);
+}
+.block-label {
+    font-size: 0.65rem;
+    font-weight: 800;
+    color: var(--p-surface-400);
+    display: block;
+    margin-bottom: 2px;
+    letter-spacing: 1px;
+}
+.block-text {
+    color: var(--p-surface-700);
+    line-height: 1.5;
+    word-break: break-word;
+}
+.live-trace-events {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: 100%;
+}
+.content-block.tool-block {
+    background: color-mix(in srgb, var(--p-orange-500), transparent 96%);
+    border-left: 3px solid var(--p-orange-500);
+}
+.content-block.system-block {
+    background: var(--p-surface-100);
+    border-left: 3px solid var(--p-surface-400);
+}
+.mt-2 { margin-top: 8px; }
+.mb-2 { margin-bottom: 8px; }
+.time-small {
+    font-size: 0.6rem;
+    color: var(--p-surface-400);
+    float: right;
+    font-weight: normal;
+}
 /* ── Mobile Responsive ── */
 @media (max-width: 768px) {
     .header {

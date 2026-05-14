@@ -39,6 +39,9 @@ namespace AiChatBox.Api.DTOs
         public decimal MaxSpendLimit { get; set; }
         public decimal CurrentSpend { get; set; }
         public string? SuggestionsJson { get; set; }
+        public int LogRetentionDays { get; set; }
+        public int MaxLogsPerSession { get; set; }
+        public int MaxSessionsPerProject { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -66,6 +69,9 @@ namespace AiChatBox.Api.DTOs
         public int? RateLimitWindowMinutes { get; set; }
         public decimal? MaxSpendLimit { get; set; }
         public string? SuggestionsJson { get; set; }
+        public int? LogRetentionDays { get; set; }
+        public int? MaxLogsPerSession { get; set; }
+        public int? MaxSessionsPerProject { get; set; }
     }
 
     public class ProviderModelsRequest

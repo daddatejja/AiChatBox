@@ -108,6 +108,27 @@ namespace AiChatBox.Api.Controllers
             return Redirect($"{dashboardUrl}?token={token}");
         }
 
+        [HttpGet("hangfire-cookie")]
+        [Authorize]
+        public IActionResult GetHangfireAuthCookie()
+        {
+            var authHeader = Request.Headers.Authorization.ToString();
+            if (string.IsNullOrEmpty(authHeader) || !authHeader.StartsWith("Bearer "))
+                return Unauthorized();
+
+            var token = authHeader["Bearer ".Length..].Trim();
+
+            Response.Cookies.Append("hangfire_auth", token, new CookieOptions
+            {
+                HttpOnly = true,
+                Secure = true,
+                SameSite = SameSiteMode.None,
+                Expires = DateTime.UtcNow.AddHours(1)
+            });
+
+            return Ok();
+        }
+
         private string GenerateJwtToken(ApplicationUser user)
         {
             var jwtSettings = _configuration.GetSection("Jwt");

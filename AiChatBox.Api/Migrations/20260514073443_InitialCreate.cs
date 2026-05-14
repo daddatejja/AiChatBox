@@ -227,7 +227,10 @@ namespace AiChatBox.Api.Migrations
                     RateLimitWindowMinutes = table.Column<int>(type: "integer", nullable: false),
                     MaxSpendLimit = table.Column<decimal>(type: "numeric", nullable: false),
                     CurrentSpend = table.Column<decimal>(type: "numeric", nullable: false),
-                    SuggestionsJson = table.Column<string>(type: "text", nullable: true)
+                    SuggestionsJson = table.Column<string>(type: "text", nullable: true),
+                    LogRetentionDays = table.Column<int>(type: "integer", nullable: false),
+                    MaxLogsPerSession = table.Column<int>(type: "integer", nullable: false),
+                    MaxSessionsPerProject = table.Column<int>(type: "integer", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -424,6 +427,7 @@ namespace AiChatBox.Api.Migrations
                     Id = table.Column<Guid>(type: "uuid", nullable: false),
                     SessionId = table.Column<Guid>(type: "uuid", nullable: true),
                     ProjectId = table.Column<Guid>(type: "uuid", nullable: true),
+                    ConfigurationId = table.Column<Guid>(type: "uuid", nullable: true),
                     UserId = table.Column<string>(type: "character varying(450)", maxLength: 450, nullable: true),
                     Endpoint = table.Column<string>(type: "character varying(200)", maxLength: 200, nullable: true),
                     Provider = table.Column<string>(type: "character varying(50)", maxLength: 50, nullable: true),
@@ -434,6 +438,7 @@ namespace AiChatBox.Api.Migrations
                     RawRequest = table.Column<string>(type: "text", nullable: true),
                     RawResponse = table.Column<string>(type: "text", nullable: true),
                     ErrorMessage = table.Column<string>(type: "text", nullable: true),
+                    IsPinned = table.Column<bool>(type: "boolean", nullable: false),
                     CreatedAt = table.Column<DateTime>(type: "timestamp with time zone", nullable: false)
                 },
                 constraints: table =>
@@ -443,6 +448,11 @@ namespace AiChatBox.Api.Migrations
                         name: "FK_AiRequestLogs_ChatSessions_SessionId",
                         column: x => x.SessionId,
                         principalTable: "ChatSessions",
+                        principalColumn: "Id");
+                    table.ForeignKey(
+                        name: "FK_AiRequestLogs_Configurations_ConfigurationId",
+                        column: x => x.ConfigurationId,
+                        principalTable: "Configurations",
                         principalColumn: "Id");
                     table.ForeignKey(
                         name: "FK_AiRequestLogs_Projects_ProjectId",
@@ -479,6 +489,11 @@ namespace AiChatBox.Api.Migrations
                         principalTable: "UploadedFiles",
                         principalColumn: "Id");
                 });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_AiRequestLogs_ConfigurationId",
+                table: "AiRequestLogs",
+                column: "ConfigurationId");
 
             migrationBuilder.CreateIndex(
                 name: "IX_AiRequestLogs_ProjectId",

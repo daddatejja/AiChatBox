@@ -111,6 +111,9 @@ namespace AiChatBox.Api.Models
         public decimal MaxSpendLimit { get; set; } = 0; // 0 = disabled
         public decimal CurrentSpend { get; set; } = 0;
         public string? SuggestionsJson { get; set; } // JSON array of strings
+        public int LogRetentionDays { get; set; } = 30; // 0 = disabled/keep forever
+        public int MaxLogsPerSession { get; set; } = 500;
+        public int MaxSessionsPerProject { get; set; } = 50;
     }
 
     public class ApiKey

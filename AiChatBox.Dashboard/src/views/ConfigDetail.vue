@@ -37,6 +37,9 @@ const config = reactive({
     rateLimitWindowMinutes: 60,
     maxSpendLimit: 0,
     currentSpend: 0,
+    logRetentionDays: 30,
+    maxLogsPerSession: 500,
+    maxSessionsPerProject: 50,
     suggestionsJson: '',
     suggestions: [] as string[]
 });
@@ -168,6 +171,9 @@ async function save() {
         rateLimitRequests: config.rateLimitRequests,
         rateLimitWindowMinutes: config.rateLimitWindowMinutes,
         maxSpendLimit: config.maxSpendLimit,
+        logRetentionDays: config.logRetentionDays,
+        maxLogsPerSession: config.maxLogsPerSession,
+        maxSessionsPerProject: config.maxSessionsPerProject,
         suggestionsJson: JSON.stringify(config.suggestions.filter(s => s.trim() !== ''))
     };
 
@@ -273,6 +279,24 @@ onMounted(load);
                         </div>
                     </div>
 
+                    <div class="grid-3 mt-4">
+                        <div class="form-group">
+                            <label>Log Retention (Days)</label>
+                            <InputNumber v-model="config.logRetentionDays" fluid />
+                            <small class="info-text">Days to keep unpinned logs.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Max Logs Per Session</label>
+                            <InputNumber v-model="config.maxLogsPerSession" placeholder="0 = No limit" fluid />
+                            <small class="info-text">Prune logs exceeding limit.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Max Sessions Per Project</label>
+                            <InputNumber v-model="config.maxSessionsPerProject" placeholder="0 = No limit" fluid />
+                            <small class="info-text">Prune oldest inactive sessions.</small>
+                        </div>
+                    </div>
+                    
                     <div class="grid-2 mt-4">
                         <div class="form-group">
                             <label>Spending Cap (USD)</label>
@@ -467,8 +491,13 @@ onMounted(load);
     grid-template-columns: 1fr 1fr;
     gap: 24px;
 }
+.grid-3 {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 24px;
+}
 @media (max-width: 768px) {
-    .grid-2 {
+    .grid-2, .grid-3 {
         grid-template-columns: 1fr;
     }
     .api-key-input {
