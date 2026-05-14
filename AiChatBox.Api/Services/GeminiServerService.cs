@@ -199,12 +199,22 @@ namespace AiChatBox.Api.Services
                         var toolName = parsed.GetProperty("toolName").GetString();
                         var result = parsed.GetProperty("result");
                         
+                        object responseObj;
+                        if (result.ValueKind == JsonValueKind.Object)
+                        {
+                            responseObj = result.Clone();
+                        }
+                        else
+                        {
+                            responseObj = new { result = result.Clone() };
+                        }
+                        
                         contents.Add(new 
                         { 
                             role = "function", 
                             parts = new[] 
                             { 
-                                new { functionResponse = new { name = toolName, response = result.Clone() } } 
+                                new { functionResponse = new { name = toolName, response = responseObj } } 
                             } 
                         });
                         continue;
