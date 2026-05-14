@@ -247,6 +247,7 @@ namespace AiChatBox.Api.Services
                 {
                     if (chunk.ToolCall != null)
                     {
+                        await SaveMessageAsync(session.Id, "model", JsonSerializer.Serialize(new { toolCall = chunk.ToolCall }, _jsonOptions));
                         yield return new ChatStreamChunk { ToolCall = chunk.ToolCall, SessionId = session.Id };
                     }
                     else if (!string.IsNullOrEmpty(chunk.Text))
@@ -345,11 +346,11 @@ namespace AiChatBox.Api.Services
             }
         }
 
-        public async Task<IEnumerable<ChatSessionDto>> GetSessionsAsync(string userId)
+        public async Task<IEnumerable<ChatSessionDto>> GetSessionsAsync(string userId, Guid? projectId = null)
         {
-            var projectId = CurrentProject?.Id;
+            var pId = projectId ?? CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && s.ProjectId == projectId && !s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == pId && !s.IsArchived)
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto
                 {
@@ -362,10 +363,10 @@ namespace AiChatBox.Api.Services
                 .ToListAsync();
         }
 
-        public async Task<IEnumerable<ChatMessageDto>> GetSessionMessagesAsync(Guid sessionId, string userId)
+        public async Task<IEnumerable<ChatMessageDto>> GetSessionMessagesAsync(Guid sessionId, string userId, Guid? projectId = null)
         {
-            var projectId = CurrentProject?.Id;
-            var sessionExists = await _db.ChatSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
+            var pId = projectId ?? CurrentProject?.Id;
+            var sessionExists = await _db.ChatSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == pId);
             if (!sessionExists) return [];
 
             return await _db.ChatMessages
@@ -385,21 +386,21 @@ namespace AiChatBox.Api.Services
                 .ToListAsync();
         }
 
-        public async Task<bool> ArchiveSessionAsync(Guid sessionId, string userId)
+        public async Task<bool> ArchiveSessionAsync(Guid sessionId, string userId, Guid? projectId = null)
         {
-            var projectId = CurrentProject?.Id;
-            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
+            var pId = projectId ?? CurrentProject?.Id;
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == pId);
             if (session == null) return false;
             session.IsArchived = true;
             await _db.SaveChangesAsync();
             return true;
         }
 
-        public async Task<IEnumerable<ChatSessionDto>> GetArchivedSessionsAsync(string userId)
+        public async Task<IEnumerable<ChatSessionDto>> GetArchivedSessionsAsync(string userId, Guid? projectId = null)
         {
-            var projectId = CurrentProject?.Id;
+            var pId = projectId ?? CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && s.ProjectId == projectId && s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == pId && s.IsArchived)
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto 
                 { 
@@ -412,10 +413,10 @@ namespace AiChatBox.Api.Services
                 .ToListAsync();
         }
 
-        public async Task<bool> HardDeleteSessionAsync(Guid sessionId, string userId)
+        public async Task<bool> HardDeleteSessionAsync(Guid sessionId, string userId, Guid? projectId = null)
         {
-            var projectId = CurrentProject?.Id;
-            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == projectId);
+            var pId = projectId ?? CurrentProject?.Id;
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == pId);
             if (session == null) return false;
             _db.ChatSessions.Remove(session);
             await _db.SaveChangesAsync();

@@ -57,8 +57,9 @@ async function loadConfigurations(projectId: string) {
 const sessions = ref<any[]>([]);
 
 async function loadSessions() {
+    if (!selectedProject.value) return;
     try {
-        const res = await apiFetch('/api/chat/sessions');
+        const res = await apiFetch(`/api/chat/sessions?projectId=${selectedProject.value.id}`);
         if (res.ok) {
             sessions.value = await res.json();
         }
@@ -70,7 +71,7 @@ async function loadSessions() {
 async function loadSessionMessages(id: string) {
     try {
         sessionId.value = id;
-        const res = await apiFetch(`/api/chat/sessions/${id}`);
+        const res = await apiFetch(`/api/chat/sessions/${id}?projectId=${selectedProject.value.id}`);
         if (res.ok) {
             const data = await res.json();
             messages.value = data.map((m: any) => ({
@@ -95,7 +96,6 @@ watch(selectedProject, (newVal) => {
 
 onMounted(() => {
     loadProjects();
-    loadSessions();
 });
 
 function scrollToBottom() {

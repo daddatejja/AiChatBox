@@ -137,7 +137,7 @@ namespace AiChatBox.Api.Services
                         ArgumentsJson = functionCall.GetProperty("args").GetRawText()
                     };
                     
-                    if (functionCall.TryGetProperty("thought_signature", out var thoughtSignature))
+                    if (part.TryGetProperty("thought_signature", out var thoughtSignature))
                     {
                         toolCall.ThoughtSignature = thoughtSignature.GetString();
                     }
@@ -249,18 +249,21 @@ namespace AiChatBox.Api.Services
                                 { "name", name },
                                 { "args", toolCall.GetProperty("args").Clone() }
                             };
+                            
+                            var partDict = new Dictionary<string, object>
+                            {
+                                { "functionCall", fc }
+                            };
+                            
                             if (toolCall.TryGetProperty("thoughtSignature", out var ts) && ts.ValueKind != JsonValueKind.Null)
                             {
-                                fc["thought_signature"] = ts.GetString();
+                                partDict["thought_signature"] = ts.GetString();
                             }
 
                             contents.Add(new
                             {
                                 role = "model",
-                                parts = new[]
-                                {
-                                    new { functionCall = fc }
-                                }
+                                parts = new[] { partDict }
                             });
                             continue;
                         }

@@ -61,7 +61,21 @@ namespace AiChatBox.Api.Services
                 {
                     if (chunk.ToolCall != null)
                     {
-                        currentToolCall = chunk.ToolCall;
+                        if (currentToolCall == null)
+                        {
+                            currentToolCall = chunk.ToolCall;
+                        }
+                        else
+                        {
+                            if (!string.IsNullOrEmpty(chunk.ToolCall.ArgumentsJson))
+                            {
+                                currentToolCall.ArgumentsJson = chunk.ToolCall.ArgumentsJson;
+                            }
+                            if (chunk.ToolCall.ThoughtSignature != null)
+                            {
+                                currentToolCall.ThoughtSignature = chunk.ToolCall.ThoughtSignature;
+                            }
+                        }
                     }
                     else if (!string.IsNullOrEmpty(chunk.Text))
                     {

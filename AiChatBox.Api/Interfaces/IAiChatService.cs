@@ -9,10 +9,10 @@ namespace AiChatBox.Api.Interfaces
         Task<ChatMessage> SaveMessageAsync(Guid sessionId, string role, string content, string? imageDataUrl = null, Guid? attachedFileId = null);
         IAsyncEnumerable<ChatStreamChunk> StreamChatAsync(ChatRequest request, string userId, CancellationToken cancellationToken);
         
-        Task<IEnumerable<ChatSessionDto>> GetSessionsAsync(string userId);
-        Task<IEnumerable<ChatMessageDto>> GetSessionMessagesAsync(Guid sessionId, string userId);
-        Task<bool> ArchiveSessionAsync(Guid sessionId, string userId);
-        Task<IEnumerable<ChatSessionDto>> GetArchivedSessionsAsync(string userId);
-        Task<bool> HardDeleteSessionAsync(Guid sessionId, string userId);
+        Task<IEnumerable<ChatSessionDto>> GetSessionsAsync(string userId, Guid? projectId = null);
+        Task<IEnumerable<ChatMessageDto>> GetSessionMessagesAsync(Guid sessionId, string userId, Guid? projectId = null);
+        Task<bool> ArchiveSessionAsync(Guid sessionId, string userId, Guid? projectId = null);
+        Task<IEnumerable<ChatSessionDto>> GetArchivedSessionsAsync(string userId, Guid? projectId = null);
+        Task<bool> HardDeleteSessionAsync(Guid sessionId, string userId, Guid? projectId = null);
     }
 }

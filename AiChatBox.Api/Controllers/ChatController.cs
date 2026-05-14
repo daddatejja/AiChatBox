@@ -56,37 +56,37 @@ namespace AiChatBox.Api.Controllers
         }
 
         [HttpGet("sessions")]
-        public async Task<IActionResult> GetSessions()
+        public async Task<IActionResult> GetSessions([FromQuery] Guid? projectId)
         {
-            var sessions = await _chatService.GetSessionsAsync(UserId);
+            var sessions = await _chatService.GetSessionsAsync(UserId, projectId);
             return Ok(sessions);
         }
 
         [HttpGet("archived")]
-        public async Task<IActionResult> GetArchivedSessions()
+        public async Task<IActionResult> GetArchivedSessions([FromQuery] Guid? projectId)
         {
-            var sessions = await _chatService.GetArchivedSessionsAsync(UserId);
+            var sessions = await _chatService.GetArchivedSessionsAsync(UserId, projectId);
             return Ok(sessions);
         }
 
         [HttpGet("sessions/{sessionId:guid}")]
-        public async Task<IActionResult> GetMessages(Guid sessionId)
+        public async Task<IActionResult> GetMessages(Guid sessionId, [FromQuery] Guid? projectId)
         {
-            var messages = await _chatService.GetSessionMessagesAsync(sessionId, UserId);
+            var messages = await _chatService.GetSessionMessagesAsync(sessionId, UserId, projectId);
             return Ok(messages);
         }
 
         [HttpPost("sessions/{sessionId:guid}/archive")]
-        public async Task<IActionResult> ArchiveSession(Guid sessionId)
+        public async Task<IActionResult> ArchiveSession(Guid sessionId, [FromQuery] Guid? projectId)
         {
-            var result = await _chatService.ArchiveSessionAsync(sessionId, UserId);
+            var result = await _chatService.ArchiveSessionAsync(sessionId, UserId, projectId);
             return result ? Ok() : NotFound();
         }
 
         [HttpDelete("sessions/{sessionId:guid}/hard")]
-        public async Task<IActionResult> HardDeleteSession(Guid sessionId)
+        public async Task<IActionResult> HardDeleteSession(Guid sessionId, [FromQuery] Guid? projectId)
         {
-            var result = await _chatService.HardDeleteSessionAsync(sessionId, UserId);
+            var result = await _chatService.HardDeleteSessionAsync(sessionId, UserId, projectId);
             return result ? Ok() : NotFound();
         }
         
