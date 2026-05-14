@@ -93,12 +93,18 @@ builder.Services.AddAuthentication(options => {
     };
 })
 .AddGoogle(options => {
-    options.ClientId = builder.Configuration["Authentication:Google:ClientId"] ?? "placeholder";
-    options.ClientSecret = builder.Configuration["Authentication:Google:ClientSecret"] ?? "placeholder";
+    var googleClientId = builder.Configuration["Authentication:Google:ClientId"];
+    options.ClientId = string.IsNullOrEmpty(googleClientId) ? "placeholder" : googleClientId;
+    
+    var googleSecret = builder.Configuration["Authentication:Google:ClientSecret"];
+    options.ClientSecret = string.IsNullOrEmpty(googleSecret) ? "placeholder" : googleSecret;
 })
 .AddGitHub(options => {
-    options.ClientId = builder.Configuration["Authentication:GitHub:ClientId"] ?? "placeholder";
-    options.ClientSecret = builder.Configuration["Authentication:GitHub:ClientSecret"] ?? "placeholder";
+    var githubClientId = builder.Configuration["Authentication:GitHub:ClientId"];
+    options.ClientId = string.IsNullOrEmpty(githubClientId) ? "placeholder" : githubClientId;
+    
+    var githubSecret = builder.Configuration["Authentication:GitHub:ClientSecret"];
+    options.ClientSecret = string.IsNullOrEmpty(githubSecret) ? "placeholder" : githubSecret;
 });
 
 // Encryption

@@ -23,7 +23,7 @@ services:
       - chat-network
 
   db:
-    image: postgres:16-alpine
+    image: pgvector/pgvector:pg16
     container_name: aichatbox-db
     restart: always
     environment:
