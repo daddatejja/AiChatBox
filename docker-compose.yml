@@ -34,7 +34,7 @@ services:
     volumes:
       - ./postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U admin -d aichatbox"]
+      test: [ "CMD-SHELL", "pg_isready -U admin -d aichatbox" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -44,6 +44,9 @@ services:
   dashboard:
     image: ghcr.io/daddatejja/aichatbox-dashboard:latest
     container_name: aichatbox-dashboard
+    args:
+      - VITE_API_URL=${PUBLIC_API_URL}
+      - VITE_CLARITY_ID=${VITE_CLARITY_ID}
     restart: always
     networks:
       - chat-network
