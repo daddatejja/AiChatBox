@@ -9,6 +9,16 @@ import Tooltip from 'primevue/tooltip'
 import ToastService from 'primevue/toastservice'
 import ConfirmationService from 'primevue/confirmationservice'
 
+// Microsoft Clarity
+const clarityId = import.meta.env.VITE_CLARITY_ID;
+if (clarityId) {
+    (function (c: any, l: any, a: any, r: any, i: any) {
+        c[a] = c[a] || function () { (c[a].q = c[a].q || []).push(arguments) };
+        const t = l.createElement(r); t.async = 1; t.src = "https://www.clarity.ms/tag/" + i;
+        const y = l.getElementsByTagName(r)[0]; y.parentNode.insertBefore(t, y);
+    })(window, document, "clarity", "script", clarityId);
+}
+
 const TerminalPrime = definePreset(Aura, {
     semantic: {
         primary: {
