@@ -123,29 +123,31 @@ namespace AiChatBox.Api.Services
                 if (!candidate.TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
                     return null;
 
-                var part = parts[0];
-                if (part.TryGetProperty("text", out var text))
+                foreach (var part in parts.EnumerateArray())
                 {
-                    return new LlmResponseChunk { Text = text.GetString() };
-                }
-
-                if (part.TryGetProperty("functionCall", out var functionCall))
-                {
-                    var toolCall = new ToolCall
+                    if (part.TryGetProperty("text", out var text))
                     {
-                        Name = functionCall.GetProperty("name").GetString() ?? "",
-                        ArgumentsJson = functionCall.GetProperty("args").GetRawText()
-                    };
-                    
-                    if (part.TryGetProperty("thought_signature", out var thoughtSignature))
-                    {
-                        toolCall.ThoughtSignature = thoughtSignature.GetString();
+                        return new LlmResponseChunk { Text = text.GetString() };
                     }
 
-                    return new LlmResponseChunk
+                    if (part.TryGetProperty("functionCall", out var functionCall))
                     {
-                        ToolCall = toolCall
-                    };
+                        var toolCall = new ToolCall
+                        {
+                            Name = functionCall.GetProperty("name").GetString() ?? "",
+                            ArgumentsJson = functionCall.GetProperty("args").GetRawText()
+                        };
+                        
+                        if (part.TryGetProperty("thought_signature", out var thoughtSignature))
+                        {
+                            toolCall.ThoughtSignature = thoughtSignature.GetString();
+                        }
+
+                        return new LlmResponseChunk
+                        {
+                            ToolCall = toolCall
+                        };
+                    }
                 }
 
                 return null;
@@ -244,10 +246,12 @@ namespace AiChatBox.Api.Services
                         if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
                         {
                             var name = toolCall.GetProperty("name").GetString();
+                            var argsJson = toolCall.GetProperty("argumentsJson").GetString();
+                            
                             var fc = new Dictionary<string, object>
                             {
                                 { "name", name },
-                                { "args", toolCall.GetProperty("args").Clone() }
+                                { "args", JsonSerializer.Deserialize<JsonElement>(argsJson ?? "{}") }
                             };
                             
                             var partDict = new Dictionary<string, object>
