@@ -129,7 +129,7 @@ namespace AiChatBox.Api.Services
             {
                 yield return new LlmResponseChunk
                 {
-                    ToolCall = new ToolCall { Id = id, Name = name, ArgumentsJson = args.ToString() }
+                    ToolCalls = new List<ToolCall> { new ToolCall { Id = id, Name = name, ArgumentsJson = args.ToString() } }
                 };
             }
         }
@@ -194,19 +194,33 @@ namespace AiChatBox.Api.Services
                         try
                         {
                             using var doc = JsonDocument.Parse(msg.Content);
-                            if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
+                            var root = doc.RootElement;
+                            
+                            List<object> openAiToolCalls = new();
+                            if (root.TryGetProperty("toolCalls", out var tcs))
                             {
-                                var id = toolCall.TryGetProperty("id", out var idEl) ? idEl.GetString() : Guid.NewGuid().ToString();
-                                var name = toolCall.GetProperty("name").GetString();
-                                var args = toolCall.GetProperty("args").GetRawText();
-                                
+                                foreach (var tc in tcs.EnumerateArray())
+                                {
+                                    var id = tc.TryGetProperty("id", out var idEl) ? idEl.GetString() : Guid.NewGuid().ToString();
+                                    var name = tc.GetProperty("name").GetString();
+                                    var args = tc.GetProperty("args").GetRawText();
+                                    openAiToolCalls.Add(new { id, type = "function", function = new { name, arguments = args } });
+                                }
+                            }
+                            else if (root.TryGetProperty("toolCall", out var tc))
+                            {
+                                var id = tc.TryGetProperty("id", out var idEl) ? idEl.GetString() : Guid.NewGuid().ToString();
+                                var name = tc.GetProperty("name").GetString();
+                                var args = tc.GetProperty("args").GetRawText();
+                                openAiToolCalls.Add(new { id, type = "function", function = new { name, arguments = args } });
+                            }
+
+                            if (openAiToolCalls.Count > 0)
+                            {
                                 openAiMessages.Add(new 
                                 { 
                                     role = "assistant", 
-                                    tool_calls = new[] 
-                                    { 
-                                        new { id, type = "function", function = new { name, arguments = args } } 
-                                    } 
+                                    tool_calls = openAiToolCalls.ToArray()
                                 });
                                 continue;
                             }
@@ -256,7 +270,7 @@ namespace AiChatBox.Api.Services
                         type = "function",
                         function = new
                         {
-                            name = t.Name,
+                            name = SanitizeToolName(t.Name),
                             description = t.Description,
                             parameters = (object?)t.ParametersSchema ?? new { type = "object", properties = new { } }
                         }
@@ -268,6 +282,15 @@ namespace AiChatBox.Api.Services
             }
 
             return body;
+        }
+
+        private string SanitizeToolName(string name)
+        {
+            if (string.IsNullOrEmpty(name)) return "unnamed_tool";
+            // OpenAI compatible APIs only allow [a-zA-Z0-9_-] and max 64 chars
+            var sanitized = System.Text.RegularExpressions.Regex.Replace(name, @"[^a-zA-Z0-9_-]", "_");
+            if (sanitized.Length > 64) sanitized = sanitized.Substring(0, 64);
+            return sanitized;
         }
 
         private string ExtractTextResponse(JsonElement json)

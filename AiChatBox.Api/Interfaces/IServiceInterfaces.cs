@@ -42,7 +42,8 @@ namespace AiChatBox.Api.Interfaces
         event Func<byte[], Task>? OnAudioReceived;
         event Func<string, bool, Task>? OnTextReceived;
         event Func<string, Task>? OnInputTranscribed;
-        event Func<string, string, Dictionary<string, object>, Task>? OnToolCall;
+        event Func<string, string, Dictionary<string, object>, bool, Task>? OnToolCall;
+        event Func<string, string, object, Task>? OnToolResult;
         event Action<string>? OnError;
 
         Task ConnectAsync(string userId, string? voiceName = null, string? systemPrompt = null, CancellationToken cancellationToken = default);

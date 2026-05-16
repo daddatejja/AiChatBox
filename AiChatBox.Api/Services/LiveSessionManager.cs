@@ -17,7 +17,8 @@ namespace AiChatBox.Api.Services
             Func<byte[], Task> onAudioReceived, 
             Func<string, bool, Task> onTextReceived, 
             Func<string, Task> onInputTranscribed,
-            Func<string, string, Dictionary<string, object>, Task> onToolCall,
+            Func<string, string, Dictionary<string, object>, bool, Task> onToolCall,
+            Func<string, string, object, Task> onToolResult,
             Guid? projectId = null,
             Guid? configurationId = null,
             string? apiKeyOverride = null,
@@ -31,6 +32,7 @@ namespace AiChatBox.Api.Services
                 geminiService.OnTextReceived += onTextReceived;
                 geminiService.OnInputTranscribed += onInputTranscribed;
                 geminiService.OnToolCall += onToolCall;
+                geminiService.OnToolResult += onToolResult;
                 geminiService.ProjectId = projectId;
                 geminiService.ConfigurationId = configurationId;
                 geminiService.SessionId = sessionId;

@@ -129,10 +129,13 @@ namespace AiChatBox.Api.Services
             // Yield initial session ID
             yield return new ChatStreamChunk { SessionId = session.Id };
 
-            if (request.ToolResult != null)
+            if (request.ToolResults != null && request.ToolResults.Count > 0)
             {
-                var content = JsonSerializer.Serialize(new { toolName = request.ToolResult.ToolName, result = request.ToolResult.Result });
-                await SaveMessageAsync(session.Id, "function", content);
+                foreach (var toolRes in request.ToolResults)
+                {
+                    var content = JsonSerializer.Serialize(new { toolCallId = toolRes.ToolCallId, toolName = toolRes.ToolName, result = toolRes.Result, thoughtSignature = toolRes.ThoughtSignature });
+                    await SaveMessageAsync(session.Id, "function", content);
+                }
             }
             else
             {
@@ -152,7 +155,9 @@ namespace AiChatBox.Api.Services
             // If we're in the Playground (authenticated via JWT), project/config won't be in HttpContext.Items
             if (project == null && request.ProjectId.HasValue)
             {
-                project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
+                project = await _db.Projects
+                    .Include(p => p.Database)
+                    .FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
             }
 
             if (config == null && project != null)
@@ -245,10 +250,15 @@ namespace AiChatBox.Api.Services
             {
                 await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, extraTools, session.Id, cancellationToken))
                 {
-                    if (chunk.ToolCall != null)
+                    if (chunk.ToolCalls != null && chunk.ToolCalls.Count > 0)
                     {
-                        await SaveMessageAsync(session.Id, "model", JsonSerializer.Serialize(new { toolCall = chunk.ToolCall }, _jsonOptions));
-                        yield return new ChatStreamChunk { ToolCall = chunk.ToolCall, SessionId = session.Id };
+                        await SaveMessageAsync(session.Id, "model", JsonSerializer.Serialize(new { toolCalls = chunk.ToolCalls }, _jsonOptions));
+                        yield return new ChatStreamChunk { ToolCalls = chunk.ToolCalls, SessionId = session.Id };
+                    }
+                    else if (chunk.ToolResult != null)
+                    {
+                        await SaveMessageAsync(session.Id, "function", JsonSerializer.Serialize(new { toolName = chunk.ToolResult.ToolName, result = chunk.ToolResult.Result, thoughtSignature = chunk.ToolResult.ThoughtSignature }, _jsonOptions));
+                        yield return new ChatStreamChunk { ToolResult = chunk.ToolResult, SessionId = session.Id };
                     }
                     else if (!string.IsNullOrEmpty(chunk.Text))
                     {

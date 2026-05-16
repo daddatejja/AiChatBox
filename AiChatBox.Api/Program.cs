@@ -109,6 +109,7 @@ builder.Services.AddAuthentication(options => {
 
 // Encryption
 builder.Services.AddSingleton<EncryptionService>();
+builder.Services.AddScoped<ExportService>();
 
 // AI Services
 builder.Services.AddHttpClient();
@@ -128,7 +129,7 @@ builder.Services.AddScoped<FirecrawlService>();
 builder.Services.AddHttpClient<FirecrawlService>();
 
 // Agent & Tools
-builder.Services.AddScoped<ITool, SqlTool>();
+builder.Services.AddScoped<ITool, InternalSqlTool>();
 builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
 

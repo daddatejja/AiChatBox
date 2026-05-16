@@ -57,6 +57,8 @@ namespace AiChatBox.Api.Services
             var apiKey = await _db.ApiKeys
                 .Include(k => k.Project)
                     .ThenInclude(p => p.CustomTools)
+                .Include(k => k.Project)
+                    .ThenInclude(p => p.Database)
                 .Include(k => k.Configuration)
                 .FirstOrDefaultAsync(k => k.KeyHash == keyHash && k.IsActive);
 

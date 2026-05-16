@@ -15,7 +15,7 @@ namespace AiChatBox.Api.DTOs
         public string Provider { get; set; } = "gemini";
         public string? ModelName { get; set; }
         public string? SystemPrompt { get; set; }
-        public ToolResultDto? ToolResult { get; set; }
+        public List<ToolResultDto>? ToolResults { get; set; }
         public PageContext? Context { get; set; }
     }
 
@@ -28,8 +28,10 @@ namespace AiChatBox.Api.DTOs
 
     public class ToolResultDto
     {
+        public string? ToolCallId { get; set; }
         public string ToolName { get; set; } = string.Empty;
         public object? Result { get; set; }
+        public string? ThoughtSignature { get; set; }
     }
 
     public class TranscribeRequest
@@ -75,11 +77,12 @@ namespace AiChatBox.Api.DTOs
     public class ChatStreamChunk
     {
         public string? Text { get; set; }
-        public ToolCallDto? ToolCall { get; set; }
+        public List<ToolCallDto>? ToolCalls { get; set; }
         public Guid? SessionId { get; set; }
         public bool Done { get; set; }
         public string? Error { get; set; }
         public ReportDownloadDto? ReportInfo { get; set; }
+        public ToolResultDto? ToolResult { get; set; }
     }
 
     public class ToolCallDto
@@ -87,12 +90,14 @@ namespace AiChatBox.Api.DTOs
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
+        public string? ThoughtSignature { get; set; }
     }
 
     public class AgentChunk
     {
         public string? Text { get; set; }
-        public ToolCallDto? ToolCall { get; set; }
+        public List<ToolCallDto>? ToolCalls { get; set; }
+        public ToolResultDto? ToolResult { get; set; }
     }
 
     public class ReportDownloadDto

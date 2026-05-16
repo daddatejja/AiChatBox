@@ -19,6 +19,14 @@ namespace AiChatBox.Api.Models
         Failed
     }
 
+    public enum DatabaseType
+    {
+        PostgreSQL,
+        MySQL,
+        SQLite,
+        SQLServer
+    }
+
     public class Project
     {
         [Key]
@@ -44,12 +52,33 @@ namespace AiChatBox.Api.Models
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
+        public ProjectDatabase? Database { get; set; }
+
         public ICollection<ApiKey> ApiKeys { get; set; } = [];
         public ICollection<CustomTool> CustomTools { get; set; } = [];
         public ICollection<ChatSession> Sessions { get; set; } = [];
         public ICollection<ProjectConfiguration> Configurations { get; set; } = [];
         public ICollection<KnowledgeDocument> KnowledgeDocuments { get; set; } = [];
         public ICollection<WebsiteCrawlJob> WebsiteCrawlJobs { get; set; } = [];
+    }
+
+    public class ProjectDatabase
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid ProjectId { get; set; }
+        public Project? Project { get; set; }
+
+        [Required]
+        public DatabaseType Type { get; set; } = DatabaseType.PostgreSQL;
+
+        public string? ConnectionString { get; set; } // Encrypted
+        
+        public string? SchemaDefinition { get; set; } // DDL text
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 
     public class WebsiteCrawlJob

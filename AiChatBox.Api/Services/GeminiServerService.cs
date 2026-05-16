@@ -123,11 +123,14 @@ namespace AiChatBox.Api.Services
                 if (!candidate.TryGetProperty("content", out var content) || !content.TryGetProperty("parts", out var parts) || parts.GetArrayLength() == 0)
                     return null;
 
+                var result = new LlmResponseChunk();
+                var toolCalls = new List<ToolCall>();
+
                 foreach (var part in parts.EnumerateArray())
                 {
                     if (part.TryGetProperty("text", out var text))
                     {
-                        return new LlmResponseChunk { Text = text.GetString() };
+                        result.Text = (result.Text ?? "") + text.GetString();
                     }
 
                     if (part.TryGetProperty("functionCall", out var functionCall))
@@ -137,20 +140,23 @@ namespace AiChatBox.Api.Services
                             Name = functionCall.GetProperty("name").GetString() ?? "",
                             ArgumentsJson = functionCall.GetProperty("args").GetRawText()
                         };
-                        
-                        if (part.TryGetProperty("thought_signature", out var thoughtSignature))
+
+                        if (part.TryGetProperty("thoughtSignature", out var ts1))
                         {
-                            toolCall.ThoughtSignature = thoughtSignature.GetString();
+                            toolCall.ThoughtSignature = ts1.GetString();
+                        }
+                        else if (part.TryGetProperty("thought_signature", out var ts2))
+                        {
+                            toolCall.ThoughtSignature = ts2.GetString();
                         }
 
-                        return new LlmResponseChunk
-                        {
-                            ToolCall = toolCall
-                        };
+                        toolCalls.Add(toolCall);
                     }
                 }
 
-                return null;
+                if (toolCalls.Count > 0) result.ToolCalls = toolCalls;
+
+                return (result.Text != null || result.ToolCalls != null) ? result : null;
             }
             catch { return null; }
         }
@@ -217,14 +223,27 @@ namespace AiChatBox.Api.Services
                         {
                             responseObj = new { result = result.Clone() };
                         }
+
+                        var fr = new Dictionary<string, object>
+                        {
+                            { "name", toolName ?? "" },
+                            { "response", responseObj }
+                        };
+
+                        var partObj = new Dictionary<string, object>
+                        {
+                            { "functionResponse", fr }
+                        };
+
+                        if (parsed.TryGetProperty("thoughtSignature", out var ts) && ts.ValueKind != JsonValueKind.Null)
+                            partObj["thought_signature"] = ts.GetString() ?? "";
+                        else if (parsed.TryGetProperty("thought_signature", out var ts2) && ts2.ValueKind != JsonValueKind.Null)
+                            partObj["thought_signature"] = ts2.GetString() ?? "";
                         
                         contents.Add(new 
                         { 
                             role = "function", 
-                            parts = new[] 
-                            { 
-                                new { functionResponse = new { name = toolName, response = responseObj } } 
-                            } 
+                            parts = new[] { partObj } 
                         });
                         continue;
                     }
@@ -243,32 +262,52 @@ namespace AiChatBox.Api.Services
                     try
                     {
                         using var doc = JsonDocument.Parse(msg.Content);
-                        if (doc.RootElement.TryGetProperty("toolCall", out var toolCall))
+                        var root = doc.RootElement;
+                        
+                        List<JsonElement> calls = new();
+                        if (root.TryGetProperty("toolCalls", out var toolCalls))
                         {
-                            var name = toolCall.GetProperty("name").GetString();
-                            var argsJson = toolCall.GetProperty("argumentsJson").GetString();
-                            
-                            var fc = new Dictionary<string, object>
+                            foreach (var call in toolCalls.EnumerateArray()) calls.Add(call);
+                        }
+                        else if (root.TryGetProperty("toolCall", out var toolCall))
+                        {
+                            calls.Add(toolCall);
+                        }
+
+                        if (calls.Count > 0)
+                        {
+                            var partsList = new List<object>();
+                            foreach (var call in calls)
                             {
-                                { "name", name },
-                                { "args", JsonSerializer.Deserialize<JsonElement>(argsJson ?? "{}") }
-                            };
-                            
-                            var partDict = new Dictionary<string, object>
-                            {
-                                { "functionCall", fc }
-                            };
-                            
-                            if (toolCall.TryGetProperty("thoughtSignature", out var ts) && ts.ValueKind != JsonValueKind.Null)
-                            {
-                                partDict["thought_signature"] = ts.GetString();
+                                var name = call.GetProperty("name").GetString();
+                                JsonElement argsElement;
+                                if (call.TryGetProperty("args", out var args))
+                                    argsElement = args;
+                                else if (call.TryGetProperty("argumentsJson", out var argumentsJson))
+                                    argsElement = JsonDocument.Parse(argumentsJson.GetString() ?? "{}").RootElement;
+                                else
+                                    argsElement = JsonDocument.Parse("{}").RootElement;
+
+                                var fc = new Dictionary<string, object>
+                                {
+                                    { "name", name ?? "" },
+                                    { "args", argsElement.Clone() }
+                                };
+                                
+                                var partObj = new Dictionary<string, object>
+                                {
+                                    { "functionCall", fc }
+                                };
+
+                                if (call.TryGetProperty("thoughtSignature", out var ts) && ts.ValueKind != JsonValueKind.Null)
+                                    partObj["thought_signature"] = ts.GetString() ?? "";
+                                else if (call.TryGetProperty("thought_signature", out var ts2) && ts2.ValueKind != JsonValueKind.Null)
+                                    partObj["thought_signature"] = ts2.GetString() ?? "";
+
+                                partsList.Add(partObj);
                             }
 
-                            contents.Add(new
-                            {
-                                role = "model",
-                                parts = new[] { partDict }
-                            });
+                            contents.Add(new { role = "model", parts = partsList.ToArray() });
                             continue;
                         }
                     }

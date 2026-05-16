@@ -8,6 +8,7 @@ import ScrollPanel from 'primevue/scrollpanel';
 import InputText from 'primevue/inputtext';
 import ProgressSpinner from 'primevue/progressspinner';
 import Tag from 'primevue/tag';
+import DataResultView from '../components/DataResultView.vue';
 
 const { apiFetch, API_BASE, getToken } = useApi();
 const showWidget = ref(false);
@@ -172,9 +173,18 @@ async function sendMessage() {
                         if (chunk.toolCall) {
                             messages.value.push({
                                 role: 'tool-call',
-                                content: `Tool Call: ${chunk.toolCall.name}(${chunk.toolCall.arguments})`,
+                                content: `Tool Call: ${chunk.toolCall.name}(${chunk.toolCall.args})`,
                                 toolName: chunk.toolCall.name,
-                                args: chunk.toolCall.arguments
+                                args: chunk.toolCall.args
+                            });
+                            scrollToBottom();
+                        }
+
+                        if (chunk.toolResult) {
+                            messages.value.push({
+                                role: 'tool-result',
+                                toolName: chunk.toolResult.toolName,
+                                result: chunk.toolResult.result
                             });
                             scrollToBottom();
                         }
@@ -281,7 +291,14 @@ async function openWidgetPreview() {
                             <div class="message-bubble">
                                 <div v-if="msg.role === 'tool-call'" class="tool-call-info">
                                     <Tag value="TOOL CALL" severity="info" class="mb-2" />
-                                    <pre>{{ msg.content }}</pre>
+                                    <pre class="text-xs bg-surface-50 p-2 rounded border font-mono">{{ msg.content }}</pre>
+                                </div>
+                                <div v-else-if="msg.role === 'tool-result' && (msg.toolName === 'query_project_database' || msg.toolName === 'query_database')" class="tool-result-info">
+                                    <DataResultView :result="msg.result" />
+                                </div>
+                                <div v-else-if="msg.role === 'tool-result'" class="tool-result-info">
+                                    <Tag value="TOOL RESULT" severity="success" class="mb-2" />
+                                    <pre class="text-xs bg-surface-50 p-2 rounded border font-mono">{{ JSON.stringify(msg.result, null, 2) }}</pre>
                                 </div>
                                 <div v-else class="message-text">
                                     {{ msg.content }}

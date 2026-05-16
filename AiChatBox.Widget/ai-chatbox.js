@@ -248,6 +248,13 @@
         error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
         person: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
         minimize: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>',
+        list: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>',
+        chart: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>',
+        expand: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
+        collapse: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>',
+        excel: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
+        pdf: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 8.5V10h1V8.5H9zm5 0V12h1V8.5h-1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6z"/></svg>',
+        download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
       };
 
       this.config = null;
@@ -352,6 +359,133 @@
       const stylePath = this.getAttribute("css-path") || `${this.apiUrl}/widget/ai-chatbox.css`;
       this.shadowRoot.innerHTML = `
                 <link rel="stylesheet" href="${stylePath}">
+                <style>
+                  .message-text-content:empty, .message-widget-container:empty { display: none; }
+                  .message-text-content { margin-bottom: 8px; line-height: 1.5; }
+                  .message-widget-container { width: 100%; overflow: hidden; margin-top: 10px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+                  .message-widget-container.expanded { width: calc(100% + 40px); margin-left: -20px; }
+                  
+                  .data-result-widget { 
+                    background: var(--bg-glass, rgba(255, 255, 255, 0.03)); 
+                    backdrop-filter: blur(12px);
+                    border-radius: 16px; 
+                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1)); 
+                    overflow: hidden; 
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+                    display: flex;
+                    flex-direction: column;
+                  }
+
+                  .data-tabs {
+                    display: flex;
+                    padding: 6px;
+                    background: rgba(0,0,0,0.2);
+                    gap: 4px;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                  }
+
+                  .data-tab {
+                    flex: 1;
+                    padding: 8px 12px;
+                    border: none;
+                    background: transparent;
+                    color: var(--text-muted, #94a3b8);
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border-radius: 8px;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                  }
+
+                  .data-tab svg { width: 14px; height: 14px; }
+                  .data-tab:hover { background: rgba(255,255,255,0.05); color: #fff; }
+                  .data-tab.active { background: var(--primary-color, #6366f1); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
+
+                  .data-actions { display: flex; gap: 4px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,0.1); }
+                  .data-action-btn {
+                    padding: 6px;
+                    background: transparent;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    border-radius: 6px;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                  }
+                  .data-action-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+                  .data-action-btn svg { width: 14px; height: 14px; }
+
+                  .data-content { padding: 12px; position: relative; min-height: 200px; }
+                  .data-panel { display: none; }
+                  .data-panel.active { display: block; animation: fadeIn 0.3s ease; }
+                  
+                  @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+                  .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+                  .data-result-widget table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-main); }
+                  .data-result-widget th { background: rgba(0,0,0,0.3); padding: 10px 12px; text-align: left; font-weight: 600; color: #fff; }
+                  .data-result-widget td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+                  .data-result-widget tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+                  .data-result-widget tr:hover { background: rgba(99, 102, 241, 0.1); }
+
+                  .chart-controls { display: flex; justify-content: flex-end; margin-bottom: 10px; gap: 8px; }
+                  .chart-type-select {
+                    background: rgba(0,0,0,0.4);
+                    color: #fff;
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    font-size: 12px;
+                    outline: none;
+                  }
+
+                  .data-chart-canvas { width: 100% !important; height: 220px !important; }
+                  
+                  /* Typing Indicator */
+                  .typing-indicator { display: flex; gap: 5px; padding: 8px 12px; }
+                  .typing-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; animation: typingBounce 1.4s ease-in-out infinite; }
+                  .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+                  .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+                  @keyframes typingBounce {
+                    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+                    30% { transform: translateY(-6px); opacity: 1; }
+                  }
+
+                  .tool-calling-indicator {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 14px;
+                    background: rgba(57, 167, 185, 0.05);
+                    border-radius: 10px;
+                    color: var(--primary-color);
+                    font-size: 13px;
+                    border: 1px dashed var(--primary-color);
+                    margin: 4px 0;
+                  }
+                  .spin-animation { animation: spin 1s linear infinite; display: inline-block; }
+                  @keyframes spin { 100% { transform: rotate(360deg); } }
+                  .live-widget-container { width: 100%; overflow: hidden; }
+                  .live-simple-result {
+                    font-size: 11px;
+                    opacity: 0.8;
+                    margin-top: 8px;
+                    overflow-x: auto;
+                    background: rgba(0,0,0,0.2);
+                    padding: 8px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.1);
+                    color: #cbd5e1;
+                    max-height: 150px;
+                    white-space: pre-wrap;
+                  }
+                </style>
                 
                 <button class="chatbox-toggle-btn" id="fab-toggle" title="Open AI Assistant">
                     ${this.icons.awesome}
@@ -689,7 +823,7 @@
       this.isTyping = true;
       this.updateInputButtons();
 
-      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>');
+      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
       const bubble = aiWrapper.querySelector(".message-bubble");
 
       try {
@@ -718,6 +852,11 @@
         const decoder = new TextDecoder();
         let fullText = "", hasStarted = false;
 
+        // Initialize containers for text and widgets
+        bubble.innerHTML = '<div class="message-text-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div><div class="message-widget-container"></div>';
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -728,7 +867,9 @@
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.substring(6));
+                const toolCalls = data.ToolCalls || data.toolCalls;
                 const toolCall = data.ToolCall || data.toolCall;
+                const toolResult = data.ToolResult || data.toolResult;
                 const sid = data.SessionId || data.sessionId || data.sid;
                 const textChunk = data.Text || data.text;
                 const errorChunk = data.Error || data.error;
@@ -739,23 +880,39 @@
                 }
 
                 if (errorChunk) {
-                  bubble.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
+                  textContent.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
                   hasStarted = true;
-                  break;
+                  continue;
+                }
+
+                if (toolCalls && toolCalls.length > 0) {
+                  hasStarted = true;
+                  this.handleToolCalls(toolCalls, bubble);
+                  continue;
                 }
 
                 if (toolCall) {
-                  this.handleToolCall(toolCall, bubble);
-                  return; // Stop processing this stream, handleToolCall will continue
+                  hasStarted = true;
+                  this.handleToolCalls([toolCall], bubble);
+                  continue; 
+                }
+
+                if (toolResult) {
+                  const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                  if (isDbTool) {
+                    if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                    this.renderDataResult(toolResult.result, widgetContainer);
+                    continue;
+                  }
                 }
 
                 if (textChunk) {
-                  if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                   fullText += textChunk;
-                  bubble.innerHTML = this.formatMarkdown(fullText);
+                  textContent.innerHTML = this.formatMarkdown(fullText);
                   this.scrollToBottom();
                 }
-              } catch(e) {}
+              } catch(e) { console.error("Stream parse error:", e); }
             }
           }
         }
@@ -771,64 +928,70 @@
       }
     }
 
-    async handleToolCall(toolCall, bubble) {
-      const toolName = toolCall.name || toolCall.Name;
-      const toolArgs = toolCall.arguments || toolCall.Arguments;
-      const callId = toolCall.id || toolCall.Id || Date.now().toString();
+    async handleToolCalls(toolCalls, bubble) {
+      const results = await Promise.all(toolCalls.map(async (tc) => {
+        const toolName = tc.name || tc.Name;
+        const toolArgs = tc.arguments || tc.Arguments;
+        const callId = tc.id || tc.Id || Math.random().toString(36).substring(7);
+        const thoughtSignature = tc.thoughtSignature || tc.ThoughtSignature || tc.thought_signature;
 
-      console.log('Executing tool:', toolName, toolArgs);
-      
-      // Update UI to show thinking/calling tool
-      bubble.innerHTML = `<div class="tool-calling-indicator">
-        <span class="spin-animation">${this.icons.refresh}</span>
-        <span>Calling tool: <strong>${toolName}</strong>...</span>
-      </div>`;
-
-      let result = null;
-      const handler = this.toolHandlers.get(toolName);
-      
-      if (handler) {
-        try {
-          const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
-          result = await handler(args);
-        } catch (err) {
-          result = { error: `Handler error: ${err.message}` };
+        console.log('Executing tool:', toolName, toolArgs);
+        
+        const textContent = bubble.querySelector(".message-text-content");
+        if (textContent) {
+          textContent.innerHTML = `<div class="tool-calling-indicator">
+            <span class="spin-animation">${this.icons.refresh}</span>
+            <span>Executing ${toolCalls.length > 1 ? toolCalls.length + ' parallel tasks' : 'tool ' + toolName}...</span>
+          </div>`;
         }
-      } else {
-        // Create result promise before dispatching event to avoid race condition
-        const resultPromise = new Promise((resolve) => {
-          const onResult = (e) => {
-            if (e.detail.callId === callId) {
+
+        let result = null;
+        const handler = this.toolHandlers.get(toolName);
+        
+        if (handler) {
+          try {
+            const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+            result = await handler(args);
+          } catch (err) {
+            result = { error: `Handler error: ${err.message}` };
+          }
+        } else {
+          const resultPromise = new Promise((resolve) => {
+            const onResult = (e) => {
+              if (e.detail.callId === callId) {
+                this.removeEventListener('tool-result-submitted', onResult);
+                resolve(e.detail.result);
+              }
+            };
+            this.addEventListener('tool-result-submitted', onResult);
+            setTimeout(() => {
               this.removeEventListener('tool-result-submitted', onResult);
-              resolve(e.detail.result);
-            }
-          };
-          this.addEventListener('tool-result-submitted', onResult);
-          
-          // Timeout after 30 seconds
-          setTimeout(() => {
-            this.removeEventListener('tool-result-submitted', onResult);
-            resolve({ error: "Tool execution timed out" });
-          }, 30000);
-        });
+              resolve({ error: "Tool execution timed out" });
+            }, 30000);
+          });
 
-        // Dispatch event for external handling
-        const event = new CustomEvent("tool-call", {
-          detail: { 
-            name: toolName, 
-            args: typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs,
-            callId: callId
-          },
-          bubbles: true,
-          composed: true
-        });
-        this.dispatchEvent(event);
+          this.dispatchEvent(new CustomEvent("tool-call", {
+            detail: { 
+              name: toolName, 
+              args: typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs,
+              callId: callId
+            },
+            bubbles: true,
+            composed: true
+          }));
 
-        // Wait for submitToolResult to be called
-        result = await resultPromise;
-      }
+          result = await resultPromise;
+        }
 
-      // Send result back to API to continue conversation
+        return {
+          toolCallId: callId,
+          toolName: toolName,
+          result: result,
+          thoughtSignature: thoughtSignature
+        };
+      }));
+
+      // Send results back to API
       const { modelName: toolModel, provider: toolProvider } = this.getSelectedModel();
       const response = await fetch(`${this.apiUrl}/api/chat`, {
         method: "POST",
@@ -838,18 +1001,16 @@
           sessionId: this.currentSessionId,
           provider: toolProvider,
           modelName: toolModel,
-          toolResult: {
-            toolName: toolName,
-            result: result
-          },
+          toolResults: results,
           context: this.getPageContext()
         }),
       });
 
-      // Restart the streaming UI for the new response
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "", hasStarted = false;
+      const textContent = bubble.querySelector(".message-text-content");
+      const widgetContainer = bubble.querySelector(".message-widget-container");
 
       while (true) {
         const { done, value } = await reader.read();
@@ -860,37 +1021,65 @@
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.substring(6));
-              const textChunk = data.text || data.Text;
+              const nextToolCalls = data.ToolCalls || data.toolCalls;
+              const nextToolCall = data.ToolCall || data.toolCall;
+              const toolResult = data.ToolResult || data.toolResult;
+              const textChunk = data.Text || data.text;
+
+              if (nextToolCalls && nextToolCalls.length > 0) {
+                return this.handleToolCalls(nextToolCalls, bubble);
+              }
+              if (nextToolCall) {
+                return this.handleToolCalls([nextToolCall], bubble);
+              }
+
+              if (toolResult) {
+                const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                if (isDbTool) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderDataResult(toolResult.result, widgetContainer);
+                  continue;
+                }
+              }
+
               if (textChunk) {
-                if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
+                if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                 fullText += textChunk;
-                bubble.innerHTML = this.formatMarkdown(fullText);
+                textContent.innerHTML = this.formatMarkdown(fullText);
                 this.scrollToBottom();
               }
-            } catch(e) {}
+            } catch(e) { console.error("Stream parse error:", e); }
           }
         }
       }
-      
       this.isTyping = false;
       this.updateInputButtons();
     }
 
-    async handleLiveToolCall(name, args, id = null) {
-      console.log("Live Tool Call:", name, args, id);
+    async handleLiveToolCall(name, args, callId = null, isBackend = false) {
+      console.log(`[LiveToolCall] name=${name}, callId=${callId}, isBackend=${isBackend}`, args);
       
-      // Add a special tool message to live transcript
       const area = this.shadowRoot.getElementById("live-transcript");
       const div = document.createElement("div");
       div.className = "live-transcript-msg live-msg-tool";
+      
+      // Use name as fallback if callId is not provided
+      const domId = callId ? `tool-call-${callId}` : `tool-call-${name}-${Date.now()}`;
+      
       div.innerHTML = `
         <div class="live-msg-avatar">${this.icons.refresh}</div>
-        <div class="live-msg-bubble tool-bubble">
+        <div class="live-msg-bubble tool-bubble" id="${domId}" data-name="${name}">
           <span>Executing <strong>${name}</strong>...</span>
         </div>
       `;
       area.appendChild(div);
       area.scrollTop = area.scrollHeight;
+      
+      // If it's a backend tool, the server handles it; we return and wait for ReceiveToolResult
+      if (isBackend) {
+        console.log(`[LiveToolCall] Backend tool detected: ${name}. Waiting for server result.`);
+        return;
+      }
 
       let result = null;
       const handler = this.toolHandlers.get(name);
@@ -934,18 +1123,79 @@
       // Send result back to hub
       if (this.liveConnection) {
         try {
-          await this.liveConnection.invoke("SendToolResult", name, JSON.stringify(result));
-          div.style.opacity = '0';
-          div.style.transition = 'opacity 0.3s ease';
-          setTimeout(() => div.remove(), 300);
+          await this.liveConnection.invoke("SendToolResult", callId, JSON.stringify(result));
+          // Don't remove the div, handleLiveToolResult will update it
         } catch (err) {
           console.error("Failed to send tool result:", err);
           div.querySelector(".live-msg-bubble").innerHTML = `<span style="color:var(--danger-color)">Failed to execute <strong>${name}</strong></span>`;
-          setTimeout(() => div.remove(), 5000);
         }
       }
     }
 
+
+    async handleLiveToolResult(callId, name, result) {
+      console.log(`[LiveToolResult] id=${callId}, name=${name}`, result);
+      
+      const area = this.shadowRoot.getElementById("live-transcript");
+      let bubble = this.shadowRoot.getElementById(`tool-call-${callId}`);
+      if (!bubble) {
+        const bubbles = this.shadowRoot.querySelectorAll(`.tool-bubble[data-name="${name}"]`);
+        bubble = bubbles[bubbles.length - 1]; 
+      }
+
+      if (bubble) {
+        bubble.classList.add("tool-completed");
+        
+        // Update the message wrapper to show AI avatar instead of loading spinner when done
+        const wrapper = bubble.closest(".live-transcript-msg");
+        if (wrapper) {
+          wrapper.classList.add("tool-done");
+          const avatar = wrapper.querySelector(".live-msg-avatar");
+          if (avatar) {
+            avatar.innerHTML = this.icons.awesome;
+            avatar.style.animation = "none";
+          }
+        }
+
+        bubble.innerHTML = `<div class="tool-result-header">
+          ${this.icons.check} <span>Completed <strong>${name}</strong></span>
+        </div>
+        <div class="live-widget-container" style="margin-top:10px"></div>`;
+        
+        const container = bubble.querySelector(".live-widget-container");
+        
+        let data = result;
+        
+        // Handle various wrapping formats
+        if (data && (data.content !== undefined || data.Content !== undefined)) {
+          data = data.content !== undefined ? data.content : data.Content;
+        }
+        
+        if (data && (data.result !== undefined || data.Result !== undefined)) {
+          data = data.result !== undefined ? data.result : data.Result;
+        }
+
+        // Sometimes the result is a JSON string that needs parsing
+        if (typeof data === 'string' && data.trim().startsWith('[')) {
+          try { data = JSON.parse(data); } catch(e) {}
+        }
+
+        console.log(`[LiveToolResult] Final data for ${name}:`, data);
+
+        const isData = data && (data.rows || data.data || Array.isArray(data));
+        
+        if (isData) {
+           this.renderDataResult(data, container);
+        } else if (data !== null && data !== undefined) {
+           const pre = document.createElement("pre");
+           pre.className = "live-simple-result";
+           pre.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+           bubble.appendChild(pre);
+        }
+        
+        this.scrollToBottom();
+      }
+    }
 
     addMessage(role, htmlContent, fileId = null, fileName = null) {
       const container = this.shadowRoot.getElementById("messages-container");
@@ -1092,7 +1342,8 @@
           }
         });
         this.liveConnection.on("ReceiveInputTranscription", text => this.addLiveMessage("user", text));
-        this.liveConnection.on("ReceiveToolCall", (id, name, args) => this.handleLiveToolCall(name, args, id));
+        this.liveConnection.on("ReceiveToolCall", (id, name, args, isBackend) => this.handleLiveToolCall(name, args, id, isBackend));
+        this.liveConnection.on("ReceiveToolResult", (id, name, result) => this.handleLiveToolResult(id, name, result));
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
@@ -1282,14 +1533,18 @@
       const avatarIcon = isUser ? this.icons.person : this.icons.awesome;
 
       if (last && last.classList.contains(roleClass)) {
-        last.querySelector(".live-msg-text").textContent += text;
+        const textSpan = last.querySelector(".live-msg-text");
+        // Store raw text in a data attribute to handle cumulative markdown rendering
+        const currentText = (textSpan.dataset.raw || textSpan.textContent) + text;
+        textSpan.dataset.raw = currentText;
+        textSpan.innerHTML = this.formatMarkdown(currentText);
       } else {
         const div = document.createElement("div");
-        div.className = `live-transcript-msg ${roleClass}`;
+        div.className = `live-transcript-msg ${roleClass} message-appear`;
         div.innerHTML = `
           <div class="live-msg-avatar">${avatarIcon}</div>
           <div class="live-msg-bubble">
-            <span class="live-msg-text">${text}</span>
+            <span class="live-msg-text" data-raw="${text}">${this.formatMarkdown(text)}</span>
             <span class="live-msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         `;
@@ -1318,6 +1573,9 @@
     async loadSessionMessages(sessionId) {
       this.currentSessionId = sessionId;
       localStorage.setItem("ai_chat_session_id", sessionId);
+      const projectId = this.getAttribute("project-id") || localStorage.getItem("ai_chat_project_id");
+      if (projectId) localStorage.setItem("ai_chat_project_id", projectId);
+      
       const list = this.shadowRoot.getElementById("messages-container");
       list.innerHTML = `<div class="history-loading">Loading messages...</div>`;
       try {
@@ -1328,14 +1586,54 @@
         const messages = await this.safeJson(response);
         list.innerHTML = "";
         messages.forEach((m) => {
-          const role = m.Role || m.role;
-          const content = this.formatMarkdown(m.Content || m.content);
+          const role = (m.Role || m.role || "").toLowerCase();
+          const isAi = role === "ai" || role === "assistant";
+          const isTool = role === "tool";
+          const rawContent = m.Content || m.content || "";
+          
+          // Try to detect if the content is a JSON tool result
+          let toolData = m.ToolResult || m.toolResult;
+          let wasParsedAsTool = false;
+
+          if (!toolData && rawContent.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(rawContent);
+              if (parsed.toolName || parsed.ToolName) {
+                toolData = parsed;
+                wasParsedAsTool = true;
+              }
+            } catch(e) {}
+          }
+
+          if (isTool || wasParsedAsTool) {
+             const toolName = toolData?.toolName || toolData?.ToolName;
+             const isDbTool = toolName === 'query_project_database' || toolName === 'query_database' || toolName === 'query_data';
+             const hasResult = toolData?.result || toolData?.Result;
+             
+             if (isDbTool) {
+                if (!hasResult) return; // Skip empty/null database results in history
+                
+                const msgWrap = this.addMessage("ai", `<div class="message-text-content"></div><div class="message-widget-container"></div>`);
+                const widgetContainer = msgWrap.querySelector(".message-widget-container");
+                this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
+                return; 
+             }
+             
+             if (isTool && !wasParsedAsTool) return; // Skip non-DB raw tool messages if they aren't parsed
+          }
+
+          const content = this.formatMarkdown(rawContent);
           const fileId = m.AttachedFileId || m.attachedFileId;
           const fileName = m.AttachedFileName || m.attachedFileName;
           const img = m.ImageDataUrl || m.imageDataUrl;
-          let displayHtml = content;
-          if (img) displayHtml = `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + displayHtml;
-          this.addMessage(role, displayHtml, fileId, fileName);
+          
+          const displayHtml = img ? `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + content : content;
+          const msgWrap = this.addMessage(role, isAi ? `<div class="message-text-content">${displayHtml}</div><div class="message-widget-container"></div>` : displayHtml, fileId, fileName);
+          
+          if (toolData && isAi) {
+            const widgetContainer = msgWrap.querySelector(".message-widget-container");
+            this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
+          }
         });
         this.scrollToBottom();
       } catch (err) {
@@ -1586,7 +1884,8 @@
     async loadExternalScripts() {
       const scripts = [
         { id: 'marked-js', url: 'https://cdn.jsdelivr.net/npm/marked/marked.min.js' },
-        { id: 'hljs-js', url: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js' }
+        { id: 'hljs-js', url: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js' },
+        { id: 'chart-js', url: 'https://cdn.jsdelivr.net/npm/chart.js' }
       ];
 
       const promises = scripts.map(s => {
@@ -1691,11 +1990,15 @@
     }
     scrollToBottom() {
       const m = this.shadowRoot.getElementById("messages-container");
-      if (m) {
-        m.scrollTop = m.scrollHeight;
+      const l = this.shadowRoot.getElementById("live-transcript");
+      
+      const target = (this.isLive && l) ? l : m;
+      
+      if (target) {
+        target.scrollTop = target.scrollHeight;
         
         // Attach copy listeners to new code blocks
-        m.querySelectorAll(".copy-code-btn").forEach(btn => {
+        target.querySelectorAll(".copy-code-btn").forEach(btn => {
           if (btn.dataset.listener) return;
           btn.dataset.listener = "true";
           btn.onclick = () => {
@@ -1707,6 +2010,212 @@
             setTimeout(() => btn.innerHTML = original, 2000);
           };
         });
+      }
+    }
+
+    renderDataResult(result, container) {
+      console.log("[renderDataResult] rendering to:", container, "data:", result);
+      if (!result) return;
+      
+      // Handle both formats: {columns, rows} or {data: []} or raw array
+      let rows = result.rows || result.data || (Array.isArray(result) ? result : []);
+      let columns = result.columns || [];
+      
+      if (columns.length === 0 && rows.length > 0) {
+        columns = Object.keys(rows[0]);
+      }
+
+      if (columns.length === 0) {
+        container.innerHTML = '<div class="data-empty">No data returned.</div>';
+        return;
+      }
+
+      const id = 'data-' + Math.random().toString(36).substr(2, 9);
+      container.innerHTML = `
+        <div class="data-result-widget" id="${id}">
+          <div class="data-tabs">
+            <button class="data-tab active" data-tab="table" title="View as Table">${this.icons.list} Table</button>
+            <button class="data-tab" data-tab="chart" title="View as Chart">${this.icons.chart} Chart</button>
+            <div style="flex:1"></div>
+            <div class="data-actions">
+              <button class="data-action-btn" data-action="expand" title="Expand View">${this.icons.expand}</button>
+              <button class="data-action-btn" data-action="copy" title="Copy to CSV">${this.icons.copy}</button>
+              <button class="data-action-btn" data-action="excel" title="Export Excel">${this.icons.excel}</button>
+              <button class="data-action-btn" data-action="pdf" title="Export PDF">${this.icons.pdf}</button>
+            </div>
+          </div>
+          <div class="data-content">
+            <div class="data-panel active" data-panel="table">
+              <div class="table-container">
+                <table>
+                  <thead>
+                    <tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr>
+                  </thead>
+                  <tbody>
+                    ${rows.slice(0, 15).map(row => `
+                      <tr>${columns.map(c => `<td>${row[c] !== null ? row[c] : ''}</td>`).join('')}</tr>
+                    `).join('')}
+                    ${rows.length > 15 ? `<tr><td colspan="${columns.length}" style="text-align:center; font-style:italic; padding: 12px; background: rgba(0,0,0,0.1)">Showing first 15 of ${rows.length} rows</td></tr>` : ''}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="data-panel" data-panel="chart">
+              <div class="chart-controls">
+                <button class="data-action-btn" data-action="download-chart" title="Download Chart">${this.icons.download || this.icons.save || ''}</button>
+                <select class="chart-type-select">
+                  <option value="bar">Bar Chart</option>
+                  <option value="line">Line Chart</option>
+                  <option value="pie">Pie Chart</option>
+                  <option value="doughnut">Doughnut</option>
+                </select>
+              </div>
+              <div class="chart-wrapper">
+                <canvas class="data-chart-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const widget = container.querySelector(`#${id}`);
+      const tabs = widget.querySelectorAll('.data-tab');
+      const panels = widget.querySelectorAll('.data-panel');
+      
+      tabs.forEach(tab => {
+        tab.onclick = () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          widget.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+          if (tab.dataset.tab === 'chart') this.initChart(widget, columns, rows);
+        };
+      });
+
+      widget.querySelectorAll('.data-action-btn').forEach(btn => {
+        btn.onclick = () => {
+          const action = btn.dataset.action;
+          if (action === 'expand') {
+            container.classList.toggle('expanded');
+            btn.innerHTML = container.classList.contains('expanded') ? this.icons.collapse : this.icons.expand;
+            if (widget.querySelector('[data-panel="chart"]').classList.contains('active')) {
+              setTimeout(() => this.initChart(widget, columns, rows), 300);
+            }
+          } else if (action === 'copy') {
+            const csv = [columns.join(','), ...rows.map(r => columns.map(c => r[c]).join(','))].join('\n');
+            navigator.clipboard.writeText(csv);
+            const original = btn.innerHTML;
+            btn.innerHTML = this.icons.check;
+            setTimeout(() => btn.innerHTML = original, 2000);
+          } else if (action === 'download-chart') {
+            const canvas = widget.querySelector('.data-chart-canvas');
+            const link = document.createElement('a');
+            link.download = 'chart.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+          } else {
+            this.exportData(action, result);
+          }
+        };
+      });
+
+      widget.querySelector('.chart-type-select').onchange = () => this.initChart(widget, columns, rows);
+      this.scrollToBottom();
+    }
+
+    initChart(widget, columns, rows) {
+      const canvas = widget.querySelector('.data-chart-canvas');
+      const type = widget.querySelector('.chart-type-select').value;
+      if (!window.Chart) return;
+
+      if (canvas._chart) canvas._chart.destroy();
+
+      const labels = rows.map(r => r[columns[0]]?.toString() || '');
+      const datasets = columns.slice(1).filter(c => typeof rows[0][c] === 'number').map((c, i) => ({
+        label: c,
+        data: rows.map(r => r[c]),
+        backgroundColor: `hsla(${(i * 60) % 360}, 70%, 60%, 0.6)`,
+        borderColor: `hsla(${(i * 60) % 360}, 70%, 50%, 1)`,
+        borderWidth: 1
+      }));
+
+      const gridColor = 'rgba(255, 255, 255, 0.1)';
+      const textColor = '#94a3b8';
+
+      canvas._chart = new window.Chart(canvas, {
+        type: type,
+        data: { labels, datasets },
+        options: { 
+          responsive: true, 
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: type !== 'pie' && type !== 'doughnut',
+              position: 'top',
+              labels: { color: textColor, boxWidth: 12, padding: 10, font: { size: 11 } }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#fff',
+              bodyColor: '#cbd5e1',
+              borderColor: 'rgba(99, 102, 241, 0.5)',
+              borderWidth: 1,
+              padding: 10,
+              displayColors: true
+            }
+          },
+          scales: (type === 'pie' || type === 'doughnut') ? {} : {
+            x: {
+              grid: { display: false },
+              ticks: { 
+                color: textColor, 
+                font: { size: 10 },
+                maxRotation: 45,
+                minRotation: 45,
+                callback: function(value) {
+                  const label = this.getLabelForValue(value);
+                  return label && label.length > 10 ? label.substr(0, 10) + '...' : label;
+                }
+              }
+            },
+            y: {
+              grid: { color: gridColor },
+              ticks: { color: textColor, font: { size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    async exportData(format, data) {
+      try {
+        // Extract the actual rows for the backend
+        const rows = data.data || data.rows || (Array.isArray(data) ? data : []);
+        
+        const response = await fetch(`${this.apiUrl}/api/export/${format}`, {
+          method: 'POST',
+          headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: rows, // Send as a real array, not a stringified array
+            title: "Data Report",
+            fileName: `report_${new Date().getTime()}`
+          })
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `report.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } else {
+          const error = await response.text();
+          console.error('Export failed:', error);
+        }
+      } catch (err) {
+        console.error('Export failed:', err);
       }
     }
   }
