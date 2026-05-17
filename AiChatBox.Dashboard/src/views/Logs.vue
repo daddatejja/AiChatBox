@@ -7,8 +7,6 @@ import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
-import IconField from 'primevue/iconfield';
-import InputIcon from 'primevue/inputicon';
 import Tag from 'primevue/tag';
 import Tabs from 'primevue/tabs';
 import TabList from 'primevue/tablist';
@@ -339,10 +337,10 @@ onMounted(() => {
                 <p class="subtitle">Recent AI provider requests</p>
             </div>
             <div class="header-actions">
-                <IconField iconPosition="left">
-                    <InputIcon class="pi pi-search" />
-                    <InputText v-model="searchQuery" placeholder="Search logs..." class="w-64" />
-                </IconField>
+                <div class="search-container">
+                    <i class="pi pi-search search-icon"></i>
+                    <InputText v-model="searchQuery" placeholder="Search logs..." class="w-64 search-input" />
+                </div>
                 <Select v-model="selectedProject" :options="projects" optionLabel="name" placeholder="Filter by Project" showClear class="w-64" />
             </div>
         </header>
@@ -803,6 +801,12 @@ onMounted(() => {
     .header-actions :deep(.p-inputtext) {
         width: 100% !important;
     }
+    .search-container {
+        width: 100%;
+    }
+    .search-input {
+        width: 100% !important;
+    }
     .header-actions :deep(.p-select) {
         width: 100% !important;
     }
@@ -812,5 +816,21 @@ onMounted(() => {
         border-left: none;
         border-right: none;
     }
+}
+
+.search-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--p-surface-400);
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+.search-input {
+    padding-left: 36px !important;
 }
 </style>

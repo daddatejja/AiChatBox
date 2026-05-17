@@ -4,6 +4,7 @@ using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Controllers
 {
@@ -147,6 +148,13 @@ namespace AiChatBox.Api.Controllers
                 }
             }
 
+            object? theme = null;
+            if (!string.IsNullOrEmpty(config?.ThemeSettingsJson))
+            {
+                try { theme = System.Text.Json.JsonSerializer.Deserialize<object>(config.ThemeSettingsJson); }
+                catch { }
+            }
+
             return Ok(new DTOs.ChatConfigDto
             {
                 ProjectName = project.Name,
@@ -157,8 +165,72 @@ namespace AiChatBox.Api.Controllers
                 Suggestions = !string.IsNullOrEmpty(config?.SuggestionsJson) 
                     ? System.Text.Json.JsonSerializer.Deserialize<List<string>>(config.SuggestionsJson) ?? [] 
                     : [],
-                SystemPrompt = config?.SystemPrompt ?? project.SystemPrompt
+                SystemPrompt = config?.SystemPrompt ?? project.SystemPrompt,
+                HandoffEnabled = config?.HandoffEnabled ?? false,
+                Theme = theme
             });
         }
+
+        /// <summary>Submit feedback on a chat message (1 = thumbs up, -1 = thumbs down).</summary>
+        [HttpPost("messages/{messageId}/feedback")]
+        public async Task<IActionResult> SubmitFeedback(Guid messageId, [FromBody] FeedbackDto dto)
+        {
+            var db = HttpContext.RequestServices.GetRequiredService<Data.ChatDbContext>();
+            var message = await db.ChatMessages
+                .Include(m => m.Session)
+                .FirstOrDefaultAsync(m => m.Id == messageId);
+
+            if (message == null) return NotFound();
+
+            message.Feedback = dto.Feedback;
+            await db.SaveChangesAsync();
+
+            return Ok(new { messageId = message.Id, feedback = message.Feedback });
+        }
+
+        /// <summary>
+        /// Poll for new messages (used by widget during active human handoff).
+        /// </summary>
+        [HttpGet("{sessionId}/poll")]
+        public async Task<IActionResult> PollMessages(Guid sessionId, [FromQuery] string since)
+        {
+            var db = HttpContext.RequestServices.GetRequiredService<Data.ChatDbContext>();
+            
+            // Basic validation that session exists and belongs to project
+            var project = HttpContext.Items["CurrentProject"] as Project;
+            if (project == null) return Unauthorized();
+
+            var session = await db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.ProjectId == project.Id);
+            if (session == null) return NotFound("Session not found");
+
+            // We only need to return agent messages or system messages that are newer than 'since'
+            if (!DateTime.TryParse(since, out var sinceDate))
+            {
+                sinceDate = DateTime.UtcNow.AddMinutes(-5); // fallback
+            }
+
+            var messages = await db.ChatMessages
+                .Where(m => m.SessionId == sessionId && m.CreatedAt > sinceDate && m.Role != "user")
+                .OrderBy(m => m.CreatedAt)
+                .Select(m => new {
+                    id = m.Id,
+                    role = m.Role,
+                    content = m.Content,
+                    createdAt = m.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(new {
+                handoffStatus = session.HandoffStatus,
+                messages,
+                serverTime = DateTime.UtcNow.ToString("o")
+            });
+        }
+    }
+
+    public class FeedbackDto
+    {
+        /// <summary>1 = thumbs up, -1 = thumbs down, null = clear feedback.</summary>
+        public int? Feedback { get; set; }
     }
 }

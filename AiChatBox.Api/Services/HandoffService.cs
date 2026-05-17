@@ -1,0 +1,243 @@
+using AiChatBox.Api.Data;
+using AiChatBox.Api.Models;
+using Microsoft.AspNetCore.SignalR;
+using Microsoft.EntityFrameworkCore;
+
+namespace AiChatBox.Api.Services
+{
+    public class HandoffService(ChatDbContext db, IHubContext<LiveChatHub> hubContext, ILogger<HandoffService> logger)
+    {
+        private readonly ChatDbContext _db = db;
+        private readonly IHubContext<LiveChatHub> _hubContext = hubContext;
+        private readonly ILogger<HandoffService> _logger = logger;
+
+        /// <summary>
+        /// Checks if a user message matches any handoff trigger keywords.
+        /// Returns true if the session should be escalated.
+        /// </summary>
+        public bool ShouldTriggerHandoff(string message, ProjectConfiguration? config)
+        {
+            if (config == null || !config.HandoffEnabled || string.IsNullOrEmpty(config.HandoffTriggerKeywords))
+                return false;
+
+            var keywords = config.HandoffTriggerKeywords
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+
+            var lowerMessage = message.ToLowerInvariant();
+            return keywords.Any(kw => lowerMessage.Contains(kw.ToLowerInvariant()));
+        }
+
+        /// <summary>
+        /// Places a session in the handoff queue and notifies agents.
+        /// </summary>
+        public async Task<bool> QueueSessionAsync(Guid sessionId)
+        {
+            var session = await _db.ChatSessions
+                .Include(s => s.Messages.OrderByDescending(m => m.CreatedAt).Take(1))
+                .FirstOrDefaultAsync(s => s.Id == sessionId);
+
+            if (session == null) return false;
+            if (session.HandoffStatus is "queued" or "active") return false;
+
+            session.HandoffStatus = "queued";
+            session.QueuedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            // Notify agents watching this project
+            var groupName = $"agents-{session.ProjectId}";
+            var lastMessage = session.Messages.FirstOrDefault()?.Content ?? "";
+
+            await _hubContext.Clients.Group(groupName).SendAsync("NewSessionQueued", new
+            {
+                sessionId = session.Id,
+                userId = session.UserId,
+                projectId = session.ProjectId,
+                configurationId = session.ConfigurationId,
+                lastMessage = lastMessage.Length > 200 ? lastMessage[..200] + "..." : lastMessage,
+                queuedAt = session.QueuedAt
+            });
+
+            _logger.LogInformation("Session {SessionId} queued for handoff", sessionId);
+            return true;
+        }
+
+        /// <summary>
+        /// Agent claims a queued session.
+        /// </summary>
+        public async Task<bool> ClaimSessionAsync(Guid sessionId, string agentId)
+        {
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId);
+            if (session == null || session.HandoffStatus != "queued") return false;
+
+            session.HandoffStatus = "active";
+            session.AgentId = agentId;
+            session.ClaimedAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            // Notify agent pool
+            var groupName = $"agents-{session.ProjectId}";
+            await _hubContext.Clients.Group(groupName).SendAsync("SessionClaimed", new
+            {
+                sessionId = session.Id,
+                agentId
+            });
+
+            // Notify the user's session group
+            await _hubContext.Clients.Group($"session-{sessionId}").SendAsync("AgentJoined", new
+            {
+                sessionId = session.Id,
+                message = "A support agent has joined the conversation."
+            });
+
+            _logger.LogInformation("Session {SessionId} claimed by agent {AgentId}", sessionId, agentId);
+            return true;
+        }
+
+        /// <summary>
+        /// Resolves a handoff session and returns it to AI mode.
+        /// </summary>
+        public async Task<bool> ResolveSessionAsync(Guid sessionId, string agentId)
+        {
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.AgentId == agentId);
+            if (session == null || session.HandoffStatus != "active") return false;
+
+            session.HandoffStatus = "resolved";
+            await _db.SaveChangesAsync();
+
+            await _hubContext.Clients.Group($"session-{sessionId}").SendAsync("SessionResolved", new
+            {
+                sessionId = session.Id,
+                message = "The support session has ended. You're now chatting with AI again."
+            });
+
+            _logger.LogInformation("Session {SessionId} resolved by agent {AgentId}", sessionId, agentId);
+            return true;
+        }
+
+        /// <summary>
+        /// Returns a session back to AI mode without resolving (agent gives up).
+        /// </summary>
+        public async Task<bool> ReturnToAiAsync(Guid sessionId, string agentId)
+        {
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.AgentId == agentId);
+            if (session == null) return false;
+
+            session.HandoffStatus = "ai";
+            session.AgentId = null;
+            await _db.SaveChangesAsync();
+
+            await _hubContext.Clients.Group($"session-{sessionId}").SendAsync("ReturnedToAi", new
+            {
+                sessionId = session.Id,
+                message = "You've been returned to the AI assistant."
+            });
+
+            _logger.LogInformation("Session {SessionId} returned to AI by agent {AgentId}", sessionId, agentId);
+            return true;
+        }
+
+        /// <summary>
+        /// Gets all queued sessions for a project.
+        /// </summary>
+        public async Task<List<HandoffSessionDto>> GetQueuedSessionsAsync(Guid? projectId)
+        {
+            var query = _db.ChatSessions
+                .Include(s => s.Messages.OrderByDescending(m => m.CreatedAt).Take(1))
+                .Include(s => s.Project)
+                .Include(s => s.Configuration)
+                .Where(s => s.HandoffStatus == "queued");
+
+            if (projectId.HasValue)
+                query = query.Where(s => s.ProjectId == projectId);
+
+            return await query.OrderBy(s => s.QueuedAt).Select(s => new HandoffSessionDto
+            {
+                SessionId = s.Id,
+                UserId = s.UserId,
+                ProjectId = s.ProjectId,
+                ProjectName = s.Project != null ? s.Project.Name : "Unknown",
+                ConfigurationName = s.Configuration != null ? s.Configuration.Name : null,
+                HandoffStatus = s.HandoffStatus,
+                AgentId = s.AgentId,
+                QueuedAt = s.QueuedAt,
+                ClaimedAt = s.ClaimedAt,
+                LastMessage = s.Messages.Select(m => m.Content).FirstOrDefault() ?? "",
+                MessageCount = s.Messages.Count
+            }).ToListAsync();
+        }
+
+        /// <summary>
+        /// Gets all active sessions for an agent.
+        /// </summary>
+        public async Task<List<HandoffSessionDto>> GetActiveSessionsAsync(string agentId)
+        {
+            return await _db.ChatSessions
+                .Include(s => s.Messages.OrderByDescending(m => m.CreatedAt).Take(1))
+                .Include(s => s.Project)
+                .Include(s => s.Configuration)
+                .Where(s => s.AgentId == agentId && s.HandoffStatus == "active")
+                .OrderByDescending(s => s.ClaimedAt)
+                .Select(s => new HandoffSessionDto
+                {
+                    SessionId = s.Id,
+                    UserId = s.UserId,
+                    ProjectId = s.ProjectId,
+                    ProjectName = s.Project != null ? s.Project.Name : "Unknown",
+                    ConfigurationName = s.Configuration != null ? s.Configuration.Name : null,
+                    HandoffStatus = s.HandoffStatus,
+                    AgentId = s.AgentId,
+                    QueuedAt = s.QueuedAt,
+                    ClaimedAt = s.ClaimedAt,
+                    LastMessage = s.Messages.Select(m => m.Content).FirstOrDefault() ?? "",
+                    MessageCount = s.Messages.Count
+                }).ToListAsync();
+        }
+
+        /// <summary>
+        /// Saves a message from an agent and notifies the user.
+        /// </summary>
+        public async Task<ChatMessage> SendAgentMessageAsync(Guid sessionId, string agentId, string message)
+        {
+            var session = await _db.ChatSessions.FirstOrDefaultAsync(s => s.Id == sessionId && s.AgentId == agentId && s.HandoffStatus == "active");
+            if (session == null) throw new InvalidOperationException("Session not found or not active.");
+
+            var msg = new ChatMessage
+            {
+                SessionId = sessionId,
+                Role = "agent",
+                Content = message,
+                CreatedAt = DateTime.UtcNow
+            };
+
+            _db.ChatMessages.Add(msg);
+            session.LastMessageAt = DateTime.UtcNow;
+            await _db.SaveChangesAsync();
+
+            // Notify user via session group
+            await _hubContext.Clients.Group($"session-{sessionId}").SendAsync("ReceiveAgentMessage", new
+            {
+                id = msg.Id,
+                content = msg.Content,
+                createdAt = msg.CreatedAt,
+                role = "agent"
+            });
+
+            return msg;
+        }
+    }
+
+    public class HandoffSessionDto
+    {
+        public Guid SessionId { get; set; }
+        public string UserId { get; set; } = string.Empty;
+        public Guid? ProjectId { get; set; }
+        public string ProjectName { get; set; } = string.Empty;
+        public string? ConfigurationName { get; set; }
+        public string HandoffStatus { get; set; } = "ai";
+        public string? AgentId { get; set; }
+        public DateTime? QueuedAt { get; set; }
+        public DateTime? ClaimedAt { get; set; }
+        public string LastMessage { get; set; } = string.Empty;
+        public int MessageCount { get; set; }
+    }
+}

@@ -200,6 +200,11 @@
       this.currentSessionId = localStorage.getItem("ai_chat_session_id") || null;
       this.liveTimerInterval = null;
       this.liveStartTime = null;
+      
+      this.handoffPoller = null;
+      this.handoffConnection = null;
+      this.handoffStatus = "ai";
+      this.lastHandoffPollTime = new Date().toISOString();
 
       // Attributes
       this.apiUrl = null;
@@ -318,10 +323,46 @@
           if (this.config.suggestions && Array.isArray(this.config.suggestions) && this.config.suggestions.length > 0) {
             this.suggestions = this.config.suggestions;
           }
+          if (this.config.theme) {
+            this.applyTheme(this.config.theme);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch widget config:", err);
       }
+    }
+
+    applyTheme(theme) {
+      if (!theme) return;
+      if (theme.primaryColor) {
+        this.style.setProperty("--primary-color", theme.primaryColor);
+        // Create a simple gradient based on primary color
+        this.style.setProperty("--primary-gradient", `linear-gradient(135deg, ${theme.primaryColor} 0%, ${this.adjustColor(theme.primaryColor, -20)} 100%)`);
+      }
+      if (theme.bgColor) {
+        this.style.setProperty("--bg-color", theme.bgColor);
+      }
+      if (theme.fontFamily) {
+        if (theme.fontFamily === 'system-ui') {
+          this.style.setProperty("--font-family", "system-ui, -apple-system, sans-serif");
+        } else {
+          this.style.setProperty("--font-family", `"${theme.fontFamily}", sans-serif`);
+        }
+      }
+      // Layout positions will be handled via a host class or inline style
+      if (theme.position === 'bottom-left') {
+        this.style.setProperty("--widget-right", "auto");
+        this.style.setProperty("--widget-left", "24px");
+      } else {
+        this.style.setProperty("--widget-right", "24px");
+        this.style.setProperty("--widget-left", "auto");
+      }
+    }
+
+    // Helper to darken/lighten hex colors slightly for gradients
+    adjustColor(color, amount) {
+        return '#' + color.replace(/^#/, '').replace(/../g, color => 
+            ('0'+Math.min(255, Math.max(0, parseInt(color, 16) + amount)).toString(16)).substr(-2));
     }
 
     async connectedCallback() {
@@ -485,6 +526,8 @@
                     max-height: 150px;
                     white-space: pre-wrap;
                   }
+                  .agent-side .message-bubble { background: var(--primary-color, #6366f1); color: white; border-bottom-left-radius: 4px; border-bottom-right-radius: 12px; }
+                  .agent-avatar { background: var(--primary-color, #6366f1); color: white; }
                 </style>
                 
                 <button class="chatbox-toggle-btn" id="fab-toggle" title="Open AI Assistant">
@@ -668,6 +711,7 @@
       chatInput.oninput = (e) => {
         this.adjustTextAreaHeight(e.target);
         this.updateSendButtonState();
+        this.handleUserTyping();
       };
 
       // Attachment Actions
@@ -820,6 +864,28 @@
       this.pastedImage = null;
       this.renderAttachments();
 
+      // Clear user typing status when sending
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.isUserTypingSignalSent = false;
+      if (this.handoffConnection && this.currentSessionId && this.handoffStatus !== "ai") {
+        this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, false, this.apiKey).catch(console.error);
+      }
+
+      // Bypass streaming UI completely if human handoff is active or queued
+      if (this.handoffStatus === "active" || this.handoffStatus === "queued") {
+        if (this.handoffConnection && this.handoffConnection.state === "Connected") {
+          try {
+            await this.handoffConnection.invoke("SendUserMessage", this.currentSessionId, text, this.apiKey);
+          } catch (err) {
+            console.error("Failed to send message via SignalR:", err);
+            await this.sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl);
+          }
+        } else {
+          await this.sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl);
+        }
+        return;
+      }
+
       this.isTyping = true;
       this.updateInputButtons();
 
@@ -879,6 +945,13 @@
                   localStorage.setItem("ai_chat_session_id", sid);
                 }
 
+                // Capture message ID from Done chunk for feedback
+                const isDone = data.Done || data.done;
+                const msgId = data.MessageId || data.messageId;
+                if (isDone && msgId) {
+                  aiWrapper.dataset.messageId = msgId;
+                }
+
                 if (errorChunk) {
                   textContent.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
                   hasStarted = true;
@@ -925,6 +998,55 @@
       } finally {
         this.isTyping = false;
         this.updateInputButtons();
+        this.startHandoffConnection();
+      }
+    }
+
+    async sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl) {
+      try {
+        const { modelName: selectedModel, provider: selectedProvider } = this.getSelectedModel();
+        const response = await fetch(`${this.apiUrl}/api/chat`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            sessionId: this.currentSessionId,
+            projectId: this.projectId,
+            configurationId: this.configurationId,
+            provider: selectedProvider,
+            modelName: selectedModel,
+            attachedFileId,
+            imageDataUrl,
+            context: this.getPageContext()
+          }),
+        });
+        
+        if (response.ok) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.substring(6));
+                  const sid = data.SessionId || data.sessionId || data.sid;
+                  if (sid && !this.currentSessionId) {
+                    this.currentSessionId = sid;
+                    localStorage.setItem("ai_chat_session_id", sid);
+                  }
+                } catch (e) {}
+              }
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to send HTTP handoff message:", err);
+      } finally {
+        this.startHandoffConnection();
       }
     }
 
@@ -1054,6 +1176,9 @@
       }
       this.isTyping = false;
       this.updateInputButtons();
+      
+      // Ensure we are connected for human handoff agent messages
+      this.startHandoffConnection();
     }
 
     async handleLiveToolCall(name, args, callId = null, isBackend = false) {
@@ -1197,18 +1322,22 @@
       }
     }
 
-    addMessage(role, htmlContent, fileId = null, fileName = null) {
+    addMessage(role, htmlContent, fileId = null, fileName = null, messageId = null) {
       const container = this.shadowRoot.getElementById("messages-container");
       const wrapper = document.createElement("div");
       const isUser = role === "user";
-      wrapper.className = `message-wrapper ${isUser ? "user-side" : ""} message-appear`;
+      const isAgent = role === "agent";
+      wrapper.className = `message-wrapper ${isUser ? "user-side" : "ai-side"} ${isAgent ? "agent-side" : ""} message-appear`;
+      if (messageId) {
+        wrapper.dataset.messageId = messageId;
+      }
       
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const avatar = isUser ? "" : `<div class="message-avatar ai-avatar">${this.icons.awesome}</div>`;
+      const avatar = isUser ? "" : `<div class="message-avatar ${isAgent ? 'agent-avatar' : 'ai-avatar'}">${isAgent ? this.icons.person : this.icons.awesome}</div>`;
       const userAvatar = isUser ? `<div class="message-avatar user-avatar">${this.icons.user}</div>` : "";
       
       // Remove previous regenerate buttons
-      if (!isUser) {
+      if (!isUser && !isAgent) {
         container.querySelectorAll("[data-action='regenerate']").forEach(btn => btn.remove());
       }
 
@@ -1219,6 +1348,9 @@
             <button class="msg-action-btn" data-action="copy" title="Copy">${this.icons.copy}</button>
             <button class="msg-action-btn" data-action="speak" title="Listen">${this.icons.voice}</button>
             <button class="msg-action-btn" data-action="regenerate" title="Regenerate">${this.icons.refresh}</button>
+            <span class="feedback-divider"></span>
+            <button class="msg-action-btn feedback-btn" data-action="thumbsup" title="Good response">👍</button>
+            <button class="msg-action-btn feedback-btn" data-action="thumbsdown" title="Bad response">👎</button>
           </div>
         `;
       }
@@ -1266,6 +1398,12 @@
               window.speechSynthesis.speak(utterance);
             } else if (action === "regenerate") {
               this.regenerateLastResponse();
+            } else if (action === "thumbsup" || action === "thumbsdown") {
+              const msgId = wrapper.dataset.messageId;
+              if (msgId) {
+                const feedbackValue = action === "thumbsup" ? 1 : -1;
+                this.submitFeedback(msgId, feedbackValue, btn, wrapper);
+              }
             }
           };
         });
@@ -1273,6 +1411,27 @@
 
       this.scrollToBottom();
       return wrapper;
+    }
+
+    async submitFeedback(messageId, feedback, btn, wrapper) {
+      try {
+        const response = await fetch(`${this.apiUrl}/api/chat/messages/${messageId}/feedback`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ feedback }),
+        });
+        if (response.ok) {
+          // Highlight the selected button
+          wrapper.querySelectorAll(".feedback-btn").forEach(b => {
+            b.classList.remove("feedback-active");
+            b.style.opacity = "0.4";
+          });
+          btn.classList.add("feedback-active");
+          btn.style.opacity = "1";
+        }
+      } catch (e) {
+        console.error("Feedback submission failed:", e);
+      }
     }
 
     async regenerateLastResponse() {
@@ -1290,6 +1449,28 @@
 
       this.shadowRoot.getElementById("chat-input").value = text;
       this.sendMessage();
+    }
+
+    startNewChat() {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+      this.stopGeneration();
+      this.stopHandoffConnection();
+      this.handoffStatus = "ai";
+      this.currentSessionId = null;
+      localStorage.removeItem("ai_chat_session_id");
+      this.shadowRoot.getElementById("messages-container").innerHTML = "";
+
+      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
+      if (transcriptArea) transcriptArea.innerHTML = "";
+
+      this.renderEmptyState();
+      if (this.isHistoryOpen) this.toggleHistory();
+
+      // Select the generic AI mode if an agent session ended
+      this.isTyping = false;
+      this.updateInputButtons();
     }
 
     // ---- Live Mode Logic ----
@@ -1570,7 +1751,231 @@
       }
     }
 
+    async startHandoffConnection() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || this.currentSessionId === "null" || this.currentSessionId === "undefined") return;
+      if (!this.apiKey) {
+        this.startHandoffPoller();
+        return;
+      }
+      
+      if (this.handoffConnection) return; // already connected or connecting
+      
+      try {
+        if (typeof window.signalR === "undefined") {
+          await new Promise((res, rej) => {
+            const s = document.createElement("script");
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js";
+            s.onload = res; s.onerror = rej; document.head.appendChild(s);
+          });
+        }
+
+        this.handoffConnection = new window.signalR.HubConnectionBuilder()
+          .withUrl(`${this.apiUrl}/liveChatHub`)
+          .withAutomaticReconnect()
+          .build();
+
+        this.handoffConnection.on("HandoffStatus", (data) => {
+          console.log("[HandoffConnection] Status update:", data);
+          if (data.status) {
+            this.handoffStatus = data.status;
+          }
+        });
+
+        this.handoffConnection.on("ReceiveAgentMessage", (msg) => {
+          console.log("[HandoffConnection] Received agent message:", msg);
+          const existingMsg = this.shadowRoot.querySelector(`[data-message-id="${msg.id}"]`);
+          if (!existingMsg) {
+            this.toggleAgentTypingIndicator(false);
+            const aiWrapper = this.addMessage("agent", "", null, null, msg.id);
+            const bubble = aiWrapper.querySelector(".message-bubble");
+            bubble.innerHTML = `<div class="message-text-content">${this.formatMarkdown(msg.content)}</div>`;
+            this.scrollToBottom();
+          }
+        });
+
+        this.handoffConnection.on("ReceiveAgentTyping", (data) => {
+          if (data.sessionId === this.currentSessionId) {
+            this.toggleAgentTypingIndicator(data.isTyping);
+          }
+        });
+
+        this.handoffConnection.on("AgentJoined", (data) => {
+          console.log("[HandoffConnection] Agent joined:", data);
+          this.handoffStatus = "active";
+          this.addSystemNotice(data.message || "A support agent has joined the conversation.");
+        });
+
+        this.handoffConnection.on("SessionResolved", (data) => {
+          console.log("[HandoffConnection] Session resolved:", data);
+          this.handoffStatus = "ai";
+          this.addSystemNotice(data.message || "The support session has ended. You're now chatting with AI again.");
+          this.stopHandoffConnection();
+        });
+
+        this.handoffConnection.on("ReturnedToAi", (data) => {
+          console.log("[HandoffConnection] Returned to AI:", data);
+          this.handoffStatus = "ai";
+          this.addSystemNotice(data.message || "You've been returned to the AI assistant.");
+          this.stopHandoffConnection();
+        });
+
+        this.handoffConnection.on("ReceiveError", (msg) => {
+          console.error("[HandoffConnection] Error:", msg);
+        });
+
+        this.handoffConnection.onclose(() => {
+          console.log("[HandoffConnection] Connection closed.");
+        });
+
+        await this.handoffConnection.start();
+        console.log("[HandoffConnection] Connection started successfully.");
+        await this.handoffConnection.invoke("JoinSession", this.currentSessionId, this.apiKey);
+
+      } catch (err) {
+        console.error("[HandoffConnection] Start failed, falling back to polling:", err);
+        this.handoffConnection = null;
+        this.startHandoffPoller();
+      }
+    }
+
+    stopHandoffConnection() {
+      if (this.handoffConnection) {
+        this.handoffConnection.stop().catch(console.error);
+        this.handoffConnection = null;
+      }
+      this.stopHandoffPoller();
+    }
+
+    toggleAgentTypingIndicator(isTyping) {
+      const container = this.shadowRoot.getElementById("messages-container");
+      let indicator = this.shadowRoot.getElementById("agent-typing-indicator");
+      
+      if (isTyping) {
+        if (!indicator) {
+          indicator = document.createElement("div");
+          indicator.id = "agent-typing-indicator";
+          indicator.className = "message-wrapper ai-side message-appear agent-side";
+          indicator.innerHTML = `
+            <div class="message-avatar agent-avatar">${this.icons.user}</div>
+            <div class="message ai-message">
+              <div class="message-bubble">
+                <div class="typing-indicator">
+                  <div class="typing-dot"></div>
+                  <div class="typing-dot"></div>
+                  <div class="typing-dot"></div>
+                </div>
+              </div>
+            </div>
+          `;
+          container.appendChild(indicator);
+          this.scrollToBottom();
+        }
+      } else {
+        if (indicator) {
+          indicator.remove();
+        }
+      }
+    }
+
+    addSystemNotice(text) {
+      const container = this.shadowRoot.getElementById("messages-container");
+      const wrapper = document.createElement("div");
+      wrapper.className = "message-wrapper system-notice message-appear";
+      wrapper.style.display = "flex";
+      wrapper.style.justifyContent = "center";
+      wrapper.style.margin = "12px 0";
+      wrapper.style.width = "100%";
+      
+      wrapper.innerHTML = `
+        <div style="background:rgba(0,0,0,0.05); color:var(--secondary-text); font-size:0.85rem; font-style:italic; padding:6px 16px; border-radius:16px; text-align:center; max-width:80%">
+          ${text}
+        </div>
+      `;
+      container.appendChild(wrapper);
+      this.scrollToBottom();
+      return wrapper;
+    }
+
+    handleUserTyping() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || !this.handoffConnection || this.handoffStatus === "ai") return;
+      
+      if (!this.isUserTypingSignalSent) {
+        this.isUserTypingSignalSent = true;
+        this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, true, this.apiKey).catch(console.error);
+      }
+      
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.userTypingTimeout = setTimeout(() => {
+        this.isUserTypingSignalSent = false;
+        if (this.handoffConnection && this.currentSessionId) {
+          this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, false, this.apiKey).catch(console.error);
+        }
+      }, 2000);
+    }
+
+    startHandoffPoller() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || this.currentSessionId === "null" || this.currentSessionId === "undefined") return;
+      if (this.handoffPoller) return;
+
+      const poll = async () => {
+        try {
+          const url = new URL(`${this.apiUrl}/api/chat/${this.currentSessionId}/poll`);
+          url.searchParams.append("since", this.lastHandoffPollTime);
+          
+          const response = await fetch(url.toString(), {
+            headers: this.getHeaders()
+          });
+          
+          if (!response.ok) return;
+          const data = await this.safeJson(response);
+          
+          if (data.serverTime) {
+            this.lastHandoffPollTime = data.serverTime;
+          } else {
+            this.lastHandoffPollTime = new Date().toISOString();
+          }
+
+          if (data.handoffStatus) {
+            this.handoffStatus = data.handoffStatus;
+          }
+
+          if (data.messages && data.messages.length > 0) {
+            data.messages.forEach(msg => {
+               if (msg.role === "agent") {
+                   const existingMsg = this.shadowRoot.querySelector(`[data-message-id="${msg.id}"]`);
+                   if (!existingMsg) {
+                       const aiWrapper = this.addMessage("agent", "", null, null, msg.id);
+                       const bubble = aiWrapper.querySelector(".message-bubble");
+                       bubble.innerHTML = `<div class="message-text-content">${this.formatMarkdown(msg.content)}</div>`;
+                       this.scrollToBottom();
+                   }
+               }
+            });
+          }
+
+          if (data.handoffStatus === "ai" || data.handoffStatus === "resolved") {
+            this.handoffStatus = "ai";
+            this.stopHandoffPoller();
+          }
+
+        } catch(e) {
+          console.error("Handoff polling error:", e);
+        }
+      };
+
+      poll();
+      this.handoffPoller = setInterval(poll, 3000);
+    }
+
+    stopHandoffPoller() {
+      if (this.handoffPoller) {
+        clearInterval(this.handoffPoller);
+        this.handoffPoller = null;
+      }
+    }
+
     async loadSessionMessages(sessionId) {
+      this.stopHandoffConnection();
       this.currentSessionId = sessionId;
       localStorage.setItem("ai_chat_session_id", sessionId);
       const projectId = this.getAttribute("project-id") || localStorage.getItem("ai_chat_project_id");
@@ -1613,7 +2018,7 @@
              if (isDbTool) {
                 if (!hasResult) return; // Skip empty/null database results in history
                 
-                const msgWrap = this.addMessage("ai", `<div class="message-text-content"></div><div class="message-widget-container"></div>`);
+                const msgWrap = this.addMessage("ai", `<div class="message-text-content"></div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
                 const widgetContainer = msgWrap.querySelector(".message-widget-container");
                 this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
                 return; 
@@ -1628,7 +2033,8 @@
           const img = m.ImageDataUrl || m.imageDataUrl;
           
           const displayHtml = img ? `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + content : content;
-          const msgWrap = this.addMessage(role, isAi ? `<div class="message-text-content">${displayHtml}</div><div class="message-widget-container"></div>` : displayHtml, fileId, fileName);
+          const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
+          const msgWrap = this.addMessage(displayRole, isAi || displayRole === "agent" ? `<div class="message-text-content">${displayHtml}</div><div class="message-widget-container"></div>` : displayHtml, fileId, fileName, m.Id || m.id);
           
           if (toolData && isAi) {
             const widgetContainer = msgWrap.querySelector(".message-widget-container");
@@ -1636,23 +2042,14 @@
           }
         });
         this.scrollToBottom();
+        this.startHandoffConnection();
       } catch (err) {
         list.innerHTML = "";
         this.addMessage("ai", "Error loading chat history.");
       }
     }
 
-    startNewChat() {
-      this.currentSessionId = null;
-      localStorage.removeItem("ai_chat_session_id");
-      this.shadowRoot.getElementById("messages-container").innerHTML = "";
-      
-      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
-      if (transcriptArea) transcriptArea.innerHTML = "";
-      
-      this.renderEmptyState();
-      if (this.isHistoryOpen) this.toggleHistory();
-    }
+
 
     toggleHistory() {
       this.isHistoryOpen = !this.isHistoryOpen;

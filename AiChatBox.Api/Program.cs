@@ -14,6 +14,7 @@ using Hangfire.PostgreSql;
 using Serilog;
 using System.Text;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure Serilog
@@ -77,7 +78,7 @@ builder.Services.AddAuthentication(options => {
         {
             var accessToken = context.Request.Query["access_token"];
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/liveAudioHub"))
+            if (!string.IsNullOrEmpty(accessToken) && (path.StartsWithSegments("/liveAudioHub") || path.StartsWithSegments("/liveChatHub")))
             {
                 context.Token = accessToken;
             }
@@ -114,7 +115,6 @@ builder.Services.AddScoped<ExportService>();
 // AI Services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GeminiServerService>();
-builder.Services.AddScoped<GrokServerService>();
 builder.Services.AddScoped<LlmProviderFactory>();
 builder.Services.AddScoped<IChatContextService, ChatContextService>();
 builder.Services.AddScoped<IAiLoggingService, AiLoggingService>();
@@ -127,15 +127,18 @@ builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<FileProcessingService>();
 builder.Services.AddScoped<FirecrawlService>();
 builder.Services.AddHttpClient<FirecrawlService>();
+builder.Services.AddScoped<FlowExecutionService>();
 
 // Agent & Tools
 builder.Services.AddScoped<ITool, InternalSqlTool>();
 builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
+builder.Services.AddScoped<RuleEngine>();
 
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<WebhookService>();
+builder.Services.AddScoped<HandoffService>();
 
 // Hangfire configuration
 builder.Services.AddHangfire(configuration => configuration
@@ -248,6 +251,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<LiveAudioHub>("/liveAudioHub").DisableAntiforgery();
+app.MapHub<LiveChatHub>("/liveChatHub").DisableAntiforgery();
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

@@ -32,6 +32,29 @@ namespace AiChatBox.Api.Models
 
         public bool IsArchived { get; set; }
 
+        /// <summary>Handoff status: "ai", "queued", "active", "resolved"</summary>
+        [MaxLength(20)]
+        public string HandoffStatus { get; set; } = "ai";
+
+        /// <summary>The dashboard agent user ID currently handling this session.</summary>
+        [MaxLength(450)]
+        public string? AgentId { get; set; }
+
+        /// <summary>When the session entered the handoff queue.</summary>
+        public DateTime? QueuedAt { get; set; }
+
+        /// <summary>When an agent claimed the session.</summary>
+        public DateTime? ClaimedAt { get; set; }
+        
+        // --- Flow State ---
+        public Guid? ActiveFlowId { get; set; }
+        public virtual ConversationFlow? ActiveFlow { get; set; }
+        
+        [MaxLength(100)]
+        public string? CurrentNodeId { get; set; }
+
+        public string? FlowVariablesJson { get; set; }
+
         public virtual ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
     }
 
@@ -56,6 +79,9 @@ namespace AiChatBox.Api.Models
         public Guid? AttachedFileId { get; set; }
 
         public int TokenCount { get; set; }
+
+        /// <summary>User feedback: 1 = thumbs up, -1 = thumbs down, null = no feedback.</summary>
+        public int? Feedback { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 

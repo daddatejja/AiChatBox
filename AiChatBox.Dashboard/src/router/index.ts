@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '../layout/AppLayout.vue'
+import FlowBuilder from '../views/FlowBuilder.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -36,6 +37,21 @@ const router = createRouter({
           component: () => import('../views/KnowledgeBase.vue')
         },
         {
+          path: 'project/:projectId/rules',
+          name: 'rules',
+          component: () => import('../views/Rules.vue')
+        },
+        {
+          path: 'project/:projectId/flow',
+          name: 'flow-builder',
+          component: FlowBuilder
+        },
+        {
+          path: 'analytics',
+          name: 'analytics',
+          component: () => import('../views/Analytics.vue')
+        },
+        {
           path: 'logs',
           name: 'logs',
           component: () => import('../views/Logs.vue')
@@ -49,6 +65,11 @@ const router = createRouter({
           path: 'docs',
           name: 'docs',
           component: () => import('../views/Docs.vue')
+        },
+        {
+          path: 'live-chat',
+          name: 'live-chat',
+          component: () => import('../views/LiveChat.vue')
         }
       ]
     }

@@ -6,6 +6,7 @@ import DocsToolCalls from '../components/docs/DocsToolCalls.vue';
 import DocsRestApi from '../components/docs/DocsRestApi.vue';
 import DocsLiveVoice from '../components/docs/DocsLiveVoice.vue';
 import DocsModels from '../components/docs/DocsModels.vue';
+import DocsChangelog from '../components/docs/DocsChangelog.vue';
 
 const activeSection = ref('getting-started');
 
@@ -16,6 +17,7 @@ const sections = [
     { id: 'rest-api', label: 'REST API', icon: 'pi-server' },
     { id: 'live-voice', label: 'Live Voice', icon: 'pi-microphone' },
     { id: 'models', label: 'Models & Config', icon: 'pi-cog' },
+    { id: 'changelog', label: 'Release Changelog', icon: 'pi-history' },
 ];
 
 function scrollTo(id: string) {
@@ -77,6 +79,7 @@ provide('copiedId', copiedId);
             <DocsRestApi />
             <DocsLiveVoice />
             <DocsModels />
+            <DocsChangelog />
         </main>
 
         <aside class="docs-toc">

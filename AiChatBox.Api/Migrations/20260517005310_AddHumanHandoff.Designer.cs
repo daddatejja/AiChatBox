@@ -3,6 +3,7 @@ using System;
 using AiChatBox.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
@@ -12,9 +13,11 @@ using Pgvector;
 namespace AiChatBox.Api.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260517005310_AddHumanHandoff")]
+    partial class AddHumanHandoff
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -249,9 +252,6 @@ namespace AiChatBox.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
-                    b.Property<Guid?>("ActiveFlowId")
-                        .HasColumnType("uuid");
-
                     b.Property<string>("AgentId")
                         .HasMaxLength(450)
                         .HasColumnType("character varying(450)");
@@ -264,13 +264,6 @@ namespace AiChatBox.Api.Migrations
 
                     b.Property<DateTime>("CreatedAt")
                         .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("CurrentNodeId")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("FlowVariablesJson")
-                        .HasColumnType("text");
 
                     b.Property<string>("HandoffStatus")
                         .IsRequired()
@@ -299,8 +292,6 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
-
-                    b.HasIndex("ActiveFlowId");
 
                     b.HasIndex("ConfigurationId");
 
@@ -342,41 +333,6 @@ namespace AiChatBox.Api.Migrations
                     b.HasIndex("ConfigurationId");
 
                     b.ToTable("ConfigurationHistories");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
-
-                    b.Property<string>("Description")
-                        .HasMaxLength(500)
-                        .HasColumnType("character varying(500)");
-
-                    b.Property<bool>("IsActive")
-                        .HasColumnType("boolean");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("TriggerKeyword")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId");
-
-                    b.ToTable("ConversationFlows");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.ConversationRule", b =>
@@ -477,67 +433,6 @@ namespace AiChatBox.Api.Migrations
                     b.HasIndex("DocumentId");
 
                     b.ToTable("DocumentChunks");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.FlowEdge", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("Condition")
-                        .HasMaxLength(200)
-                        .HasColumnType("character varying(200)");
-
-                    b.Property<Guid>("FlowId")
-                        .HasColumnType("uuid");
-
-                    b.Property<string>("SourceNodeId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("TargetNodeId")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FlowId");
-
-                    b.ToTable("FlowEdges");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.FlowNode", b =>
-                {
-                    b.Property<string>("Id")
-                        .HasMaxLength(100)
-                        .HasColumnType("character varying(100)");
-
-                    b.Property<string>("DataJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("FlowId")
-                        .HasColumnType("uuid");
-
-                    b.Property<double>("PositionX")
-                        .HasColumnType("double precision");
-
-                    b.Property<double>("PositionY")
-                        .HasColumnType("double precision");
-
-                    b.Property<string>("Type")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("character varying(50)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("FlowId");
-
-                    b.ToTable("FlowNodes");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
@@ -732,10 +627,6 @@ namespace AiChatBox.Api.Migrations
                     b.Property<string>("SystemPrompt")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<string>("ThemeSettingsJson")
-                        .HasMaxLength(2000)
-                        .HasColumnType("character varying(2000)");
 
                     b.HasKey("Id");
 
@@ -1041,11 +932,6 @@ namespace AiChatBox.Api.Migrations
 
             modelBuilder.Entity("AiChatBox.Api.Models.ChatSession", b =>
                 {
-                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "ActiveFlow")
-                        .WithMany()
-                        .HasForeignKey("ActiveFlowId")
-                        .OnDelete(DeleteBehavior.SetNull);
-
                     b.HasOne("AiChatBox.Api.Models.ProjectConfiguration", "Configuration")
                         .WithMany("Sessions")
                         .HasForeignKey("ConfigurationId")
@@ -1054,8 +940,6 @@ namespace AiChatBox.Api.Migrations
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany("Sessions")
                         .HasForeignKey("ProjectId");
-
-                    b.Navigation("ActiveFlow");
 
                     b.Navigation("Configuration");
 
@@ -1071,17 +955,6 @@ namespace AiChatBox.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Configuration");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
-                {
-                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
-                        .WithMany()
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.ConversationRule", b =>
@@ -1115,28 +988,6 @@ namespace AiChatBox.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Document");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.FlowEdge", b =>
-                {
-                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "Flow")
-                        .WithMany("Edges")
-                        .HasForeignKey("FlowId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Flow");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.FlowNode", b =>
-                {
-                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "Flow")
-                        .WithMany("Nodes")
-                        .HasForeignKey("FlowId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Flow");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
@@ -1253,13 +1104,6 @@ namespace AiChatBox.Api.Migrations
             modelBuilder.Entity("AiChatBox.Api.Models.ChatSession", b =>
                 {
                     b.Navigation("Messages");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
-                {
-                    b.Navigation("Edges");
-
-                    b.Navigation("Nodes");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>

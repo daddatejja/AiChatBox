@@ -48,7 +48,7 @@ const chartData = computed(() => {
         return stringCol ? stringCol[1] : entries[0][1];
     });
 
-    const datasets = [];
+    const datasets: any[] = [];
     const numericCols = Object.keys(props.result.data[0]).filter(key => {
         const val = props.result.data[0][key];
         return typeof val === 'number';

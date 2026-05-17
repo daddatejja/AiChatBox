@@ -354,6 +354,32 @@ onMounted(() => {
             </div>
         </section>
 
+        <!-- Conversation Rules -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Conversation Rules</h2>
+                    <p class="section-subtitle">Define fast, zero-cost static responses before the LLM takes over.</p>
+                </div>
+                <router-link :to="'/project/' + projectId + '/rules'" custom v-slot="{ navigate }">
+                    <Button label="Manage Rules" icon="pi pi-bolt" severity="secondary" outlined @click="navigate" />
+                </router-link>
+            </div>
+        </section>
+
+        <!-- Conversation Flows -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Conversation Flows</h2>
+                    <p class="section-subtitle">Visual workflow builder for deterministic conversation paths.</p>
+                </div>
+                <router-link :to="'/project/' + projectId + '/flow'" custom v-slot="{ navigate }">
+                    <Button label="Flow Builder" icon="pi pi-sitemap" severity="secondary" outlined @click="navigate" />
+                </router-link>
+            </div>
+        </section>
+
         <!-- AI Reporting Database -->
         <section class="section">
             <div class="section-header">

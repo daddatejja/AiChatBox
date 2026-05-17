@@ -25,7 +25,8 @@
 .chatbox-toggle-btn {
   position: fixed;
   bottom: 20px;
-  right: 20px;
+  right: var(--widget-right, 20px);
+  left: var(--widget-left, auto);
   width: 56px;
   height: 56px;
   border-radius: 16px;
@@ -68,7 +69,8 @@
 .chatbox-container {
   position: fixed;
   bottom: 80px;
-  right: 24px;
+  right: var(--widget-right, 24px);
+  left: var(--widget-left, auto);
   width: 440px;
   height: 75vh;
   display: none;
@@ -453,6 +455,19 @@
 .speaking-active {
   color: var(--primary-color) !important;
   border-color: var(--primary-color) !important;
+}
+.feedback-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--border-color);
+  margin: 0 2px;
+  align-self: center;
+}
+.feedback-btn { font-size: 13px; }
+.feedback-btn.feedback-active {
+  background: rgba(57, 167, 185, 0.1) !important;
+  border-color: var(--primary-color) !important;
+  transform: scale(1.1);
 }
 
 /* ── Typing Indicator ── */

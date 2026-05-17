@@ -1,85 +1,215 @@
+<script setup lang="ts">
+import { ref } from 'vue';
+
+const activeFramework = ref('vanilla');
+
+const frameworks = [
+    { id: 'vanilla', label: 'Vanilla JS', icon: 'pi-code' },
+    { id: 'react', label: 'React', icon: 'pi-atom' },
+    { id: 'vue', label: 'Vue 3', icon: 'pi-sparkles' },
+    { id: 'wordpress', label: 'WordPress', icon: 'pi-globe' }
+];
+</script>
+
 <template>
     <section id="widget" class="doc-section">
         <h2 class="section-title"><i class="pi pi-code"></i> Widget Integration</h2>
-        <p class="section-intro">The AiChatBox widget is a Web Component that you drop into any HTML page. It handles chat UI, voice input, file uploads, live mode, and tool execution out of the box.</p>
+        <p class="section-intro">The AiChatBox widget is a high-performance Web Component. Embedding it handles the visual user interface, streaming interactions, live handoffs, and voice hubs entirely out of the box.</p>
 
-        <h3 class="sub-heading">Basic Integration</h3>
-        <p class="desc">Add these two lines to your HTML — that's all you need for a fully functional AI chat:</p>
-        <div class="code-block">
-            <div class="code-header">HTML</div>
-            <pre><code>&lt;!-- 1. Load the widget script --&gt;
+        <!-- Framework selector tabs -->
+        <h3 class="sub-heading">Multi-Framework Quickstarts</h3>
+        <p class="desc">Select your frontend framework to view the quickstart integration guides:</p>
+        
+        <div class="framework-tabs">
+            <button 
+                v-for="fw in frameworks" 
+                :key="fw.id" 
+                :class="['tab-btn', { active: activeFramework === fw.id }]"
+                @click="activeFramework = fw.id"
+            >
+                <i :class="['pi', fw.icon]"></i>
+                <span>{{ fw.label }}</span>
+            </button>
+        </div>
+
+        <!-- Tab contents -->
+        <div class="tab-content-container">
+            <!-- Vanilla JS -->
+            <div v-if="activeFramework === 'vanilla'" class="tab-pane">
+                <p class="desc">Add the custom script and floating element anywhere in your target HTML file:</p>
+                <div class="code-block">
+                    <div class="code-header">HTML Setup</div>
+                    <pre><code>&lt;!-- 1. Load the widget script from your API --&gt;
 &lt;script src="https://your-api.com/widget/ai-chatbox.js"&gt;&lt;/script&gt;
 
-&lt;!-- 2. Place the component --&gt;
+&lt;!-- 2. Inject the custom element --&gt;
 &lt;ai-chatbox
     api-key="acb_your_api_key"
     api-url="https://your-api.com"
-    user-id="user_123"&gt;
+    user-id="visitor_123"&gt;
+&lt;/ai-chatbox&gt;</code></pre>
+                </div>
+            </div>
+
+            <!-- React -->
+            <div v-if="activeFramework === 'react'" class="tab-pane">
+                <p class="desc">Load the widget dynamically in React using a standard lifecycle `useEffect` hook:</p>
+                <div class="code-block">
+                    <div class="code-header">React Component (JSX)</div>
+                    <pre><code>import React, { useEffect } from 'react';
+
+export default function AiChatWidget() {
+  useEffect(() => {
+    // Avoid duplicate script insertion
+    if (!document.getElementById('ai-chatbox-script')) {
+      const script = document.createElement('script');
+      script.id = 'ai-chatbox-script';
+      script.src = 'https://your-api.com/widget/ai-chatbox.js';
+      document.head.appendChild(script);
+    }
+  }, []);
+
+  return (
+    &lt;ai-chatbox
+      api-key="acb_your_api_key"
+      api-url="https://your-api.com"
+      user-id="react_visitor"
+    /&gt;
+  );
+}</code></pre>
+                </div>
+            </div>
+
+            <!-- Vue 3 -->
+            <div v-if="activeFramework === 'vue'" class="tab-pane">
+                <p class="desc">Configure Vue 3 to support custom elements, and register the script during lifecycle setup:</p>
+                <div class="code-block">
+                    <div class="code-header">Vue 3 Component (SFC)</div>
+                    <pre><code>&lt;template&gt;
+  &lt;!-- Render the custom widget tag directly --&gt;
+  &lt;ai-chatbox
+    api-key="acb_your_api_key"
+    api-url="https://your-api.com"
+    :user-id="userId"
+  /&gt;
+&lt;/template&gt;
+
+&lt;script setup&gt;
+import { onMounted } from 'vue';
+
+const userId = "vue_visitor_456";
+
+onMounted(() => {
+  if (!document.getElementById('ai-chatbox-script')) {
+    const script = document.createElement('script');
+    script.id = 'ai-chatbox-script';
+    script.src = 'https://your-api.com/widget/ai-chatbox.js';
+    document.head.appendChild(script);
+  }
+});
+&lt;/script&gt;</code></pre>
+                </div>
+            </div>
+
+            <!-- WordPress -->
+            <div v-if="activeFramework === 'wordpress'" class="tab-pane">
+                <p class="desc">Deploy the widget across your entire WordPress site using a visual block editor:</p>
+                <ol class="wp-instructions">
+                    <li>Open your WordPress Admin Dashboard and edit the page or template.</li>
+                    <li>Add a new <strong>Custom HTML</strong> block inside the block editor.</li>
+                    <li>Paste the integration code below into the Custom HTML editor box:</li>
+                </ol>
+                <div class="code-block">
+                    <div class="code-header">WordPress Custom HTML Code</div>
+                    <pre><code>&lt;script src="https://your-api.com/widget/ai-chatbox.js"&gt;&lt;/script&gt;
+&lt;ai-chatbox
+    api-key="acb_your_api_key"
+    api-url="https://your-api.com"
+    user-id="wp_user"&gt;
+&lt;/ai-chatbox&gt;</code></pre>
+                </div>
+            </div>
+        </div>
+
+        <!-- Custom styling variables -->
+        <h3 class="sub-heading">Styling & CSS Custom Properties</h3>
+        <p class="desc">You can easily override widget visual styles by mapping custom values directly to our native CSS variables:</p>
+        
+        <div class="attr-table">
+            <div class="attr-row header">
+                <span>CSS Variable</span><span>Default</span><span>Description</span>
+            </div>
+            <div class="attr-row">
+                <code>--primary-color</code>
+                <span>#39a7b9</span>
+                <span>Active accent color for headers, toggles, and buttons</span>
+            </div>
+            <div class="attr-row">
+                <code>--bg-color</code>
+                <span>#ffffff</span>
+                <span>Background base color of the conversational window frame</span>
+            </div>
+            <div class="attr-row">
+                <code>--font-family</code>
+                <span>system-ui</span>
+                <span>Typography layout family applied to all text components</span>
+            </div>
+            <div class="attr-row">
+                <code>--widget-left</code>
+                <span>auto</span>
+                <span>Left offset coordinate (set when using Left position setting)</span>
+            </div>
+            <div class="attr-row">
+                <code>--widget-right</code>
+                <span>24px</span>
+                <span>Right offset coordinate (set when using Right position setting)</span>
+            </div>
+        </div>
+
+        <div class="code-block">
+            <div class="code-header">Custom Theme CSS Example</div>
+            <pre><code>/* Add style attributes directly to override the component values */
+&lt;ai-chatbox
+    api-key="acb_key"
+    api-url="https://your-api.com"
+    style="--primary-color: #e11d48; --font-family: 'Inter', sans-serif;"&gt;
 &lt;/ai-chatbox&gt;</code></pre>
         </div>
 
-        <h3 class="sub-heading">Widget Attributes</h3>
-        <p class="desc">Configure the widget behavior via HTML attributes:</p>
+        <!-- Attributes -->
+        <h3 class="sub-heading">Widget HTML Attributes</h3>
+        <p class="desc">Customize the widget behaviors and configurations using standard attributes:</p>
         <div class="attr-table">
             <div class="attr-row header">
                 <span>Attribute</span><span>Type</span><span>Description</span>
             </div>
-            <div class="attr-row"><code>api-key</code><span>string</span><span>Your project API key (starts with <code>acb_</code>)</span></div>
-            <div class="attr-row"><code>api-url</code><span>string</span><span>Base URL of your AiChatBox API server</span></div>
-            <div class="attr-row"><code>user-id</code><span>string</span><span>Unique identifier for the end user (for session tracking)</span></div>
-            <div class="attr-row"><code>provider</code><span>string</span><span>AI provider: <code>"gemini"</code> or <code>"groq"</code></span></div>
-            <div class="attr-row"><code>model</code><span>string</span><span>Model name, e.g. <code>"gemini-2.5-flash"</code></span></div>
-            <div class="attr-row"><code>suggestions</code><span>JSON array</span><span>Quick-reply suggestions shown on empty state</span></div>
-            <div class="attr-row"><code>css-path</code><span>string</span><span>Custom CSS file URL to override widget styles</span></div>
-            <div class="attr-row"><code>title</code><span>string</span><span>Custom title shown in the widget header</span></div>
-            <div class="attr-row"><code>auth-token</code><span>string</span><span>JWT token (alternative to api-key for dashboard use)</span></div>
-            <div class="attr-row"><code>project-id</code><span>string</span><span>Project UUID (used with auth-token)</span></div>
-            <div class="attr-row"><code>configuration-id</code><span>string</span><span>Configuration UUID (used with auth-token)</span></div>
+            <div class="attr-row"><code>api-key</code><span>string</span><span>Your secure project configuration API Key (starts with <code>acb_</code>)</span></div>
+            <div class="attr-row"><code>api-url</code><span>string</span><span>Base URL targeting your deployed API server</span></div>
+            <div class="attr-row"><code>user-id</code><span>string</span><span>Unique identifier for the end user to track conversations</span></div>
+            <div class="attr-row"><code>title</code><span>string</span><span>Branded title shown at the top of the chat panel</span></div>
+            <div class="attr-row"><code>suggestions</code><span>JSON array</span><span>Quick-reply buttons to display on start (e.g. <code>'["Hello", "Help"]'</code>)</span></div>
         </div>
 
-        <h3 class="sub-heading">Full Example with Suggestions</h3>
+        <h3 class="sub-heading">Widget Events Reference</h3>
+        <p class="desc">Listen for native custom events emitted from the Web Component in your host script:</p>
         <div class="code-block">
-            <div class="code-header">HTML — Complete Setup</div>
-            <pre><code>&lt;!DOCTYPE html&gt;
-&lt;html lang="en"&gt;
-&lt;head&gt;
-    &lt;meta charset="UTF-8"&gt;
-    &lt;title&gt;My App&lt;/title&gt;
-&lt;/head&gt;
-&lt;body&gt;
-    &lt;h1&gt;Welcome to My App&lt;/h1&gt;
+            <div class="code-header">JavaScript — Custom Event Handling</div>
+            <pre><code>const chatbox = document.querySelector('ai-chatbox');
 
-    &lt;!-- AiChatBox Widget --&gt;
-    &lt;ai-chatbox
-        api-key="acb_aMz8LIH1lqc0jRZs97oafzMPXr1ci0sR"
-        api-url="https://api.yoursite.com"
-        user-id="visitor_001"
-        provider="gemini"
-        model="gemini-2.5-flash"
-        title="Acme Support"
-        suggestions='["Track my order", "Return policy", "Talk to an agent"]'&gt;
-    &lt;/ai-chatbox&gt;
+// Listen for dynamic tool executions
+chatbox.addEventListener('tool-call', (event) => {
+    const { name, args, callId } = event.detail;
+    console.log(`Executing client tool: ${name} with args:`, args);
+    
+    // Resolve tool call asynchronously and submit result
+    const mockResult = { data: "Project processed successfully" };
+    chatbox.submitToolResult(callId, mockResult);
+});
 
-    &lt;script src="https://api.yoursite.com/widget/ai-chatbox.js"&gt;&lt;/script&gt;
-&lt;/body&gt;
-&lt;/html&gt;</code></pre>
-        </div>
-
-        <h3 class="sub-heading">Widget Events</h3>
-        <p class="desc">The widget emits custom DOM events you can listen to:</p>
-        <div class="code-block">
-            <div class="code-header">JavaScript — Event Handling</div>
-            <pre><code>const widget = document.querySelector('ai-chatbox');
-
-// Listen for tool calls (when no handler is registered)
-widget.addEventListener('tool-call', (e) => {
-    console.log('Tool called:', e.detail.name);
-    console.log('Arguments:', e.detail.args);
-    console.log('Call ID:', e.detail.callId);
-
-    // Process the tool call and return result
-    const result = { status: "success", data: "..." };
-    widget.submitToolResult(e.detail.callId, result);
+// Listen for message thumbs-up/down ratings
+chatbox.addEventListener('feedback', (event) => {
+    const { messageId, value } = event.detail;
+    console.log(`User left feedback score: ${value} on message ID: ${messageId}`);
 });</code></pre>
         </div>
     </section>
@@ -105,6 +235,54 @@ widget.addEventListener('tool-call', (e) => {
 
 .desc { color: var(--p-surface-600); font-size: 0.92rem; line-height: 1.6; margin-bottom: 16px; }
 
+.framework-tabs {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    border-bottom: 1px solid var(--p-surface-200);
+    padding-bottom: 8px;
+}
+
+.tab-btn {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--p-surface-500);
+    font-size: 0.85rem;
+    font-weight: 600;
+    cursor: pointer;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+    color: var(--p-surface-800);
+    background: var(--p-surface-100);
+}
+
+.tab-btn.active {
+    background: var(--p-primary-50);
+    color: var(--p-primary-600);
+    border-color: var(--p-primary-100);
+}
+
+.tab-content-container {
+    margin-bottom: 24px;
+}
+
+.wp-instructions {
+    margin: 0 0 16px 20px;
+    padding: 0;
+    font-size: 0.88rem;
+    color: var(--p-surface-600);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
 .code-block {
     border: 1px solid var(--p-surface-200); border-radius: 10px; overflow: hidden; margin-bottom: 24px;
 }
@@ -120,13 +298,13 @@ widget.addEventListener('tool-call', (e) => {
     border: 1px solid var(--p-surface-200); border-radius: 10px; overflow: hidden; margin-bottom: 24px;
 }
 .attr-row {
-    display: grid; grid-template-columns: 180px 100px 1fr; padding: 10px 16px;
+    display: grid; grid-template-columns: 180px 140px 1fr; padding: 10px 16px;
     border-bottom: 1px solid var(--p-surface-100); font-size: 0.85rem; color: var(--p-surface-700);
     align-items: center; gap: 8px;
 }
 .attr-row:last-child { border-bottom: none; }
 .attr-row.header {
-    background: var(--p-surface-50); font-weight: 700; font-size: 0.75rem;
+    background: var(--p-surface-55); font-weight: 700; font-size: 0.75rem;
     text-transform: uppercase; color: var(--p-surface-500); letter-spacing: 0.04em;
 }
 .attr-row code {

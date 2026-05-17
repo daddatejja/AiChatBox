@@ -79,6 +79,7 @@ namespace AiChatBox.Api.DTOs
         public string? Text { get; set; }
         public List<ToolCallDto>? ToolCalls { get; set; }
         public Guid? SessionId { get; set; }
+        public Guid? MessageId { get; set; }
         public bool Done { get; set; }
         public string? Error { get; set; }
         public ReportDownloadDto? ReportInfo { get; set; }
@@ -115,7 +116,12 @@ namespace AiChatBox.Api.DTOs
         public bool LiveVoiceEnabled { get; set; }
         public List<ModelOptionDto> EnabledModels { get; set; } = [];
         public List<string> Suggestions { get; set; } = [];
-        public string? SystemPrompt { get; set; }
+        public string SystemPrompt { get; set; } = string.Empty;
+        public bool HandoffEnabled { get; set; }
+        /// <summary>
+        /// JSON object representing theme settings (colors, layout) parsed from configuration
+        /// </summary>
+        public object? Theme { get; set; }
     }
 
     public class ModelOptionDto

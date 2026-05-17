@@ -28,10 +28,22 @@ const navItems = [
         to: '/logs'
     },
     {
+        id: 'analytics',
+        label: 'Analytics',
+        icon: 'pi-chart-bar',
+        to: '/analytics'
+    },
+    {
         id: 'playground',
         label: 'Playground',
         icon: 'pi-box',
         to: '/playground'
+    },
+    {
+        id: 'live-chat',
+        label: 'Live Chat',
+        icon: 'pi-headphones',
+        to: '/live-chat'
     },
     {
         id: 'docs',
