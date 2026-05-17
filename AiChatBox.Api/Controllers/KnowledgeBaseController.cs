@@ -47,7 +47,12 @@ namespace AiChatBox.Api.Controllers
         }
 
         [HttpPost("upload")]
-        public async Task<ActionResult> UploadDocument(Guid projectId, IFormFile file)
+        public async Task<ActionResult> UploadDocument(
+            Guid projectId, 
+            IFormFile file,
+            [FromQuery] int chunkSize = 1000,
+            [FromQuery] int chunkOverlap = 200,
+            [FromQuery] string chunkingStrategy = "character")
         {
             var project = await _db.Projects
                 .Include(p => p.Configurations)
@@ -84,7 +89,15 @@ namespace AiChatBox.Api.Controllers
             var decryptedKey = _encryptionService.Decrypt(config.GeminiApiKey);
 
             using var stream = file.OpenReadStream();
-            var doc = await _fileService.ProcessKnowledgeDocumentAsync(projectId, stream, file.FileName, file.ContentType, decryptedKey);
+            var doc = await _fileService.ProcessKnowledgeDocumentAsync(
+                projectId, 
+                stream, 
+                file.FileName, 
+                file.ContentType, 
+                decryptedKey, 
+                chunkSize, 
+                chunkOverlap, 
+                chunkingStrategy);
 
             return Ok(new
             {

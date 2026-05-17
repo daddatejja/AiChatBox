@@ -15,6 +15,7 @@ import Dialog from 'primevue/dialog';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import InputText from 'primevue/inputtext';
+import InputNumber from 'primevue/inputnumber';
 import { FilterMatchMode } from '@primevue/core/api';
 import { marked } from 'marked';
 import Papa from 'papaparse';
@@ -37,6 +38,11 @@ const maxPages = ref(10);
 const showCrawlStarted = ref(false);
 const crawlJobs = ref<any[]>([]);
 let pollInterval: any = null;
+
+const showAdvanced = ref(false);
+const chunkSize = ref(1000);
+const chunkOverlap = ref(200);
+const chunkingStrategy = ref('recursive');
 
 const filters = ref({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS },
@@ -61,7 +67,9 @@ const hasConfigWithKey = computed(() => {
     return configurations.value.some(c => c.hasGeminiKey || c.hasOpenAiKey);
 });
 
-const uploadUrl = computed(() => `${API_BASE}/api/project/${projectId.value}/knowledge/upload`);
+const uploadUrl = computed(() => {
+    return `${API_BASE}/api/project/${projectId.value}/knowledge/upload?chunkSize=${chunkSize.value}&chunkOverlap=${chunkOverlap.value}&chunkingStrategy=${chunkingStrategy.value}`;
+});
 
 async function loadData() {
     initialLoading.value = true;
@@ -366,6 +374,36 @@ onMounted(loadData);
                         </div>
                     </template>
                     <template #content>
+                        <!-- Advanced Chunking Settings Accordion -->
+                        <div class="mb-4 p-4 bg-surface-50 border rounded-lg flex flex-col gap-3">
+                            <div class="flex items-center justify-between cursor-pointer" @click="showAdvanced = !showAdvanced">
+                                <span class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                    <i class="pi pi-cog text-primary"></i>
+                                    <span>Advanced RAG Splitter Options</span>
+                                </span>
+                                <i :class="showAdvanced ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" class="text-xs text-surface-500"></i>
+                            </div>
+                            
+                            <div v-show="showAdvanced" class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t">
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Strategy</label>
+                                    <select v-model="chunkingStrategy" class="p-inputtext w-full text-xs">
+                                        <option value="character">Character Splitter</option>
+                                        <option value="line">Line Splitter</option>
+                                        <option value="recursive">Recursive Paragraph Splitter</option>
+                                    </select>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Chunk Size</label>
+                                    <InputNumber v-model="chunkSize" class="w-full text-xs" />
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Overlap</label>
+                                    <InputNumber v-model="chunkOverlap" class="w-full text-xs" />
+                                </div>
+                            </div>
+                        </div>
+
                         <FileUpload name="file" :url="uploadUrl" @upload="onUpload" @error="onError"
                             @before-send="onBeforeSend" :multiple="true" accept=".pdf,.txt,.json,.md,.csv"
                             :maxFileSize="10000000" :withCredentials="true" :disabled="!hasConfigWithKey"

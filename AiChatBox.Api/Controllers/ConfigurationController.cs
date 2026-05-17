@@ -110,6 +110,7 @@ namespace AiChatBox.Api.Controllers
                 HandoffTriggerKeywords = config.HandoffTriggerKeywords,
                 HandoffQueueMessage = config.HandoffQueueMessage,
                 ThemeSettingsJson = config.ThemeSettingsJson,
+                ChannelSettingsJson = config.ChannelSettingsJson,
                 CreatedAt = config.CreatedAt,
                 EnabledModels = config.EnabledModels
             });
@@ -234,6 +235,7 @@ namespace AiChatBox.Api.Controllers
             if (model.HandoffTriggerKeywords != null) config.HandoffTriggerKeywords = string.IsNullOrEmpty(model.HandoffTriggerKeywords) ? null : model.HandoffTriggerKeywords;
             if (model.HandoffQueueMessage != null) config.HandoffQueueMessage = string.IsNullOrEmpty(model.HandoffQueueMessage) ? null : model.HandoffQueueMessage;
             if (model.ThemeSettingsJson != null) config.ThemeSettingsJson = string.IsNullOrEmpty(model.ThemeSettingsJson) ? null : model.ThemeSettingsJson;
+            if (model.ChannelSettingsJson != null) config.ChannelSettingsJson = string.IsNullOrEmpty(model.ChannelSettingsJson) ? null : model.ChannelSettingsJson;
 
             await _db.SaveChangesAsync();
             return NoContent();

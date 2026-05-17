@@ -55,6 +55,9 @@ namespace AiChatBox.Api.Models
 
         public string? FlowVariablesJson { get; set; }
 
+        [MaxLength(100)]
+        public string? ExternalSenderId { get; set; }
+
         public virtual ICollection<ChatMessage> Messages { get; set; } = new List<ChatMessage>();
     }
 

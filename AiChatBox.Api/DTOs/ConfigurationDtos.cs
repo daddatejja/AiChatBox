@@ -56,6 +56,7 @@ namespace AiChatBox.Api.DTOs
         public string? HandoffTriggerKeywords { get; set; }
         public string? HandoffQueueMessage { get; set; }
         public string? ThemeSettingsJson { get; set; }
+        public string? ChannelSettingsJson { get; set; }
         public DateTime CreatedAt { get; set; }
     }
 
@@ -99,6 +100,7 @@ namespace AiChatBox.Api.DTOs
         public string? HandoffTriggerKeywords { get; set; }
         public string? HandoffQueueMessage { get; set; }
         public string? ThemeSettingsJson { get; set; }
+        public string? ChannelSettingsJson { get; set; }
     }
 
     public class ProviderModelsRequest

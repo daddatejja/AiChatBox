@@ -50,7 +50,27 @@ const config = reactive({
     handoffEnabled: false,
     handoffTriggerKeywords: '',
     handoffQueueMessage: '',
-    themeSettingsJson: ''
+    themeSettingsJson: '',
+    channelSettingsJson: ''
+});
+
+const channels = reactive({
+    whatsApp: {
+        phoneNumberId: '',
+        accessToken: '',
+        verifyToken: ''
+    },
+    slack: {
+        botToken: '',
+        signingSecret: ''
+    },
+    telegram: {
+        botToken: ''
+    },
+    teams: {
+        appId: '',
+        appPassword: ''
+    }
 });
 
 // ─── Theme Engine ───
@@ -211,6 +231,19 @@ async function load() {
         } else {
             Object.assign(theme, defaultTheme);
         }
+
+        // Parse channel settings
+        if (data.channelSettingsJson) {
+            try {
+                const parsedChannels = JSON.parse(data.channelSettingsJson);
+                if (parsedChannels.whatsApp) Object.assign(channels.whatsApp, parsedChannels.whatsApp);
+                if (parsedChannels.slack) Object.assign(channels.slack, parsedChannels.slack);
+                if (parsedChannels.telegram) Object.assign(channels.telegram, parsedChannels.telegram);
+                if (parsedChannels.teams) Object.assign(channels.teams, parsedChannels.teams);
+            } catch (e) {
+                console.error('Failed to parse channel settings JSON', e);
+            }
+        }
         
         // Handle enabled models
         if (data.enabledModels) {
@@ -279,7 +312,8 @@ async function save() {
         handoffEnabled: config.handoffEnabled,
         handoffTriggerKeywords: config.handoffTriggerKeywords,
         handoffQueueMessage: config.handoffQueueMessage,
-        themeSettingsJson: JSON.stringify(theme)
+        themeSettingsJson: JSON.stringify(theme),
+        channelSettingsJson: JSON.stringify(channels)
     };
 
     if (keyInputs.geminiApiKey) body.geminiApiKey = keyInputs.geminiApiKey;
@@ -715,6 +749,105 @@ onMounted(() => { loadProviders(); load(); });
                         />
                     </div>
                     <small class="info-text">Must support the OpenAI chat completions API format (POST /chat/completions).</small>
+                </template>
+            </Card>
+
+            <!-- Multi-Channel Integrations -->
+            <h2 class="section-title mt-4">Multi-Channel Integrations</h2>
+            <p class="section-subtitle">Expose your AI assistant and Human agents directly inside messaging applications.</p>
+            <Card class="provider-card">
+                <template #title>
+                    <div class="provider-header flex items-center gap-2">
+                        <i class="pi pi-share-alt text-primary"></i>
+                        <h3>WhatsApp, Slack & Telegram Settings</h3>
+                    </div>
+                </template>
+                <template #content>
+                    <div class="flex flex-col gap-6 mt-2">
+                        
+                        <!-- WhatsApp Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-whatsapp text-emerald-500"></i>
+                                <span>WhatsApp (Meta Graph API)</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Phone Number ID</label>
+                                    <InputText v-model="channels.whatsApp.phoneNumberId" placeholder="e.g. 1092837498172" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Verify Token</label>
+                                    <InputText v-model="channels.whatsApp.verifyToken" placeholder="e.g. my_secure_verification_token" fluid />
+                                </div>
+                            </div>
+                            <div class="form-group flex flex-col gap-1">
+                                <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Access Token</label>
+                                <Password v-model="channels.whatsApp.accessToken" :feedback="false" toggleMask placeholder="Meta Graph API Access Token" fluid />
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/whatsapp/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Slack Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-slack text-purple-500"></i>
+                                <span>Slack App Integration</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Bot User OAuth Token</label>
+                                    <Password v-model="channels.slack.botToken" :feedback="false" toggleMask placeholder="xoxb-your-bot-token" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Signing Secret</label>
+                                    <Password v-model="channels.slack.signingSecret" :feedback="false" toggleMask placeholder="Slack Signing Secret" fluid />
+                                </div>
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Request URL (Event Subscriptions):</strong> <code>/api/channel/slack/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Telegram Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-telegram text-sky-500"></i>
+                                <span>Telegram Bot</span>
+                            </h4>
+                            <div class="form-group flex flex-col gap-1">
+                                <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Bot Token API</label>
+                                <Password v-model="channels.telegram.botToken" :feedback="false" toggleMask placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" fluid />
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/telegram/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Microsoft Teams Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-microsoft text-blue-500"></i>
+                                <span>Microsoft Teams Bot</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Microsoft App ID</label>
+                                    <InputText v-model="channels.teams.appId" placeholder="e.g. aaaa-bbbb-cccc-dddd" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Microsoft App Password</label>
+                                    <Password v-model="channels.teams.appPassword" :feedback="false" toggleMask placeholder="App Password / Client Secret" fluid />
+                                </div>
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/teams/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                    </div>
                 </template>
             </Card>
 

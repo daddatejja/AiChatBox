@@ -139,6 +139,10 @@ builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<WebhookService>();
 builder.Services.AddScoped<HandoffService>();
+builder.Services.AddScoped<IChannelAdapter, WhatsAppAdapter>();
+builder.Services.AddScoped<IChannelAdapter, SlackAdapter>();
+builder.Services.AddScoped<IChannelAdapter, TelegramAdapter>();
+builder.Services.AddScoped<IChannelAdapter, TeamsAdapter>();
 
 // Hangfire configuration
 builder.Services.AddHangfire(configuration => configuration

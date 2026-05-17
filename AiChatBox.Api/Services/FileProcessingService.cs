@@ -1,3 +1,4 @@
+using System.Text;
 using AiChatBox.Api.Data;
 using AiChatBox.Api.Models;
 using Microsoft.EntityFrameworkCore;
@@ -79,7 +80,15 @@ namespace AiChatBox.Api.Services
             return fileModel;
         }
 
-        public async Task<KnowledgeDocument> ProcessKnowledgeDocumentAsync(Guid projectId, Stream fileStream, string fileName, string contentType, string? geminiApiKey = null)
+        public async Task<KnowledgeDocument> ProcessKnowledgeDocumentAsync(
+            Guid projectId, 
+            Stream fileStream, 
+            string fileName, 
+            string contentType, 
+            string? geminiApiKey = null,
+            int chunkSize = 1000,
+            int chunkOverlap = 200,
+            string chunkingStrategy = "character")
         {
             if (!SupportedContentTypes.Contains(contentType))
                 throw new InvalidOperationException($"Unsupported file type: {contentType}");
@@ -120,7 +129,10 @@ namespace AiChatBox.Api.Services
                     ContentType = contentType,
                     FileSize = fileSize,
                     StoredFileName = storedFileName,
-                    Status = KnowledgeDocumentStatus.Processing
+                    Status = KnowledgeDocumentStatus.Processing,
+                    ChunkSize = chunkSize,
+                    ChunkOverlap = chunkOverlap,
+                    ChunkingStrategy = chunkingStrategy
                 };
                 _db.KnowledgeDocuments.Add(docModel);
             }
@@ -132,13 +144,16 @@ namespace AiChatBox.Api.Services
                 docModel.Status = KnowledgeDocumentStatus.Processing;
                 docModel.ErrorMessage = null;
                 docModel.StoredFileName = storedFileName; 
+                docModel.ChunkSize = chunkSize;
+                docModel.ChunkOverlap = chunkOverlap;
+                docModel.ChunkingStrategy = chunkingStrategy;
             }
 
             await _db.SaveChangesAsync();
 
             try
             {
-                var allChunks = ChunkText(extractedText, 1000, 200);
+                var allChunks = ChunkText(extractedText, docModel.ChunkSize, docModel.ChunkOverlap, docModel.ChunkingStrategy);
                 int totalSuccess = 0;
                 int batchSize = 100;
 
@@ -195,7 +210,17 @@ namespace AiChatBox.Api.Services
             return docModel;
         }
 
-        private static List<string> ChunkText(string text, int chunkSize, int overlap = 200)
+        private static List<string> ChunkText(string text, int chunkSize, int overlap, string strategy)
+        {
+            return strategy.ToLowerInvariant() switch
+            {
+                "line" => ChunkTextLine(text, chunkSize > 0 ? chunkSize / 100 : 10, overlap > 0 ? overlap / 100 : 2),
+                "recursive" => ChunkTextRecursive(text, chunkSize, overlap),
+                _ => ChunkTextCharacter(text, chunkSize, overlap)
+            };
+        }
+
+        private static List<string> ChunkTextCharacter(string text, int chunkSize, int overlap)
         {
             var chunks = new List<string>();
             if (string.IsNullOrEmpty(text)) return chunks;
@@ -211,6 +236,80 @@ namespace AiChatBox.Api.Services
                 start += (chunkSize - overlap);
                 if (start >= text.Length) break;
             }
+            return chunks;
+        }
+
+        private static List<string> ChunkTextLine(string text, int lineCount, int lineOverlap)
+        {
+            var chunks = new List<string>();
+            if (string.IsNullOrEmpty(text)) return chunks;
+
+            var lines = text.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None);
+            if (lineCount <= 0) lineCount = 10;
+            if (lineOverlap >= lineCount) lineOverlap = lineCount / 2;
+
+            int start = 0;
+            while (start < lines.Length)
+            {
+                int length = Math.Min(lineCount, lines.Length - start);
+                var batchLines = lines.Skip(start).Take(length);
+                chunks.Add(string.Join("\n", batchLines));
+
+                start += (lineCount - lineOverlap);
+                if (start >= lines.Length) break;
+            }
+            return chunks;
+        }
+
+        private static List<string> ChunkTextRecursive(string text, int chunkSize, int overlap)
+        {
+            var chunks = new List<string>();
+            if (string.IsNullOrEmpty(text)) return chunks;
+
+            var paragraphs = text.Split(new[] { "\n\n", "\r\n\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+            var currentChunk = new StringBuilder();
+
+            foreach (var para in paragraphs)
+            {
+                var trimmedPara = para.Trim();
+                if (string.IsNullOrEmpty(trimmedPara)) continue;
+
+                if (trimmedPara.Length > chunkSize)
+                {
+                    if (currentChunk.Length > 0)
+                    {
+                        chunks.Add(currentChunk.ToString());
+                        currentChunk.Clear();
+                    }
+
+                    var subChunks = ChunkTextCharacter(trimmedPara, chunkSize, overlap);
+                    chunks.AddRange(subChunks);
+                    continue;
+                }
+
+                if (currentChunk.Length + trimmedPara.Length + 2 > chunkSize)
+                {
+                    chunks.Add(currentChunk.ToString());
+                    currentChunk.Clear();
+
+                    if (overlap > 0 && chunks.Count > 0)
+                    {
+                        var lastChunk = chunks[^1];
+                        var overlapStart = Math.Max(0, lastChunk.Length - overlap);
+                        currentChunk.Append(lastChunk[overlapStart..].TrimStart());
+                        if (currentChunk.Length > 0) currentChunk.Append("\n\n");
+                    }
+                }
+
+                if (currentChunk.Length > 0) currentChunk.Append("\n\n");
+                currentChunk.Append(trimmedPara);
+            }
+
+            if (currentChunk.Length > 0)
+            {
+                chunks.Add(currentChunk.ToString());
+            }
+
             return chunks;
         }
 

@@ -273,6 +273,12 @@ namespace AiChatBox.Api.Models
         /// </summary>
         [MaxLength(2000)]
         public string? ThemeSettingsJson { get; set; }
+
+        /// <summary>
+        /// Encrypted JSON holding WhatsApp, Slack, Telegram credentials
+        /// </summary>
+        [MaxLength(4000)]
+        public string? ChannelSettingsJson { get; set; }
     }
 
     public class ApiKey
@@ -364,6 +370,12 @@ namespace AiChatBox.Api.Models
         public string? ErrorMessage { get; set; }
         public string? StoredFileName { get; set; }
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public int ChunkSize { get; set; } = 1000;
+        public int ChunkOverlap { get; set; } = 200;
+
+        [MaxLength(50)]
+        public string ChunkingStrategy { get; set; } = "character";
 
         public ICollection<DocumentChunk> Chunks { get; set; } = [];
     }

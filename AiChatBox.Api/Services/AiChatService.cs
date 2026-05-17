@@ -201,6 +201,8 @@ namespace AiChatBox.Api.Services
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
 
+            systemPrompt += "\n\n[CITATION DIRECTIVE]\nWhen answering questions based on the knowledge base search results, you must explicitly cite the source filenames (e.g., '[filename.pdf]' or 'according to filename.pdf') provided in the search result headers to credit the original document.";
+
             if (request.Context != null)
             {
                 var contextStr = $"\n\n[USER CURRENT CONTEXT]\nURL: {request.Context.Url}\nTitle: {request.Context.Title}\nPath: {request.Context.Path}\nUse this information if the user asks questions about 'this page'.";

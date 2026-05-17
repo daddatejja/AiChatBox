@@ -1,343 +1,153 @@
-# AiChatBox — Revised Strategic Roadmap
+# Implementation Plan — Microsoft Teams Bot Channel Support
 
-## Decisions Made
-
-| Question | Answer |
-|---|---|
-| **Target audience** | Developers embedding AI chat into their products |
-| **Local models (Ollama)?** | Not now — no powerful machine/server. Use hosted providers instead. |
-| **Monetization** | None planned |
-
-These decisions sharpen the roadmap significantly. As a **developer tool**, the priority is: rock-solid APIs, more provider options, developer-friendly configuration, and features that make the embedded widget genuinely useful to end users.
+We will implement enterprise-grade **Microsoft Teams** channel support into the AiChatBox multi-channel messaging platform. This integrates seamlessly into our unified `IChannelAdapter` infrastructure and enables high-fidelity direct AI chats, human handoffs, and interactive agent capabilities within Teams.
 
 ---
 
-## Current State Summary
+## 🛠️ Unified Architecture Overview
 
-AiChatBox is a 3-tier system (ASP.NET API + Vue Dashboard + JS Widget) that proxies LLM calls through a multi-tenant project/configuration layer. It already has:
-
-✅ Multi-project tenancy with API keys  
-✅ Streaming chat (SSE) with agent tool-calling  
-✅ RAG via pgvector (document upload + website crawl)  
-✅ Custom webhook tools with JSON schema validation  
-✅ Live voice via Gemini Live + SignalR  
-✅ Database SQL agent (auto schema detection)  
-✅ Rate limiting, budgets, logging  
-✅ Embeddable widget with domain allowlisting  
-
-The core gap: **all intelligence is borrowed** — the platform adds orchestration plumbing but no proprietary logic layer.
-
----
-
-## Hosted AI Providers to Add
-
-> [!NOTE]
-> Since self-hosted models aren't viable right now, the best strategy is to dramatically expand hosted provider support. Many of these offer **free tiers** or very cheap inference, reducing single-provider dependency.
-
-Your `ILlmProviderService` interface is already well-designed for this. Each provider just needs a new implementation.
-
-| Provider | Why | Free Tier? | API Style |
-|---|---|---|---|
-| **OpenAI** | Industry standard, GPT-4o/o3 | ❌ Pay-as-you-go | OpenAI |
-| **Anthropic Claude** | Best for long-context, safety | ❌ Pay-as-you-go | Custom (similar) |
-| **Together AI** | 100+ open models (Llama, Mistral, Qwen) hosted | ✅ $5 free credit | OpenAI-compatible |
-| **Fireworks AI** | Fast inference, open models | ✅ $1 free credit | OpenAI-compatible |
-| **Mistral AI** | Mistral Large/Small/Codestral | ✅ Free tier available | OpenAI-compatible |
-| **DeepInfra** | Cheapest open model hosting | ✅ Free tier | OpenAI-compatible |
-| **OpenRouter** | Meta-router to 100+ models (single API key) | ✅ Free models available | OpenAI-compatible |
-| **Cerebras** | Fastest inference (Llama 70B in ~1s) | ✅ Free tier | OpenAI-compatible |
-| **SambaNova** | Ultra-fast Llama inference | ✅ Free tier | OpenAI-compatible |
-
-> [!TIP]
-> **Quick win**: Since Together AI, Fireworks, Mistral, DeepInfra, OpenRouter, Cerebras, and SambaNova all use the **OpenAI-compatible API format**, implementing a single `OpenAiCompatibleService : ILlmProviderService` with a configurable base URL would unlock **all of them at once**. You'd only need to store `baseUrl` + `apiKey` per provider.
-
-### Architecture for Multi-Provider
-
-```
-Current LlmProviderFactory:
-  "gemini" → GeminiServerService
-  "groq"  → GrokServerService  (OpenAI-compatible)
-
-Proposed:
-  "gemini"     → GeminiServerService           (Gemini-native API)
-  "openai"     → OpenAiCompatibleService(baseUrl: "https://api.openai.com/v1")
-  "groq"       → OpenAiCompatibleService(baseUrl: "https://api.groq.com/openai/v1")
-  "anthropic"  → AnthropicServerService         (Claude Messages API)
-  "together"   → OpenAiCompatibleService(baseUrl: "https://api.together.xyz/v1")
-  "fireworks"  → OpenAiCompatibleService(baseUrl: "https://api.fireworks.ai/inference/v1")
-  "mistral"    → OpenAiCompatibleService(baseUrl: "https://api.mistral.ai/v1")
-  "openrouter" → OpenAiCompatibleService(baseUrl: "https://openrouter.ai/api/v1")
-  "deepinfra"  → OpenAiCompatibleService(baseUrl: "https://api.deepinfra.com/v1/openai")
-  "cerebras"   → OpenAiCompatibleService(baseUrl: "https://api.cerebras.ai/v1")
-  "sambanova"  → OpenAiCompatibleService(baseUrl: "https://api.sambanova.ai/v1")
-  "custom"     → OpenAiCompatibleService(baseUrl: user-provided)
-```
-
-This means your existing `GrokServerService` can likely be refactored into the generic `OpenAiCompatibleService` — it's already using the OpenAI format.
-
----
-
-## Revised Phased Roadmap
-
-### Phase 1: Strengthen the Developer Platform
-*Goal: Make AiChatBox the best choice for developers embedding AI chat.*
-
----
-
-#### 1.1 — OpenAI-Compatible Provider Engine
-**Effort: M (Medium) | Impact: 🔥🔥🔥🔥🔥**
-
-Build a single `OpenAiCompatibleService` that accepts `(baseUrl, apiKey)` and instantly unlocks 10+ providers. Refactor `GrokServerService` into this.
-
-##### Changes:
-- **[NEW]** `Services/OpenAiCompatibleService.cs` — Generic OpenAI-compatible provider
-- **[MODIFY]** `Models/ProjectModels.cs` — Add provider base URL + API key fields to `ProjectConfiguration`
-- **[MODIFY]** `Services/LlmProviderFactory.cs` — Dynamic provider resolution with custom base URLs
-- **[MODIFY]** `Controllers/ConfigurationController.cs` — UI for adding custom providers
-- **[DELETE]** `Services/GrokServerService.cs` — Absorbed into OpenAiCompatibleService
-
-##### New ProjectConfiguration fields:
-```csharp
-// In addition to existing GeminiApiKey, GroqApiKey, OpenAiApiKey:
-public string? AnthropicApiKey { get; set; }
-public string? CustomProviderName { get; set; }      // e.g. "together", "fireworks"
-public string? CustomProviderBaseUrl { get; set; }    // e.g. "https://api.together.xyz/v1"
-public string? CustomProviderApiKey { get; set; }
-```
-
----
-
-#### 1.2 — Rule-Based Response Engine (Zero-LLM Responses)
-**Effort: M | Impact: 🔥🔥🔥🔥**
-
-A lightweight pre-processor that intercepts messages before they hit any LLM:
-
-- **Keyword rules**: `"pricing" → "Our plans start at $9/mo. Visit example.com/pricing"`
-- **Regex rules**: Pattern matching for emails, order numbers, etc.
-- **Q&A pairs**: Exact-match question → answer (from knowledge base or manual)
-- **Fallback**: Only if no rule matches → send to LLM
-
-##### Changes:
-- **[NEW]** `Models/ConversationRule.cs` — Rule definitions (keyword, regex, Q&A)
-- **[NEW]** `Services/RuleEngine.cs` — Rule matching engine
-- **[NEW]** `Controllers/RuleController.cs` — CRUD API for rules
-- **[MODIFY]** `Services/AiChatService.cs` — Check rules before agent execution
-- **[MODIFY]** Dashboard — New "Rules" section in project detail
-
-##### Model:
-```csharp
-public class ConversationRule
-{
-    public Guid Id { get; set; }
-    public Guid ProjectId { get; set; }
-    public string Type { get; set; }          // "keyword", "regex", "qa"
-    public string Trigger { get; set; }        // The keyword, regex pattern, or question
-    public string Response { get; set; }       // The static response to send
-    public int Priority { get; set; } = 0;     // Higher = checked first
-    public bool IsActive { get; set; } = true;
-}
-```
-
-This directly solves the "borrowed intelligence" problem — common questions get answered instantly at zero cost.
-
----
-
-#### 1.3 — Conversation Analytics Dashboard
-**Effort: M | Impact: 🔥🔥🔥**
-
-Replace the raw logs view with actionable developer metrics:
-
-- **Volume**: Messages/day, sessions/day, active users
-- **Performance**: Avg response time, token usage, cost per conversation
-- **Quality**: Resolution rate, top unanswered queries, error rate
-- **Model comparison**: Side-by-side performance of different models/configs
-- **Knowledge gaps**: Queries where RAG returned no results
-
-##### Changes:
-- **[NEW]** `Controllers/AnalyticsController.cs` — Aggregation endpoints
-- **[MODIFY]** `Views/Logs.vue` → Complete redesign as `Analytics.vue`
-- **[NEW]** Dashboard components: Charts (Chart.js or built-in PrimeVue charts)
-
----
-
-#### 1.4 — User Feedback System (👍/👎)
-**Effort: S (Small) | Impact: 🔥🔥🔥**
-
-Add thumbs up/down to every AI response in the widget. Store feedback, surface it in analytics.
-
-##### Changes:
-- **[MODIFY]** `Models/ChatModels.cs` — Add `Feedback` field to `ChatMessage`
-- **[NEW]** `POST /api/chat/messages/{id}/feedback` endpoint
-- **[MODIFY]** Widget JS — Add feedback buttons to AI messages
-- **[MODIFY]** Analytics dashboard — Show feedback metrics
-
----
-
-#### 1.5 — Prompt Versioning & Templates
-**Effort: S | Impact: 🔥🔥🔥**
-
-- Version history for system prompts (the `ConfigurationHistory` model already exists but isn't used!)
-- Prompt template library with variables (`{{user_name}}`, `{{product}}`, `{{company}}`)
-- Quick-switch between prompt versions
-
-##### Changes:
-- **[MODIFY]** `Controllers/ConfigurationController.cs` — Auto-save history on prompt update
-- **[NEW]** Prompt history view in ConfigDetail.vue
-- **[NEW]** Template variable substitution in `AiChatService.cs`
-
----
-
-### Phase 2: Developer Experience & Ecosystem
-*Goal: Make integration effortless and the widget indispensable.*
-
----
-
-#### 2.1 — Widget SDK & NPM Package
-**Effort: M | Impact: 🔥🔥🔥🔥**
-
-The current widget is a single 100KB JS file. Modernize:
-- Publish as an NPM package (`@aichatbox/widget`)
-- TypeScript types for all configuration options
-- React/Vue wrapper components
-- Event hooks API (`onMessage`, `onToolCall`, `onSessionStart`)
-- Programmatic API (`chatbox.sendMessage("hello")`, `chatbox.open()`)
-
----
-
-#### 2.2 — Widget Theming Engine
-**Effort: S | Impact: 🔥🔥🔥**
-
-Dashboard UI for customizing widget appearance:
-- Color scheme picker (primary, background, text)
-- Font selection
-- Logo/avatar upload
-- Position (bottom-right, bottom-left, custom)
-- Size presets (compact, standard, full)
-- Live preview in dashboard
-- CSS export
-
----
-
-#### 2.3 — Webhook V2 & Event System
-**Effort: M | Impact: 🔥🔥🔥🔥**
-
-Expand webhooks beyond tool calls:
-- **Events**: `session.created`, `message.received`, `message.sent`, `feedback.received`, `budget.exceeded`, `rule.matched`
-- **Webhook management UI** with delivery logs and retry
-- **Webhook testing** from dashboard (send sample payloads)
-
-This is critical for developers — they need to react to chat events in their own systems.
-
----
-
-#### 2.4 — API Documentation & Developer Portal
-**Effort: M | Impact: 🔥🔥🔥**
-
-The current Docs.vue is minimal. Build a proper developer portal:
-- Interactive API reference (from Swagger/OpenAPI spec)
-- Quickstart guides (React, Vue, vanilla JS, WordPress)
-- Code snippets for every endpoint
-- Widget configuration reference
-- Changelog
-
----
-
-### Phase 3: Advanced Features
-*Goal: Differentiate from competitors.*
-
----
-
-#### 3.1 — Conversation Flow Builder (Visual)
-**Effort: XL | Impact: 🔥🔥🔥🔥🔥**
-
-A drag-and-drop canvas for building conversation flows. For a developer audience, this can be positioned as a "conversation state machine" rather than a no-code tool:
-
-- Nodes: Trigger, AI Response, Static Response, Condition, Input Capture, Webhook, Variable Set
-- Flows attached to projects, can be activated/deactivated
-- Flow execution engine on backend
-- Falls back to standard AI chat when no flow matches
-
-> [!NOTE]
-> This is the highest-impact feature overall, but also the highest-effort. It's placed in Phase 3 because the Phase 1 features (multi-provider, rules, analytics, feedback) provide more bang-for-buck for a developer audience and can be shipped much faster.
-
-#### 3.2 — Multi-Channel Deployment
-**Effort: L | Impact: 🔥🔥🔥🔥**
-
-WhatsApp, Slack, Telegram connectors. Build a `IChannelAdapter` interface:
-```csharp
-public interface IChannelAdapter
-{
-    Task<InboundMessage> ParseInbound(HttpRequest request);
-    Task SendOutbound(OutboundMessage message);
-}
-```
-
-#### 3.3 — Human Handoff
-**Effort: L | Impact: 🔥🔥🔥**
-
-Escalation to human agents when AI can't resolve. Requires:
-- Live agent dashboard view
-- Real-time chat takeover (SignalR)
-- Configurable escalation triggers
-
-#### 3.4 — Advanced RAG Pipeline  
-**Effort: L | Impact: 🔥🔥🔥**
-
-- Configurable chunking strategies
-- Hybrid search (vector + full-text)
-- Source citations in responses
-- Auto-sync from Google Drive / Notion
-
----
-
-## Execution Order Summary
+We will leverage Microsoft's standard **Bot Framework REST API** to connect Teams users to our AI and Human Agent backends:
 
 ```mermaid
-gantt
-    title AiChatBox Development Roadmap
-    dateFormat  YYYY-MM-DD
+flowchart TD
+    Teams[Microsoft Teams / Tenant Client] -->|Inbound Activity| AzureBot[Azure Bot Service / Developer Portal Webhook]
+    AzureBot -->|POST /api/channel/teams/{projectId}| Ctrl[ChannelController]
     
-    section Phase 1: Foundation
-    OpenAI-Compatible Provider Engine    :p1a, 2026-05-20, 14d
-    Rule-Based Response Engine           :p1b, after p1a, 10d
-    Analytics Dashboard                  :p1c, after p1a, 14d
-    User Feedback System                 :p1d, after p1b, 5d
-    Prompt Versioning                    :p1e, after p1d, 5d
+    Ctrl --> TeamsAdapter[TeamsAdapter: ParseInbound]
+    TeamsAdapter -->|Extract Sender & serviceUrl| InMsg[InboundMessage]
+    InMsg --> DB[Find or Create ChatSession]
     
-    section Phase 2: DX
-    Widget SDK & NPM Package             :p2a, after p1e, 14d
-    Widget Theming Engine                :p2b, after p2a, 7d
-    Webhook V2 & Event System            :p2c, after p2a, 10d
-    Developer Portal                     :p2d, after p2c, 10d
+    DB --> ChatService[AiChatService: Process Message]
+    ChatService --> OutMsg[OutboundMessage]
     
-    section Phase 3: Advanced
-    Visual Flow Builder                  :p3a, after p2d, 30d
-    Multi-Channel                        :p3b, after p3a, 21d
-    Human Handoff                        :p3c, after p3b, 14d
-    Advanced RAG                         :p3d, after p3b, 14d
+    OutMsg --> TeamsAdapter2[TeamsAdapter: SendOutbound]
+    TeamsAdapter2 -->|Request Token| MSLogin[Microsoft Identity Platform]
+    MSLogin -->|OAuth2 Bearer Token| TeamsAdapter2
+    
+    TeamsAdapter2 -->|POST /v3/conversations/{convId}/activities| TeamsApi[Microsoft Bot Framework serviceUrl]
+    TeamsApi -->|Deliver Reply| Teams
 ```
-
-## What to Build First
-
-**Start with 1.1 (OpenAI-Compatible Provider Engine)**. Here's why:
-
-1. It's the fastest way to break the Gemini dependency  
-2. One generic service unlocks 10+ providers immediately  
-3. Developers get model flexibility (the #1 thing they care about)  
-4. Your existing `GrokServerService` already proves the pattern works  
-5. Together AI, Cerebras, and SambaNova have **free tiers** — developers can start without paying  
-
-After that, **1.2 (Rule Engine)** directly addresses the "borrowed intelligence" concern with minimal effort.
 
 ---
 
-## Verification Plan
+## 🔒 User Review Required
 
-### For Each Feature:
-- Unit tests for new services
-- Integration test against at least one provider endpoint
-- Manual verification via Dashboard UI
-- Widget testing in a sample HTML page
-- `dotnet build` passes without errors
+> [!NOTE]
+> **Stateless Routing Approach**: To keep our database clean and avoid introducing specialized columns for Teams-specific metadata (such as individual service URLs or tenants), we will pack the conversation ID and Microsoft's dynamic `serviceUrl` into a stateless token in the `SessionExternalId` field (e.g. `conversationId|serviceUrl`). The system naturally unpacks this on response delivery.
 
-Would you like to proceed with implementing Feature 1.1 (OpenAI-Compatible Provider Engine)?
+> [!IMPORTANT]
+> **HTTPS Webhook Requirements**: Microsoft Teams bots require a valid HTTPS webhook endpoint. For local development and testing, you will need to tunnel your local API server using **ngrok** or a similar reverse proxy.
+
+---
+
+## 📋 Proposed Changes
+
+### 1. Database Model & DTO Expansion
+
+#### [MODIFY] [ChannelModels.cs](file:///c:/Users/tejsi/OneDrive/Desktop/AiChatBox/AiChatBox.Api/Models/ChannelModels.cs)
+Add `TeamsSettings` parameters to the core `ChannelSettings` model:
+```csharp
+public class ChannelSettings
+{
+    public WhatsAppSettings? WhatsApp { get; set; }
+    public SlackSettings? Slack { get; set; }
+    public TelegramSettings? Telegram { get; set; }
+    public TeamsSettings? Teams { get; set; } // [NEW] Teams integration settings
+}
+
+public class TeamsSettings
+{
+    public string AppId { get; set; } = string.Empty;
+    public string AppPassword { get; set; } = string.Empty;
+}
+```
+
+---
+
+### 2. Microsoft Teams Channel Adapter Implementation
+
+#### [NEW] [TeamsAdapter.cs](file:///c:/Users/tejsi/OneDrive/Desktop/AiChatBox/AiChatBox.Api/Services/TeamsAdapter.cs)
+Implement a robust, production-grade Teams connector utilizing Microsoft Bot Framework API standards:
+- **`ChannelName`**: Resolves to `"teams"`.
+- **`ParseInbound`**:
+  - Buffers the request body to extract the standard Microsoft Bot Activity payload.
+  - Ignores non-message activities (such as `ping`, `conversationUpdate`, or system pings) by returning a dummy `"bot"` payload.
+  - Automatically strips Teams bot mention markup (e.g. `<at>BotName</at>`) from user prompts to keep queries clean for LLM processing.
+  - Statelessly aggregates `conversation.id` and `serviceUrl` into `SessionExternalId` using a pipe (`|`) delimiter.
+- **`SendOutbound`**:
+  - Parses the dynamic `serviceUrl` and `conversationId` from the outbound recipient string.
+  - Performs an on-demand OAuth2 client-credential handshake with the Microsoft Identity Platform (`login.microsoftonline.com/botframework.com/oauth2/v2.0/token`) using `AppId` and `AppPassword`.
+  - Dispatches replies back to Microsoft's API via `POST {serviceUrl}/v3/conversations/{conversationId}/activities` under the authenticated bearer token.
+
+---
+
+### 3. Application Hooking and Service Registration
+
+#### [MODIFY] [Program.cs](file:///c:/Users/tejsi/OneDrive/Desktop/AiChatBox/AiChatBox.Api/Program.cs)
+Register `TeamsAdapter` as a transient singleton in the Dependency Injection container:
+```csharp
+builder.Services.AddTransient<IChannelAdapter, TeamsAdapter>();
+```
+
+---
+
+### 4. Admin Dashboard UI Controls
+
+#### [MODIFY] [ConfigDetail.vue](file:///c:/Users/tejsi/OneDrive/Desktop/AiChatBox/AiChatBox.Dashboard/src/views/ConfigDetail.vue)
+- Add a dedicated **Microsoft Teams Integration** sub-card inside the **Multi-Channel Integrations** container.
+- Provide form inputs for `Microsoft App ID` and `Microsoft App Password` with interactive toggle-masking.
+- Display the configured Teams Webhook URL for easy copying: `https://{domain}/api/channel/teams/{projectId}`.
+- Wire reactive states and serialization to ensure settings are loaded and persisted inside `ChannelSettingsJson` seamlessly on configuration save.
+
+---
+
+## 🛠️ Configuration & Testing Guide
+
+Follow these exact steps to register, configure, and test your new Microsoft Teams AI ChatBot:
+
+### Step 1: Create a Teams Bot Registration
+1. Navigate to the [Microsoft Teams Developer Portal](https://dev.teams.microsoft.com/) or [Azure Portal Bot Services](https://portal.azure.com/).
+2. Under **Tools**, click on **Bot Management** and select **+ New Bot**.
+3. Provide a name for the bot (e.g., `AiChatBox Assistant`).
+4. Click **Create** and navigate to the **Client Secrets** tab.
+5. Click **Generate client secret**, copy the **App Password**, and also copy the **Microsoft App ID** displayed under the bot title.
+
+### Step 2: Configure the AiChatBox Settings
+1. Start your local tunneling utility to expose your backend port (default: `5164`):
+   ```bash
+   ngrok http http://localhost:5164
+   ```
+2. Copy the resulting forwarding HTTPS URL (e.g. `https://a1b2-34-56.ngrok-free.app`).
+3. Open the **AiChatBox Dashboard**, go to your **Project Configuration Details**, and locate the **Multi-Channel Integrations** section.
+4. Expand **Microsoft Teams Settings** and input:
+   - **Microsoft App ID**: Paste the bot App ID.
+   - **Microsoft App Password**: Paste the generated Client Secret.
+5. Click **Save Configuration**.
+6. Copy the dynamic webhook target URL generated by the dashboard:
+   ```text
+   https://a1b2-34-56.ngrok-free.app/api/channel/teams/{your-project-id}
+   ```
+
+### Step 3: Publish & Link the Bot
+1. In the **Microsoft Teams Developer Portal**, edit your Bot registration.
+2. Under **Endpoint Address**, paste the webhook URL you copied from Step 2.
+3. In **App Features**, assign the bot to **Personal** scopes.
+4. Click **Download App Package** or **Publish to Teams** to test locally inside your workspace.
+
+### Step 4: Live Testing
+1. Direct message your new bot inside Microsoft Teams.
+2. Verify:
+   - The bot receives the prompt and responds dynamically using the selected RAG + LLM hybrid context.
+   - The message is tracked as a custom `ChatSession` in the dashboard logs.
+   - Human Agent takeover works: escalation places the Teams session in the agent queue, and replies sent by dashboard agents route directly back to the Teams chat window!
+
+---
+
+## 🧪 Verification Plan
+
+### Automated Verification
+- Run `dotnet build` to ensure the new services, models, and controller bindings compile successfully.
+- Run `npm run build` in the Dashboard workspace to confirm there are zero TypeScript compiler issues.
+
+### Manual Verification
+- We will draft and execute a verification script simulating an incoming Teams message Activity using standard mock payloads to assert that the webhook maps to the AI engine and dispatches the correct outbound HTTP client POST commands.
