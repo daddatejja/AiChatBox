@@ -216,6 +216,8 @@
       this.provider = null;
       this.modelName = null;
       this.suggestions = [];
+      this.commands = [];
+      this.activeCommandIndex = -1;
 
       // Tools
       this.toolHandlers = new Map();
@@ -318,6 +320,7 @@
         });
         if (response.ok) {
           this.config = await this.safeJson(response);
+          if (this.config.projectId) this.projectId = this.config.projectId;
           if (this.config.defaultModel) this.modelName = this.config.defaultModel;
           if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
           if (this.config.suggestions && Array.isArray(this.config.suggestions) && this.config.suggestions.length > 0) {
@@ -329,6 +332,21 @@
         }
       } catch (err) {
         console.error("Failed to fetch widget config:", err);
+      }
+    }
+
+    async fetchCommands() {
+      if (!this.projectId) return;
+      try {
+        const response = await fetch(`${this.apiUrl}/api/rules/project/${this.projectId}/commands`, {
+          headers: this.getHeaders()
+        });
+        if (response.ok) {
+          this.commands = await this.safeJson(response);
+          console.log("Loaded commands:", this.commands);
+        }
+      } catch (err) {
+        console.error("Failed to fetch commands:", err);
       }
     }
 
@@ -385,6 +403,7 @@
       await this.loadExternalScripts();
 
       await this.fetchConfig();
+      await this.fetchCommands();
       this.render();
       this.setupEventListeners();
       this.setupDraggable();
@@ -403,6 +422,404 @@
                 <style>
                   .message-text-content:empty, .message-widget-container:empty { display: none; }
                   .message-text-content { margin-bottom: 8px; line-height: 1.5; }
+                  
+                  /* Command Autocomplete Dropdown Styling */
+                  .command-autocomplete-dropdown {
+                    position: absolute;
+                    bottom: calc(100% + 8px);
+                    left: 12px;
+                    right: 12px;
+                    background: rgba(30, 41, 59, 0.95);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 12px;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+                    max-height: 220px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    padding: 6px;
+                    display: none;
+                    flex-direction: column;
+                    gap: 2px;
+                    animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                  }
+                  @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                  .command-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                  }
+                  .command-item-trigger {
+                    font-weight: 700;
+                    color: var(--primary-color, #6366f1);
+                    font-size: 14px;
+                    background: rgba(99, 102, 241, 0.15);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                  }
+                  .command-item-name {
+                    font-weight: 600;
+                    color: #fff;
+                    font-size: 13.5px;
+                  }
+                  .command-item-desc {
+                    color: var(--text-muted, #94a3b8);
+                    font-size: 12px;
+                    flex: 1;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .command-item:hover, .command-item.active {
+                    background: rgba(255, 255, 255, 0.08);
+                  }
+
+                  /* Rich Response Styles */
+                  .rich-redirect {
+                    display: flex;
+                    align-items: center;
+                    gap: 14px;
+                    padding: 14px;
+                    background: rgba(57, 167, 185, 0.06);
+                    border: 1px solid rgba(57, 167, 185, 0.2);
+                    border-radius: 12px;
+                    color: var(--text-color, #1e293b);
+                    transition: all 0.2s ease;
+                  }
+                  .rich-redirect:hover {
+                    background: rgba(57, 167, 185, 0.1);
+                    border-color: rgba(57, 167, 185, 0.3);
+                  }
+                  .rich-redirect-icon {
+                    font-size: 22px;
+                    filter: drop-shadow(0 2px 4px rgba(57,167,185,0.2));
+                  }
+                  .rich-redirect-content {
+                    flex: 1;
+                    min-width: 0;
+                  }
+                  .rich-redirect-title {
+                    font-weight: 700;
+                    color: var(--primary-color, #39a7b9);
+                    font-size: 14px;
+                    margin-bottom: 2px;
+                  }
+                  .rich-redirect-url {
+                    font-size: 11px;
+                    color: var(--secondary-text, #64748b);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .rich-redirect-countdown {
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--text-color, #1e293b);
+                    margin-top: 6px;
+                  }
+                  .rich-redirect-progress {
+                    width: 100%;
+                    height: 4px;
+                    background: var(--border-color, #e2e8f0);
+                    border-radius: 2px;
+                    margin-top: 8px;
+                    overflow: hidden;
+                  }
+                  .rich-redirect-progress-bar {
+                    height: 100%;
+                    background: var(--primary-color, #39a7b9);
+                    width: 100%;
+                    transform-origin: left;
+                    animation: redirectProgress linear forwards;
+                  }
+                  @keyframes redirectProgress {
+                    from { transform: scaleX(1); }
+                    to { transform: scaleX(0); }
+                  }
+
+                  .rich-card {
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 14px;
+                    padding: 16px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+                    margin-top: 8px;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                  }
+                  .rich-card-banner {
+                    width: calc(100% + 32px);
+                    margin: -16px -16px 12px -16px;
+                    height: 130px;
+                    object-fit: cover;
+                    border-top-left-radius: 12px;
+                    border-top-right-radius: 12px;
+                    border-bottom: 1px solid var(--border-color, #e2e8f0);
+                  }
+                  .rich-card-title {
+                    font-weight: 700;
+                    font-size: 15px;
+                    color: var(--text-color, #1e293b);
+                    margin-bottom: 8px;
+                  }
+                  .rich-card-body {
+                    font-size: 13px;
+                    line-height: 1.5;
+                    color: var(--secondary-text, #64748b);
+                    margin-bottom: 12px;
+                  }
+                  .rich-card-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: var(--primary-color, #39a7b9);
+                    color: #fff !important;
+                    border: none;
+                    padding: 10px 18px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 2px 8px rgba(57, 167, 185, 0.2);
+                    text-align: center;
+                  }
+                  .rich-card-btn:hover {
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 14px rgba(57, 167, 185, 0.3);
+                  }
+
+                  .rich-file {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 12px;
+                    padding: 12px;
+                    margin-top: 8px;
+                    gap: 12px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+                  }
+                  .rich-file-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex: 1;
+                    min-width: 0;
+                  }
+                  .rich-file-icon {
+                    width: 34px;
+                    height: 34px;
+                    background: rgba(57, 167, 185, 0.08);
+                    color: var(--primary-color, #39a7b9);
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                  }
+                  .rich-file-icon svg {
+                    width: 18px;
+                    height: 18px;
+                  }
+                  .rich-file-name {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: var(--text-color, #1e293b);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .rich-file-btn {
+                    background: var(--border-color, #e2e8f0);
+                    border: none;
+                    color: var(--text-color, #1e293b);
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    transition: all 0.2s;
+                    white-space: nowrap;
+                  }
+                  .rich-file-btn:hover {
+                    background: rgba(57, 167, 185, 0.1);
+                    color: var(--primary-color, #39a7b9);
+                  }
+
+                  .rich-form {
+                    background: rgba(247, 249, 252, 0.8);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 14px;
+                    padding: 16px;
+                    margin-top: 8px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    box-shadow: 0 2px 12px rgba(0,0,0,0.02);
+                  }
+                  .rich-form-title {
+                    font-weight: 700;
+                    font-size: 14px;
+                    color: var(--text-color, #1e293b);
+                    margin-bottom: 4px;
+                  }
+                  .rich-form-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                  }
+                  .rich-form-label {
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: var(--secondary-text, #64748b);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                  }
+                  .rich-form-input, .rich-form-select {
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    color: var(--text-color, #1e293b);
+                    font-size: 13px;
+                    outline: none;
+                    transition: all 0.2s ease;
+                  }
+                  .rich-form-input:focus, .rich-form-select:focus {
+                    border-color: var(--primary-color, #39a7b9);
+                    box-shadow: 0 0 0 3px rgba(57, 167, 185, 0.1);
+                  }
+                  .rich-form-select option {
+                    background: var(--bg-color, #ffffff);
+                    color: var(--text-color, #1e293b);
+                  }
+                  .rich-form-check-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    margin-top: 4px;
+                  }
+                  .rich-form-check-option {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    cursor: pointer;
+                  }
+                  .rich-form-checkbox, .rich-form-radio {
+                    accent-color: var(--primary-color, #39a7b9);
+                    width: 16px;
+                    height: 16px;
+                    margin: 0;
+                    cursor: pointer;
+                  }
+                  .rich-form-check-label {
+                    font-size: 13px;
+                    color: var(--text-color, #1e293b);
+                    cursor: pointer;
+                    user-select: none;
+                  }
+                  .rich-form-submit {
+                    background: var(--primary-color, #39a7b9);
+                    color: #fff;
+                    border: none;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    text-align: center;
+                  }
+                  .rich-form-submit:hover {
+                    background: var(--primary-gradient, #2d8a99);
+                    transform: translateY(-0.5px);
+                  }
+                  .rich-form-submit:disabled {
+                    background: var(--border-color, #e2e8f0);
+                    color: var(--secondary-text, #64748b);
+                    cursor: not-allowed;
+                    transform: none;
+                  }
+
+                  /* Historic Tool Call Badge Styles */
+                  .rich-tool-badge {
+                    background: rgba(241, 245, 249, 0.9);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 12px;
+                    padding: 12px;
+                    margin-top: 8px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+                  }
+                  .rich-tool-badge-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-bottom: 8px;
+                  }
+                  .rich-tool-badge-icon {
+                    font-size: 15px;
+                  }
+                  .rich-tool-badge-title {
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: var(--text-color, #1e293b);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                  }
+                  .rich-tool-badge-body {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                  }
+                  .rich-tool-badge-name {
+                    font-size: 13px;
+                    color: var(--secondary-text, #64748b);
+                  }
+                  .rich-tool-badge-name code {
+                    background: rgba(57, 167, 185, 0.08);
+                    color: var(--primary-color, #39a7b9);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-weight: 600;
+                    font-family: var(--code-font, monospace);
+                  }
+                  .rich-tool-badge-args {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    margin-top: 4px;
+                  }
+                  .rich-tool-badge-args-title {
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: var(--secondary-text, #64748b);
+                  }
+                  .rich-tool-badge-args pre {
+                    margin: 0;
+                    background: rgba(15, 23, 42, 0.03);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 8px;
+                    padding: 8px;
+                    overflow-x: auto;
+                  }
+                  .rich-tool-badge-args code {
+                    color: var(--text-color, #1e293b);
+                    font-size: 11px;
+                    font-family: var(--code-font, monospace);
+                  }
+                  
                   .message-widget-container { width: 100%; overflow: hidden; margin-top: 10px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
                   .message-widget-container.expanded { width: calc(100% + 40px); margin-left: -20px; }
                   
@@ -628,7 +1045,8 @@
                     </button>
 
                     <div class="chatbox-input-area">
-                        <div class="modern-input-wrapper">
+                        <div class="modern-input-wrapper" style="position: relative;">
+                            <div class="command-autocomplete-dropdown" id="command-dropdown" style="display:none"></div>
                             <div class="attachments-row" id="attachments-container" style="display:none"></div>
                             
                             <div class="input-row">
@@ -702,16 +1120,88 @@
       root.getElementById("btn-stop").onclick = () => this.stopGeneration();
       
       const chatInput = root.getElementById("chat-input");
+
+      // Click away hides autocomplete
+      document.addEventListener("click", (e) => {
+        const dropdown = root.getElementById("command-dropdown");
+        if (dropdown && !e.target.closest(".modern-input-wrapper")) {
+          this.hideAutocompleteDropdown();
+        }
+      });
+
       chatInput.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          this.sendMessage();
+        const dropdown = root.getElementById("command-dropdown");
+        const isDropdownVisible = dropdown && dropdown.style.display === "flex";
+        
+        if (isDropdownVisible) {
+          const items = dropdown.querySelectorAll(".command-item");
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            this.activeCommandIndex = (this.activeCommandIndex + 1) % items.length;
+            this.updateAutocompleteActiveItem(items);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            this.activeCommandIndex = (this.activeCommandIndex - 1 + items.length) % items.length;
+            this.updateAutocompleteActiveItem(items);
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            const activeItem = dropdown.querySelector(".command-item.active");
+            if (activeItem) {
+              const name = activeItem.getAttribute("data-name");
+              this.selectCommand(name);
+            } else if (items.length > 0) {
+              const name = items[0].getAttribute("data-name");
+              this.selectCommand(name);
+            }
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            this.hideAutocompleteDropdown();
+          }
+        } else {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            this.sendMessage();
+          }
         }
       };
+
       chatInput.oninput = (e) => {
         this.adjustTextAreaHeight(e.target);
         this.updateSendButtonState();
         this.handleUserTyping();
+
+        const value = e.target.value;
+        const cursorPosition = e.target.selectionStart || value.length;
+        const textBeforeCursor = value.substring(0, cursorPosition);
+        
+        const match = textBeforeCursor.match(/(?:^|\s)([\/@#])([a-zA-Z0-9_-]*)$/);
+        
+        if (match) {
+          const triggerChar = match[1];
+          const filterText = match[2].toLowerCase();
+          
+          const matchIndex = textBeforeCursor.length - match[0].length + (match[0].startsWith(' ') || match[0].startsWith('\n') ? 1 : 0);
+          const matchLength = textBeforeCursor.length - matchIndex;
+
+          this.lastCommandMatch = {
+            index: matchIndex,
+            length: matchLength,
+            triggerChar: triggerChar
+          };
+
+          const matched = (this.commands || []).filter(c => 
+            (c.commandTriggerChar || '/').trim() === triggerChar && 
+            c.commandName.toLowerCase().startsWith(filterText)
+          );
+
+          if (matched.length > 0) {
+            this.renderAutocompleteDropdown(matched, triggerChar);
+          } else {
+            this.hideAutocompleteDropdown();
+          }
+        } else {
+          this.hideAutocompleteDropdown();
+        }
       };
 
       // Attachment Actions
@@ -752,6 +1242,367 @@
       const messagesContainer = root.getElementById("messages-container");
       messagesContainer.onscroll = () => this.handleMessagesScroll();
       root.getElementById("scroll-down-btn").onclick = () => this.scrollToBottom();
+    }
+
+    renderAutocompleteDropdown(matched, triggerChar) {
+      const dropdown = this.shadowRoot.getElementById("command-dropdown");
+      if (!dropdown) return;
+      
+      dropdown.innerHTML = matched.map((cmd, index) => `
+        <div class="command-item ${index === this.activeCommandIndex ? 'active' : ''}" data-index="${index}" data-name="${cmd.commandName}">
+          <span class="command-item-trigger">${cmd.commandTriggerChar || triggerChar || '/'}</span>
+          <span class="command-item-name">${cmd.commandName}</span>
+          <span class="command-item-desc">${cmd.commandDescription || ''}</span>
+        </div>
+      `).join('');
+      
+      dropdown.style.display = "flex";
+      
+      dropdown.querySelectorAll(".command-item").forEach(item => {
+        item.onclick = () => {
+          const name = item.getAttribute("data-name");
+          this.selectCommand(name);
+        };
+      });
+    }
+
+    updateAutocompleteActiveItem(items) {
+      items.forEach((item, index) => {
+        if (index === this.activeCommandIndex) {
+          item.classList.add("active");
+          item.scrollIntoView({ block: "nearest" });
+        } else {
+          item.classList.remove("active");
+        }
+      });
+    }
+
+    selectCommand(name) {
+      const input = this.shadowRoot.getElementById("chat-input");
+      if (input) {
+        const val = input.value;
+        const matchInfo = this.lastCommandMatch;
+        if (matchInfo) {
+          const before = val.substring(0, matchInfo.index);
+          const after = val.substring(matchInfo.index + matchInfo.length);
+          const inserted = `${matchInfo.triggerChar}${name} `;
+          input.value = before + inserted + after;
+          const newCursorPos = matchInfo.index + inserted.length;
+          input.setSelectionRange(newCursorPos, newCursorPos);
+        } else {
+          input.value = `/${name} `;
+        }
+        input.focus();
+        this.hideAutocompleteDropdown();
+        this.updateSendButtonState();
+      }
+    }
+
+    hideAutocompleteDropdown() {
+      const dropdown = this.shadowRoot.getElementById("command-dropdown");
+      if (dropdown) {
+        dropdown.style.display = "none";
+      }
+      this.activeCommandIndex = -1;
+    }
+
+    renderRichResponse(ruleResponse, bubble, isHistoric = false) {
+      try {
+        const rawPayload = ruleResponse.responsePayload !== undefined ? ruleResponse.responsePayload 
+          : (ruleResponse.ResponsePayload !== undefined ? ruleResponse.ResponsePayload 
+          : (ruleResponse.payload !== undefined ? ruleResponse.payload : ruleResponse.Payload));
+
+        const payload = typeof rawPayload === 'string' 
+          ? JSON.parse(rawPayload) 
+          : rawPayload;
+        
+        const type = (ruleResponse.responseType || ruleResponse.ResponseType || ruleResponse.type || ruleResponse.Type || '').toLowerCase();
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+ 
+        console.log("Rendering rich response type:", type, payload, "isHistoric:", isHistoric);
+ 
+        if (type !== 'text') {
+          bubble.dataset.hasRichResponse = "true";
+          if (textContent) {
+            textContent.innerHTML = "";
+          }
+        }
+
+        if (type === 'text') {
+          if (textContent) {
+            textContent.innerHTML = this.formatMarkdown(payload.text || payload.content || payload.message || JSON.stringify(payload));
+          }
+        } else if (type === 'redirect') {
+          const url = payload.url || payload.redirectUrl || payload.Url || payload.RedirectUrl;
+          const delaySeconds = Number(payload.seconds || payload.redirectSeconds || payload.Seconds || payload.RedirectSeconds) || 5;
+          const countdownTpl = payload.countdownText || payload.CountdownText || "Redirecting you in {seconds} seconds...";
+          const countdownId = "countdown-" + Math.random().toString(36).substring(7);
+          const text = isHistoric ? "Automated redirection executed" : countdownTpl.replace("{seconds}", delaySeconds);
+
+          if (widgetContainer) {
+            widgetContainer.innerHTML = `
+              <div class="rich-redirect" style="cursor: pointer;" onclick="window.open('${url}', '_blank')">
+                <div class="rich-redirect-icon">🔗</div>
+                <div class="rich-redirect-content">
+                  <div class="rich-redirect-title">Redirect Link</div>
+                  <div class="rich-redirect-url" title="${url}">Click to visit: ${url}</div>
+                  <div id="${countdownId}" class="rich-redirect-countdown">${text}</div>
+                  ${!isHistoric ? `
+                    <div class="rich-redirect-progress">
+                      <div class="rich-redirect-progress-bar" style="animation-duration: ${delaySeconds}s"></div>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }
+
+          if (!isHistoric && url) {
+            let currentSec = delaySeconds;
+            const timer = setInterval(() => {
+              currentSec--;
+              const countdownEl = this.shadowRoot.getElementById(countdownId);
+              if (countdownEl) {
+                countdownEl.textContent = countdownTpl.replace("{seconds}", currentSec);
+              }
+              if (currentSec <= 0) {
+                clearInterval(timer);
+                window.location.href = url;
+              }
+            }, 1000);
+          }
+        } else if (type === 'card') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const cardEl = document.createElement("div");
+            cardEl.className = "rich-card";
+            
+            const imgUrl = payload.imageUrl || payload.ImageUrl || payload.image || payload.Image;
+            const imgHtml = imgUrl ? `<img src="${imgUrl}" class="rich-card-banner" alt="Banner" />` : "";
+            
+            const titleVal = payload.title || payload.Title;
+            const title = titleVal ? `<div class="rich-card-title">${titleVal}</div>` : "";
+            
+            const bodyVal = payload.content || payload.body || payload.Content || payload.Body;
+            const content = bodyVal ? `<div class="rich-card-body">${bodyVal}</div>` : "";
+            
+            let button = "";
+            const btnText = payload.buttonLabel || payload.buttonText || payload.ButtonLabel || payload.ButtonText;
+            const btnUrl = payload.buttonUrl || payload.url || payload.ButtonUrl || payload.Url;
+            if (btnText && btnUrl) {
+              button = `<a href="${btnUrl}" target="_blank" class="rich-card-btn">${btnText}</a>`;
+            }
+            
+            cardEl.innerHTML = `${imgHtml}${title}${content}${button}`;
+            widgetContainer.appendChild(cardEl);
+          }
+        } else if (type === 'file') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const fileEl = document.createElement("div");
+            fileEl.className = "rich-file";
+            
+            const name = payload.fileName || payload.name || payload.FileName || payload.Name || "download-file";
+            const url = payload.fileUrl || payload.url || payload.FileUrl || payload.Url;
+            const ext = name.split('.').pop().toLowerCase();
+            
+            let icon = this.icons.attach;
+            if (ext === 'xlsx' || ext === 'xls') icon = this.icons.excel || this.icons.attach;
+            if (ext === 'pdf') icon = this.icons.pdf || this.icons.attach;
+            
+            fileEl.innerHTML = `
+              <div class="rich-file-info">
+                <div class="rich-file-icon">${icon}</div>
+                <div class="rich-file-name" title="${name}">${name}</div>
+              </div>
+              <a href="${url}" target="_blank" download="${name}" class="rich-file-btn">
+                ${this.icons.download || '⬇️'} Download
+              </a>
+            `;
+            widgetContainer.appendChild(fileEl);
+          }
+        } else if (type === 'form') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const formEl = document.createElement("form");
+            formEl.className = "rich-form";
+            
+            const title = payload.title ? `<div class="rich-form-title">${payload.title}</div>` : "";
+            formEl.innerHTML = title;
+            
+            const fields = payload.fields || [];
+            fields.forEach(field => {
+              const group = document.createElement("div");
+              group.className = "rich-form-group";
+              
+              const label = `<label class="rich-form-label">${field.label || field.name} ${field.required ? '<span style="color:var(--danger-color, #ef4444)">*</span>' : ''}</label>`;
+              let input = "";
+              
+              if (field.type === 'textarea') {
+                input = `<textarea name="${field.name}" class="rich-form-input" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''} rows="2"></textarea>`;
+              } else if (field.type === 'select') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                const options = opts.map(opt => `<option value="${opt.value || opt}">${opt.label || opt}</option>`).join('');
+                input = `<select name="${field.name}" class="rich-form-select" ${field.required ? 'required' : ''}>${options}</select>`;
+              } else if (field.type === 'checkbox') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                if (opts.length > 0) {
+                  let optionsHtml = "";
+                  opts.forEach((opt, idx) => {
+                    const optLabel = opt.label || opt.name || opt;
+                    const optVal = opt.value || opt;
+                    const id = `chk-${field.name}-${idx}-${Math.random().toString(36).substring(7)}`;
+                    optionsHtml += `
+                      <div class="rich-form-check-option">
+                        <input type="checkbox" id="${id}" name="${field.name}" value="${optVal}" class="rich-form-checkbox">
+                        <label for="${id}" class="rich-form-check-label">${optLabel}</label>
+                      </div>
+                    `;
+                  });
+                  input = `<div class="rich-form-check-group">${optionsHtml}</div>`;
+                } else {
+                  const id = `chk-${field.name}-${Math.random().toString(36).substring(7)}`;
+                  input = `
+                    <div class="rich-form-check-option">
+                      <input type="checkbox" id="${id}" name="${field.name}" value="true" class="rich-form-checkbox" ${field.required ? 'required' : ''}>
+                      <label for="${id}" class="rich-form-check-label">${field.placeholder || 'Accept'}</label>
+                    </div>
+                  `;
+                }
+              } else if (field.type === 'radio') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                let optionsHtml = "";
+                opts.forEach((opt, idx) => {
+                  const optLabel = opt.label || opt.name || opt;
+                  const optVal = opt.value || opt;
+                  const id = `rad-${field.name}-${idx}-${Math.random().toString(36).substring(7)}`;
+                  optionsHtml += `
+                    <div class="rich-form-check-option">
+                      <input type="radio" id="${id}" name="${field.name}" value="${optVal}" class="rich-form-radio" ${field.required && idx === 0 ? 'required' : ''}>
+                      <label for="${id}" class="rich-form-check-label">${optLabel}</label>
+                    </div>
+                  `;
+                });
+                input = `<div class="rich-form-check-group">${optionsHtml}</div>`;
+              } else {
+                input = `<input type="${field.type || 'text'}" name="${field.name}" class="rich-form-input" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
+              }
+              
+              group.innerHTML = `${label}${input}`;
+              formEl.appendChild(group);
+            });
+            
+            const submitBtn = document.createElement("button");
+            submitBtn.type = "submit";
+            submitBtn.className = "rich-form-submit";
+            submitBtn.textContent = payload.submitLabel || payload.submitText || "Submit";
+            formEl.appendChild(submitBtn);
+            
+            formEl.onsubmit = async (e) => {
+              e.preventDefault();
+              submitBtn.disabled = true;
+              submitBtn.textContent = "Submitting...";
+              
+              const formData = new FormData(formEl);
+              const body = {};
+              formData.forEach((val, key) => {
+                if (body[key]) {
+                  if (Array.isArray(body[key])) {
+                    body[key].push(val);
+                  } else {
+                    body[key] = [body[key], val];
+                  }
+                } else {
+                  body[key] = val;
+                }
+              });
+              Object.keys(body).forEach(k => {
+                if (Array.isArray(body[k])) {
+                  body[k] = body[k].join(", ");
+                }
+              });
+              
+              try {
+                const res = await fetch(`${this.apiUrl}/api/rules/form-submit`, {
+                  method: "POST",
+                  headers: { 
+                    ...this.getHeaders(),
+                    "Content-Type": "application/json" 
+                  },
+                  body: JSON.stringify({
+                    sessionId: this.currentSessionId,
+                    projectId: this.projectId,
+                    formTitle: payload.title,
+                    submitUrl: payload.submitUrl,
+                    data: body
+                  })
+                });
+                if (res.ok) {
+                  formEl.innerHTML = `<div style="color:var(--success-color, #10b981); font-weight:600; display:flex; align-items:center; gap:8px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px;">
+                    ${this.icons.check || '✅'} Submission received successfully!
+                  </div>`;
+                } else {
+                  throw new Error("Submit failed");
+                }
+              } catch(err) {
+                console.error(err);
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Retry Submit";
+                const errEl = document.createElement("div");
+                errEl.style.color = "var(--danger-color, #ef4444)";
+                errEl.style.fontSize = "12px";
+                errEl.style.marginTop = "8px";
+                errEl.textContent = "Submission failed. Please try again.";
+                formEl.appendChild(errEl);
+              }
+            };
+            
+            widgetContainer.appendChild(formEl);
+          }
+        } else if (type === 'tool_call') {
+          if (!isHistoric && payload.toolName) {
+            this.handleToolCalls([{
+              name: payload.toolName,
+              arguments: payload.arguments || {},
+              id: "tool-rule-" + Math.random().toString(36).substring(7)
+            }], bubble);
+          } else if (isHistoric && payload.toolName) {
+            if (widgetContainer) {
+              widgetContainer.innerHTML = '';
+              const toolCallEl = document.createElement("div");
+              toolCallEl.className = "rich-tool-badge";
+              toolCallEl.innerHTML = `
+                <div class="rich-tool-badge-header">
+                  <span class="rich-tool-badge-icon">🔧</span>
+                  <span class="rich-tool-badge-title">Automated Action Executed</span>
+                </div>
+                <div class="rich-tool-badge-body">
+                  <div class="rich-tool-badge-name"><strong>Command:</strong> <code>${payload.toolName}</code></div>
+                  ${payload.arguments && Object.keys(payload.arguments).length > 0 ? `
+                    <div class="rich-tool-badge-args">
+                      <div class="rich-tool-badge-args-title">Parameters:</div>
+                      <pre><code>${JSON.stringify(payload.arguments, null, 2)}</code></pre>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+              widgetContainer.appendChild(toolCallEl);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to render rich response:", err);
+      }
     }
 
 
@@ -979,10 +1830,21 @@
                   }
                 }
 
+                const ruleResponse = data.RuleResponse || data.ruleResponse;
+                if (ruleResponse) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderRichResponse(ruleResponse, bubble);
+                  this.scrollToBottom();
+                }
+
                 if (textChunk) {
                   if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                   fullText += textChunk;
-                  textContent.innerHTML = this.formatMarkdown(fullText);
+                  if (bubble.dataset.hasRichResponse !== "true") {
+                    textContent.innerHTML = this.formatMarkdown(fullText);
+                  } else {
+                    textContent.innerHTML = "";
+                  }
                   this.scrollToBottom();
                 }
               } catch(e) { console.error("Stream parse error:", e); }
@@ -1164,10 +2026,21 @@
                 }
               }
 
+              const ruleResponse = data.RuleResponse || data.ruleResponse;
+              if (ruleResponse) {
+                if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                this.renderRichResponse(ruleResponse, bubble);
+                this.scrollToBottom();
+              }
+
               if (textChunk) {
                 if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                 fullText += textChunk;
-                textContent.innerHTML = this.formatMarkdown(fullText);
+                if (bubble.dataset.hasRichResponse !== "true") {
+                  textContent.innerHTML = this.formatMarkdown(fullText);
+                } else {
+                  textContent.innerHTML = "";
+                }
                 this.scrollToBottom();
               }
             } catch(e) { console.error("Stream parse error:", e); }
@@ -1992,10 +2865,43 @@
         list.innerHTML = "";
         messages.forEach((m) => {
           const role = (m.Role || m.role || "").toLowerCase();
-          const isAi = role === "ai" || role === "assistant";
+          const isAi = role === "ai" || role === "assistant" || role === "model" || role === "bot";
           const isTool = role === "tool";
           const rawContent = m.Content || m.content || "";
           
+          // Intercept saved rich responses (starting with "[REDIRECT RESPONSE] ", etc.)
+          let isRichResponse = false;
+          let richType = null;
+          let richPayload = null;
+
+          if (isAi && rawContent.startsWith('[')) {
+            const closingBracketIndex = rawContent.indexOf('] ');
+            if (closingBracketIndex > 0) {
+              const prefix = rawContent.substring(1, closingBracketIndex); // e.g. "REDIRECT RESPONSE" or "CARD RESPONSE"
+              if (prefix.endsWith(" RESPONSE")) {
+                const typeStr = prefix.substring(0, prefix.length - 9).toLowerCase(); // "redirect", "card", etc.
+                const jsonPart = rawContent.substring(closingBracketIndex + 2);
+                try {
+                  richPayload = JSON.parse(jsonPart);
+                  richType = typeStr;
+                  isRichResponse = true;
+                } catch (e) {
+                  console.error("Failed to parse historic rich response JSON:", e);
+                }
+              }
+            }
+          }
+
+          if (isRichResponse) {
+            const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
+            const msgWrap = this.addMessage(displayRole, `<div class="message-text-content"></div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
+            this.renderRichResponse({
+              responseType: richType,
+              responsePayload: richPayload
+            }, msgWrap.querySelector(".message-bubble"), true); // isHistoric = true
+            return; // Skip remaining normal rendering
+          }
+
           // Try to detect if the content is a JSON tool result
           let toolData = m.ToolResult || m.toolResult;
           let wasParsedAsTool = false;

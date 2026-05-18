@@ -157,6 +157,7 @@ namespace AiChatBox.Api.Controllers
 
             return Ok(new DTOs.ChatConfigDto
             {
+                ProjectId = project.Id,
                 ProjectName = project.Name,
                 DefaultProvider = defaultProvider,
                 DefaultModel = config?.DefaultModel ?? project.ModelName,

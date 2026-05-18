@@ -51,9 +51,13 @@ namespace AiChatBox.Api.Controllers
 
             await using var db = await _dbFactory.CreateDbContextAsync();
             var config = await db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+            if (config == null)
+            {
+                config = await db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == projectId);
+            }
             
             if (config == null || string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
-                return Unauthorized("Verification failed: Project has no default configuration configured.");
+                return Unauthorized("Verification failed: Project has no configuration configured.");
 
             var settings = JsonSerializer.Deserialize<ChannelSettings>(config.ChannelSettingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
             if (settings?.WhatsApp == null || string.IsNullOrWhiteSpace(settings.WhatsApp.VerifyToken))

@@ -104,9 +104,13 @@ namespace AiChatBox.Api.Services
                 try
                 {
                     var keys = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson);
-                    if (keys != null && keys.TryGetValue(providerName.ToLowerInvariant(), out var encrypted))
+                    if (keys != null)
                     {
-                        return _encryption.Decrypt(encrypted);
+                        var caseInsensitiveKeys = new Dictionary<string, string>(keys, StringComparer.OrdinalIgnoreCase);
+                        if (caseInsensitiveKeys.TryGetValue(providerName, out var encrypted))
+                        {
+                            return _encryption.Decrypt(encrypted);
+                        }
                     }
                 }
                 catch { }

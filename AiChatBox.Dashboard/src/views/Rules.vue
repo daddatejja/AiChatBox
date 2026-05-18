@@ -10,6 +10,7 @@ import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Dialog from 'primevue/dialog';
 import InputNumber from 'primevue/inputnumber';
+import Slider from 'primevue/slider';
 
 const route = useRoute();
 const { apiFetch } = useApi();
@@ -19,7 +20,14 @@ interface Rule {
     id: string;
     type: string;
     trigger: string;
+    intentLabel: string | null;
+    commandName: string | null;
+    commandTriggerChar: string;
+    commandDescription: string | null;
+    responseType: string;
+    responsePayload: string | null;
     response: string;
+    confidenceThreshold: number;
     priority: number;
     isActive: boolean;
     createdAt: string;
@@ -30,21 +38,82 @@ const loading = ref(false);
 const showDialog = ref(false);
 const editing = ref<string | null>(null);
 const testMessage = ref('');
-const testResult = ref<{ matched: boolean; response: string | null } | null>(null);
+const testResult = ref<{ matched: boolean; response: string | null; matchType?: string; confidence?: number } | null>(null);
 const testing = ref(false);
 
 const form = reactive({
-    type: 'keyword',
+    type: 'intent',
     trigger: '',
+    intentLabel: '',
+    commandName: '',
+    commandTriggerChar: '/',
+    commandDescription: '',
+    responseType: 'text',
+    responsePayload: '',
     response: '',
+    confidenceThreshold: 75,
     priority: 0,
-    isActive: true
+    isActive: true,
+    
+    // Rich response visual sub-models
+    redirectUrl: '',
+    countdownText: 'Redirecting you in {seconds} seconds...',
+    redirectSeconds: 5,
+    
+    cardTitle: '',
+    cardBody: '',
+    cardButtonLabel: '',
+    cardButtonUrl: '',
+    
+    fileName: '',
+    fileUrl: '',
+    fileMimeType: 'pdf',
+    
+    formTitle: '',
+    formSubmitLabel: 'Submit',
+    formSubmitUrl: '',
+    formFields: [] as Array<{ name: string; label: string; type: string; required: boolean; options?: string }>,
+    
+    toolName: '',
+    toolArguments: '{}'
 });
 
 const typeOptions = [
+    { label: '🧠 AI Intent (Smart)', value: 'intent', desc: 'Uses AI to understand user intent — describe what the user is asking about in plain English' },
+    { label: '⚡ Command Trigger', value: 'command', desc: 'Matches when a user types a command with a special character (e.g. /pricing)' },
     { label: 'Keyword Match', value: 'keyword', desc: 'Matches when ALL comma-separated keywords appear in the message' },
     { label: 'Exact Match', value: 'exact', desc: 'Matches the entire message exactly (case-insensitive)' },
     { label: 'Regex Pattern', value: 'regex', desc: 'Matches using a regular expression pattern' }
+];
+
+const responseTypeOptions = [
+    { label: '📝 Plain Text Response', value: 'text' },
+    { label: '🔗 Countdown Redirect Link', value: 'redirect' },
+    { label: '🎴 Inline Action Card', value: 'card' },
+    { label: '📁 File Attachment/Download', value: 'file' },
+    { label: '📋 Interactive Dynamic Form', value: 'form' },
+    { label: '🛠️ Trigger Frontend Tool', value: 'tool_call' }
+];
+
+const triggerCharOptions = [
+    { label: 'Slash (/)', value: '/' },
+    { label: 'Hash (#)', value: '#' },
+    { label: 'At (@)', value: '@' }
+];
+
+const fileMimeOptions = [
+    { label: 'PDF Document (.pdf)', value: 'pdf' },
+    { label: 'Excel Spreadsheet (.xlsx, .csv)', value: 'excel' },
+    { label: 'Generic File Download', value: 'generic' }
+];
+
+const formFieldTypeOptions = [
+    { label: 'Single-line Text', value: 'text' },
+    { label: 'Multi-line Textarea', value: 'textarea' },
+    { label: 'Email Address', value: 'email' },
+    { label: 'Dropdown / Select Option List', value: 'select' },
+    { label: 'Checkbox Options List', value: 'checkbox' },
+    { label: 'Radio Options List', value: 'radio' }
 ];
 
 const selectedTypeDesc = computed(() => {
@@ -60,11 +129,38 @@ async function loadRules() {
 
 function openCreate() {
     editing.value = null;
-    form.type = 'keyword';
+    form.type = 'intent';
     form.trigger = '';
+    form.intentLabel = '';
+    
+    form.commandName = '';
+    form.commandTriggerChar = '/';
+    form.commandDescription = '';
+    
+    form.responseType = 'text';
+    form.responsePayload = '';
     form.response = '';
+    form.confidenceThreshold = 75;
     form.priority = 0;
     form.isActive = true;
+    
+    form.redirectUrl = '';
+    form.countdownText = 'Redirecting you to our page in {seconds} seconds...';
+    form.redirectSeconds = 5;
+    form.cardTitle = '';
+    form.cardBody = '';
+    form.cardButtonLabel = '';
+    form.cardButtonUrl = '';
+    form.fileName = '';
+    form.fileUrl = '';
+    form.fileMimeType = 'pdf';
+    form.formTitle = '';
+    form.formSubmitLabel = 'Submit';
+    form.formSubmitUrl = '';
+    form.formFields = [];
+    form.toolName = '';
+    form.toolArguments = '{}';
+    
     showDialog.value = true;
 }
 
@@ -72,22 +168,164 @@ function openEdit(rule: Rule) {
     editing.value = rule.id;
     form.type = rule.type;
     form.trigger = rule.trigger;
+    form.intentLabel = rule.intentLabel || '';
+    
+    form.commandName = rule.commandName || '';
+    form.commandTriggerChar = rule.commandTriggerChar || '/';
+    form.commandDescription = rule.commandDescription || '';
+    
+    form.responseType = rule.responseType || 'text';
+    form.responsePayload = rule.responsePayload || '';
     form.response = rule.response;
+    form.confidenceThreshold = Math.round(rule.confidenceThreshold * 100);
     form.priority = rule.priority;
     form.isActive = rule.isActive;
+    
+    // Reset visual sub-models first
+    form.redirectUrl = '';
+    form.countdownText = 'Redirecting you in {seconds} seconds...';
+    form.redirectSeconds = 5;
+    form.cardTitle = '';
+    form.cardBody = '';
+    form.cardButtonLabel = '';
+    form.cardButtonUrl = '';
+    form.fileName = '';
+    form.fileUrl = '';
+    form.fileMimeType = 'pdf';
+    form.formTitle = '';
+    form.formSubmitLabel = 'Submit';
+    form.formSubmitUrl = '';
+    form.formFields = [];
+    form.toolName = '';
+    form.toolArguments = '{}';
+    
+    // Parse response payload if present
+    if (rule.responsePayload) {
+        try {
+            const data = JSON.parse(rule.responsePayload);
+            if (form.responseType === 'redirect') {
+                form.redirectUrl = data.url || '';
+                form.countdownText = data.countdownText || '';
+                form.redirectSeconds = typeof data.seconds === 'number' ? data.seconds : 5;
+            } else if (form.responseType === 'card') {
+                form.cardTitle = data.title || '';
+                form.cardBody = data.body || '';
+                form.cardButtonLabel = data.buttonLabel || '';
+                form.cardButtonUrl = data.buttonUrl || '';
+            } else if (form.responseType === 'file') {
+                form.fileName = data.fileName || '';
+                form.fileUrl = data.fileUrl || '';
+                form.fileMimeType = data.mimeType || 'pdf';
+            } else if (form.responseType === 'form') {
+                form.formTitle = data.title || '';
+                form.formSubmitLabel = data.submitLabel || 'Submit';
+                form.formSubmitUrl = data.submitUrl || '';
+                form.formFields = Array.isArray(data.fields) ? data.fields.map((f: any) => ({
+                    name: f.name || '',
+                    label: f.label || '',
+                    type: f.type || 'text',
+                    required: !!f.required,
+                    options: Array.isArray(f.options) ? f.options.join(', ') : (f.options || '')
+                })) : [];
+            } else if (form.responseType === 'tool_call') {
+                form.toolName = data.toolName || '';
+                form.toolArguments = data.arguments ? JSON.stringify(data.arguments, null, 2) : '{}';
+            }
+        } catch (e) {
+            console.error("Error parsing response payload:", e);
+        }
+    }
     showDialog.value = true;
 }
 
 async function saveRule() {
+    let payloadStr: string | null = null;
+    let textResponse = form.response;
+    
+    if (form.responseType === 'redirect') {
+        payloadStr = JSON.stringify({
+            url: form.redirectUrl,
+            countdownText: form.countdownText,
+            seconds: Number(form.redirectSeconds) || 5
+        });
+        textResponse = `Redirecting you to ${form.redirectUrl}...`;
+    } else if (form.responseType === 'card') {
+        payloadStr = JSON.stringify({
+            title: form.cardTitle,
+            body: form.cardBody,
+            buttonLabel: form.cardButtonLabel,
+            buttonUrl: form.cardButtonUrl
+        });
+        textResponse = `${form.cardTitle}\n\n${form.cardBody}\n\nLink: ${form.cardButtonUrl}`;
+    } else if (form.responseType === 'file') {
+        payloadStr = JSON.stringify({
+            fileName: form.fileName,
+            fileUrl: form.fileUrl,
+            mimeType: form.fileMimeType
+        });
+        textResponse = `Download File: ${form.fileName} (${form.fileUrl})`;
+    } else if (form.responseType === 'form') {
+        const fields = form.formFields.map(f => ({
+            name: f.name,
+            label: f.label,
+            type: f.type,
+            required: f.required,
+            options: (f.type === 'select' || f.type === 'checkbox' || f.type === 'radio') && f.options ? f.options.split(',').map(s => s.trim()) : undefined
+        }));
+        payloadStr = JSON.stringify({
+            title: form.formTitle,
+            submitLabel: form.formSubmitLabel,
+            submitUrl: form.formSubmitUrl,
+            fields
+        });
+        textResponse = `Please fill out the form: ${form.formTitle}`;
+    } else if (form.responseType === 'tool_call') {
+        let argsObj = {};
+        try {
+            argsObj = JSON.parse(form.toolArguments);
+        } catch (e) {
+            console.error("Invalid tool arguments JSON, keeping empty object");
+        }
+        payloadStr = JSON.stringify({
+            toolName: form.toolName,
+            arguments: argsObj
+        });
+        textResponse = `Executing custom tool: ${form.toolName}`;
+    }
+    
+    // Set trigger pattern for command rule type
+    let finalTrigger = form.trigger;
+    if (form.type === 'command') {
+        finalTrigger = `${form.commandTriggerChar}${form.commandName}`;
+    }
+    
+    const payload = {
+        type: form.type,
+        trigger: finalTrigger,
+        intentLabel: form.type === 'intent' && form.intentLabel?.trim() ? form.intentLabel.trim() : null,
+        
+        commandName: form.type === 'command' ? form.commandName : null,
+        commandTriggerChar: form.type === 'command' ? form.commandTriggerChar : null,
+        commandDescription: form.type === 'command' ? form.commandDescription : null,
+        
+        responseType: form.responseType,
+        responsePayload: payloadStr,
+        response: textResponse,
+        
+        confidenceThreshold: form.confidenceThreshold / 100,
+        priority: form.priority,
+        isActive: form.isActive
+    };
+    
     if (editing.value) {
         await apiFetch(`/api/rules/${editing.value}`, {
             method: 'PUT',
-            body: JSON.stringify(form)
+            body: JSON.stringify(payload)
         });
     } else {
         await apiFetch(`/api/rules/project/${projectId.value}`, {
             method: 'POST',
-            body: JSON.stringify(form)
+            body: JSON.stringify(payload)
         });
     }
     showDialog.value = false;
@@ -122,11 +360,68 @@ async function testRules() {
 
 function triggerPlaceholder(type: string): string {
     switch (type) {
+        case 'intent': return 'User is asking about pricing, subscription plans, or costs';
         case 'keyword': return 'pricing, plans (comma-separated, ALL must match)';
         case 'exact': return 'What are your business hours?';
         case 'regex': return '\\b(refund|return)\\b';
         default: return '';
     }
+}
+
+function triggerLabel(type: string): string {
+    return type === 'intent' ? 'Intent Description' : 'Trigger';
+}
+
+function responseTypeLabel(type: string): string {
+    switch (type) {
+        case 'text': return 'TEXT';
+        case 'redirect': return 'REDIRECT';
+        case 'card': return 'CARD';
+        case 'file': return 'FILE';
+        case 'form': return 'FORM';
+        case 'tool_call': return 'TOOL CALL';
+        default: return type?.toUpperCase() || 'TEXT';
+    }
+}
+
+function addFormField() {
+    form.formFields.push({
+        name: '',
+        label: '',
+        type: 'text',
+        required: false,
+        options: ''
+    });
+}
+
+function removeFormField(index: number) {
+    form.formFields.splice(index, 1);
+}
+
+function isFormSaveDisabled() {
+    if (form.type === 'command') {
+        if (!form.commandName.trim()) return true;
+    } else {
+        if (!form.trigger.trim()) return true;
+    }
+    
+    // Check based on response type
+    if (form.responseType === 'text') {
+        return !form.response.trim();
+    } else if (form.responseType === 'redirect') {
+        return !form.redirectUrl.trim();
+    } else if (form.responseType === 'card') {
+        return !form.cardTitle.trim() || !form.cardBody.trim();
+    } else if (form.responseType === 'file') {
+        return !form.fileName.trim() || !form.fileUrl.trim();
+    } else if (form.responseType === 'form') {
+        if (!form.formTitle.trim()) return true;
+        if (form.formFields.length === 0) return true;
+        return form.formFields.some(f => !f.name.trim() || !f.label.trim());
+    } else if (form.responseType === 'tool_call') {
+        return !form.toolName.trim();
+    }
+    return false;
 }
 
 onMounted(loadRules);
@@ -158,6 +453,8 @@ onMounted(loadRules);
                             <svg v-if="testResult.matched" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
                             <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>
                             <span>{{ testResult.matched ? 'Rule matched!' : 'No rule matched — message will be sent to LLM' }}</span>
+                            <span v-if="testResult.matched && testResult.matchType" class="test-match-type">via {{ testResult.matchType }}</span>
+                            <span v-if="testResult.matched && testResult.confidence" class="test-confidence">{{ Math.round(testResult.confidence * 100) }}% confidence</span>
                         </div>
                         <div v-if="testResult.matched && testResult.response" class="test-response">
                             {{ testResult.response }}
@@ -192,10 +489,23 @@ onMounted(loadRules);
                             <span v-if="!rule.isActive" class="rule-disabled">Disabled</span>
                         </div>
                         <div class="rule-trigger">
-                            <strong>Trigger:</strong> <code>{{ rule.trigger }}</code>
+                            <strong>{{ rule.type === 'intent' ? 'Intent Description:' : (rule.type === 'command' ? 'Command:' : 'Trigger Pattern:') }}</strong>
+                            <span v-if="rule.type === 'intent'" class="intent-text">{{ rule.trigger }}</span>
+                            <span v-else-if="rule.type === 'command'" class="command-trigger-text">
+                                <span class="cmd-trigger-char">{{ rule.commandTriggerChar || '/' }}</span>{{ rule.commandName }}
+                                <span class="cmd-desc-sub" v-if="rule.commandDescription"> — {{ rule.commandDescription }}</span>
+                            </span>
+                            <code v-else>{{ rule.trigger }}</code>
                         </div>
                         <div class="rule-response-preview">
-                            <strong>Response:</strong> {{ rule.response.length > 120 ? rule.response.substring(0, 120) + '...' : rule.response }}
+                            <div class="response-badge-row">
+                                <span class="response-type-badge" :class="'res-' + (rule.responseType || 'text')">
+                                    {{ responseTypeLabel(rule.responseType || 'text') }}
+                                </span>
+                                <span class="response-preview-text">
+                                    {{ rule.response.length > 120 ? rule.response.substring(0, 120) + '...' : rule.response }}
+                                </span>
+                            </div>
                         </div>
                     </div>
                     <div class="rule-actions">
@@ -208,22 +518,190 @@ onMounted(loadRules);
         </Card>
 
         <!-- Create/Edit Dialog -->
-        <Dialog v-model:visible="showDialog" :header="editing ? 'Edit Rule' : 'Create Rule'" modal :style="{ width: '600px' }">
+        <Dialog v-model:visible="showDialog" :header="editing ? 'Edit Rule' : 'Create Rule'" modal :style="{ width: '720px' }">
             <div class="dialog-form">
                 <div class="form-group">
-                    <label>Match Type</label>
+                    <label>Match Trigger Type</label>
                     <Select v-model="form.type" :options="typeOptions" optionLabel="label" optionValue="value" fluid />
                     <small class="info-text">{{ selectedTypeDesc }}</small>
                 </div>
 
-                <div class="form-group">
-                    <label>Trigger</label>
-                    <InputText v-model="form.trigger" :placeholder="triggerPlaceholder(form.type)" fluid />
+                <!-- Match Type Conditional Content -->
+                <div v-if="form.type === 'command'" class="command-settings-panel">
+                    <div class="form-row">
+                        <div class="form-group flex-1">
+                            <label>Trigger Character</label>
+                            <Select v-model="form.commandTriggerChar" :options="triggerCharOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                        <div class="form-group flex-2">
+                            <label>Command Name</label>
+                            <InputText v-model="form.commandName" placeholder="pricing" fluid />
+                            <small class="info-text font-italic">No spaces allowed. Users type {{ form.commandTriggerChar || '/' }}{{ form.commandName || 'pricing' }} to run.</small>
+                        </div>
+                    </div>
+                    <div class="form-group mt-2">
+                        <label>Command Description</label>
+                        <InputText v-model="form.commandDescription" placeholder="View current product pricing and tiers" fluid />
+                        <small class="info-text">Shown to the user in the autocomplete popup list.</small>
+                    </div>
                 </div>
 
+                <div v-else class="form-group">
+                    <label>{{ triggerLabel(form.type) }}</label>
+                    <Textarea v-if="form.type === 'intent'" v-model="form.trigger" rows="3" :placeholder="triggerPlaceholder(form.type)" fluid />
+                    <InputText v-else v-model="form.trigger" :placeholder="triggerPlaceholder(form.type)" fluid />
+                    <small v-if="form.type === 'intent'" class="info-text">Describe in plain English what the user is asking about. The AI will match semantically — no keyword guessing needed.</small>
+                </div>
+
+                <div v-if="form.type === 'intent'" class="form-group">
+                    <label>Intent Label <small class="info-text">(optional short ID, e.g. "pricing")</small></label>
+                    <InputText v-model="form.intentLabel" placeholder="pricing" fluid />
+                </div>
+
+                <hr class="form-divider" />
+
+                <!-- Rich Response Builder Section -->
+                <h3 class="form-section-title">✨ Rule Response Configuration</h3>
+
                 <div class="form-group">
-                    <label>Response</label>
-                    <Textarea v-model="form.response" rows="4" placeholder="The response to send when this rule matches..." fluid />
+                    <label>Response Type</label>
+                    <Select v-model="form.responseType" :options="responseTypeOptions" optionLabel="label" optionValue="value" fluid />
+                </div>
+
+                <!-- Rich Response Type Fields -->
+                <div v-if="form.responseType === 'text'" class="form-group">
+                    <label>Plain Text Response</label>
+                    <Textarea v-model="form.response" rows="4" placeholder="The text response to send when this rule matches..." fluid />
+                </div>
+
+                <div v-else-if="form.responseType === 'redirect'" class="response-sub-panel">
+                    <div class="form-group">
+                        <label>Destination Redirect URL</label>
+                        <InputText v-model="form.redirectUrl" placeholder="https://example.com/pricing" fluid />
+                    </div>
+                    <div class="form-row mt-2">
+                        <div class="form-group flex-3">
+                            <label>Countdown Message</label>
+                            <InputText v-model="form.countdownText" placeholder="Redirecting you in {seconds} seconds..." fluid />
+                            <small class="info-text">Use <code>{seconds}</code> to render the countdown timer.</small>
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>Delay (Seconds)</label>
+                            <InputNumber v-model="form.redirectSeconds" :min="1" :max="60" fluid />
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="form.responseType === 'card'" class="response-sub-panel">
+                    <div class="form-group">
+                        <label>Card Title</label>
+                        <InputText v-model="form.cardTitle" placeholder="Special Offer Available! 🎉" fluid />
+                    </div>
+                    <div class="form-group mt-2">
+                        <label>Card Body Description</label>
+                        <Textarea v-model="form.cardBody" rows="3" placeholder="Get 20% off our yearly premium plans if you subscribe today!" fluid />
+                    </div>
+                    <div class="form-row mt-2">
+                        <div class="form-group flex-1">
+                            <label>Button Label (Optional)</label>
+                            <InputText v-model="form.cardButtonLabel" placeholder="Claim Discount" fluid />
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>Button URL (Optional)</label>
+                            <InputText v-model="form.cardButtonUrl" placeholder="https://example.com/checkout?promo=discount" fluid />
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="form.responseType === 'file'" class="response-sub-panel">
+                    <div class="form-row">
+                        <div class="form-group flex-2">
+                            <label>File Name</label>
+                            <InputText v-model="form.fileName" placeholder="Quarterly_Report_2026.pdf" fluid />
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>File Style Theme</label>
+                            <Select v-model="form.fileMimeType" :options="fileMimeOptions" optionLabel="label" optionValue="value" fluid />
+                        </div>
+                    </div>
+                    <div class="form-group mt-2">
+                        <label>Download Link URL</label>
+                        <InputText v-model="form.fileUrl" placeholder="https://example.com/files/report.pdf" fluid />
+                    </div>
+                </div>
+
+                <div v-else-if="form.responseType === 'form'" class="response-sub-panel">
+                    <div class="form-group">
+                        <label>Form Title</label>
+                        <InputText v-model="form.formTitle" placeholder="Request a Consultation" fluid />
+                    </div>
+                    <div class="form-row mt-2">
+                        <div class="form-group flex-1">
+                            <label>Submit Button Text</label>
+                            <InputText v-model="form.formSubmitLabel" placeholder="Send Details" fluid />
+                        </div>
+                        <div class="form-group flex-1">
+                            <label>Webhook / Submit URL <small class="info-text">(Optional)</small></label>
+                            <InputText v-model="form.formSubmitUrl" placeholder="https://api.yourdomain.com/webhook" fluid />
+                        </div>
+                    </div>
+
+                    <div class="form-fields-builder mt-3">
+                        <div class="builder-header">
+                            <strong>Form Input Fields ({{ form.formFields.length }})</strong>
+                            <Button label="Add Field" icon="pi pi-plus" size="small" severity="secondary" @click="addFormField" />
+                        </div>
+
+                        <div v-if="form.formFields.length === 0" class="builder-empty">
+                            No inputs defined yet. Add at least one field to capture user details.
+                        </div>
+
+                        <div v-else class="builder-list">
+                            <div v-for="(field, index) in form.formFields" :key="index" class="field-item-row">
+                                <div class="field-item-col flex-1">
+                                    <InputText v-model="field.label" placeholder="Label (e.g. Full Name)" size="small" fluid />
+                                </div>
+                                <div class="field-item-col flex-1">
+                                    <InputText v-model="field.name" placeholder="Name Key (e.g. full_name)" size="small" fluid />
+                                </div>
+                                <div class="field-item-col flex-1">
+                                    <Select v-model="field.type" :options="formFieldTypeOptions" optionLabel="label" optionValue="value" size="small" fluid />
+                                </div>
+                                <div class="field-item-col" style="min-width: 100px;">
+                                    <div class="flex align-items-center gap-1">
+                                        <Checkbox v-model="field.required" :binary="true" :inputId="'req-' + index" />
+                                        <label :for="'req-' + index" class="text-xs">Required</label>
+                                    </div>
+                                </div>
+                                <div class="field-item-col flex-2" v-if="field.type === 'select' || field.type === 'checkbox' || field.type === 'radio'">
+                                    <InputText v-model="field.options" placeholder="Option A, Option B" size="small" fluid />
+                                </div>
+                                <div class="field-item-col">
+                                    <Button icon="pi pi-trash" severity="danger" text rounded size="small" @click="removeFormField(index)" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else-if="form.responseType === 'tool_call'" class="response-sub-panel">
+                    <div class="form-group">
+                        <label>Registered Tool Name</label>
+                        <InputText v-model="form.toolName" placeholder="get_order_status" fluid />
+                        <small class="info-text">Executes the registered tool directly on the user's browser client.</small>
+                    </div>
+                    <div class="form-group mt-2">
+                        <label>Static Tool Arguments (JSON)</label>
+                        <Textarea v-model="form.toolArguments" rows="4" placeholder='{ "productId": "premium_tier" }' fluid />
+                    </div>
+                </div>
+
+                <hr class="form-divider" />
+
+                <div v-if="form.type === 'intent'" class="form-group">
+                    <label>Confidence Threshold: {{ form.confidenceThreshold }}%</label>
+                    <Slider v-model="form.confidenceThreshold" :min="30" :max="100" :step="5" />
+                    <small class="info-text">Lower = more sensitive (may cause false positives). Higher = more precise (may miss some matches).</small>
                 </div>
 
                 <div class="form-row">
@@ -241,7 +719,7 @@ onMounted(loadRules);
 
             <template #footer>
                 <Button label="Cancel" severity="secondary" text @click="showDialog = false" />
-                <Button :label="editing ? 'Update Rule' : 'Create Rule'" @click="saveRule" :disabled="!form.trigger.trim() || !form.response.trim()" />
+                <Button :label="editing ? 'Update Rule' : 'Create Rule'" @click="saveRule" :disabled="isFormSaveDisabled()" />
             </template>
         </Dialog>
     </div>
@@ -364,6 +842,8 @@ onMounted(loadRules);
 .type-keyword { background: color-mix(in srgb, var(--p-blue-500) 15%, transparent); color: var(--p-blue-700); }
 .type-exact { background: color-mix(in srgb, var(--p-green-500) 15%, transparent); color: var(--p-green-700); }
 .type-regex { background: color-mix(in srgb, var(--p-purple-500) 15%, transparent); color: var(--p-purple-700); }
+.type-intent { background: color-mix(in srgb, var(--p-amber-500) 20%, transparent); color: var(--p-amber-700); font-weight: 700; }
+.type-command { background: color-mix(in srgb, var(--p-primary-500) 15%, transparent); color: var(--p-primary-700); border: 1px solid var(--p-primary-200); font-weight: 700; }
 .rule-priority {
     font-size: 0.75rem;
     color: var(--p-surface-500);
@@ -374,9 +854,33 @@ onMounted(loadRules);
     color: var(--p-orange-600);
 }
 .rule-trigger {
+    font-size: 0.9rem;
+    margin-bottom: 6px;
+    color: var(--p-surface-800);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+.command-trigger-text {
+    font-family: var(--font-mono, monospace);
+    font-weight: 600;
+    color: var(--p-primary-600);
+    font-size: 0.95rem;
+    background: var(--p-surface-50);
+    padding: 2px 8px;
+    border-radius: 6px;
+    border: 1px solid var(--p-surface-200);
+}
+.cmd-trigger-char {
+    color: var(--p-primary-500);
+    font-weight: 800;
+}
+.cmd-desc-sub {
+    font-family: var(--font-sans, system-ui, sans-serif);
+    font-weight: 400;
+    color: var(--p-surface-500);
     font-size: 0.85rem;
-    margin-bottom: 4px;
-    color: var(--p-surface-700);
 }
 .rule-trigger code {
     background: var(--p-surface-100);
@@ -384,15 +888,138 @@ onMounted(loadRules);
     border-radius: 4px;
     font-size: 0.8rem;
 }
+.intent-text {
+    font-style: italic;
+    color: var(--p-surface-600);
+}
 .rule-response-preview {
-    font-size: 0.8rem;
-    color: var(--p-surface-500);
+    font-size: 0.85rem;
+    color: var(--p-surface-600);
+    margin-top: 8px;
+}
+.response-badge-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.response-type-badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    padding: 2px 6px;
+    border-radius: 4px;
+    flex-shrink: 0;
+}
+.res-text { background: var(--p-surface-100); color: var(--p-surface-700); }
+.res-redirect { background: color-mix(in srgb, var(--p-cyan-500) 15%, transparent); color: var(--p-cyan-700); }
+.res-card { background: color-mix(in srgb, var(--p-indigo-500) 15%, transparent); color: var(--p-indigo-700); }
+.res-file { background: color-mix(in srgb, var(--p-teal-500) 15%, transparent); color: var(--p-teal-700); }
+.res-form { background: color-mix(in srgb, var(--p-pink-500) 15%, transparent); color: var(--p-pink-700); }
+.res-tool_call { background: color-mix(in srgb, var(--p-purple-500) 15%, transparent); color: var(--p-purple-700); }
+
+.response-preview-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 500px;
 }
 .rule-actions {
     display: flex;
     gap: 4px;
     flex-shrink: 0;
 }
+.test-match-type {
+    font-size: 0.75rem;
+    padding: 1px 6px;
+    border-radius: 4px;
+    background: var(--p-surface-100);
+    color: var(--p-surface-600);
+}
+.test-confidence {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--p-primary-600);
+}
+
+/* Custom Rule Fields */
+.form-divider {
+    border: 0;
+    border-top: 1px solid var(--p-surface-200);
+    margin: 20px 0;
+}
+.form-section-title {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--p-surface-800);
+    margin: 0 0 12px 0;
+}
+.response-sub-panel {
+    background: var(--p-surface-50);
+    border-left: 3px solid var(--p-primary-500);
+    padding: 16px;
+    border-radius: 0 8px 8px 0;
+    margin-top: 12px;
+    box-shadow: inset 0 1px 2px rgba(0,0,0,0.02);
+}
+.command-settings-panel {
+    background: color-mix(in srgb, var(--p-primary-50) 40%, transparent);
+    border: 1px solid var(--p-primary-100);
+    padding: 14px;
+    border-radius: 8px;
+    margin-top: 12px;
+}
+.mt-2 { margin-top: 8px; }
+.mt-3 { margin-top: 16px; }
+.font-italic { font-style: italic; }
+.flex-2 { flex: 2; }
+.flex-3 { flex: 3; }
+
+/* Dynamic Fields Builder */
+.form-fields-builder {
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    overflow: hidden;
+    background: var(--p-surface-0);
+}
+.builder-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: var(--p-surface-50);
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--p-surface-200);
+    font-size: 0.85rem;
+}
+.builder-empty {
+    padding: 24px;
+    text-align: center;
+    color: var(--p-surface-400);
+    font-size: 0.85rem;
+}
+.builder-list {
+    display: flex;
+    flex-direction: column;
+    padding: 8px;
+    gap: 8px;
+}
+.field-item-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px;
+    background: var(--p-surface-50);
+    border: 1px solid var(--p-surface-100);
+    border-radius: 6px;
+    transition: background 0.15s;
+}
+.field-item-row:hover {
+    background: var(--p-surface-100);
+}
+.field-item-col {
+    display: flex;
+    align-items: center;
+}
+.text-xs { font-size: 0.75rem; }
 
 /* Dialog Form */
 .dialog-form { display: flex; flex-direction: column; gap: 16px; }

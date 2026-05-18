@@ -1,0 +1,480 @@
+/* ─── Fixed Header ─────────────────────────────────────────── */
+.page-header {
+    position: sticky;
+    z-index: 100;
+    height: 60px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+}
+
+.back-link {
+    color: var(--p-primary-400);
+    text-decoration: none;
+    font-size: 0.82rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    white-space: nowrap;
+    flex-shrink: 0;
+    transition: color 0.15s;
+}
+
+.back-link:hover {
+    color: var(--p-primary-600);
+}
+
+.header-divider {
+    color: var(--p-surface-300);
+    font-size: 1.1rem;
+    flex-shrink: 0;
+}
+
+.header-title {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--p-text-color);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    margin: 0;
+}
+
+.header-right {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-shrink: 0;
+}
+
+.saved-badge {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.8rem;
+    color: var(--p-green-600);
+    font-weight: 600;
+    animation: fadeInDown 0.2s ease;
+}
+
+@keyframes fadeInDown {
+    from { opacity: 0; transform: translateY(-4px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ─── Page Body ─────────────────────────────────────────────── */
+.page-body {
+    padding-top: 16px;
+    padding-bottom: 32px;
+    margin: 0 auto;
+}
+
+/* ─── Tab Navigation ────────────────────────────────────────── */
+.tab-nav {
+    display: flex;
+    gap: 2px;
+    border-bottom: 2px solid var(--p-surface-200);
+    margin-bottom: 28px;
+    flex-wrap: wrap;
+}
+
+.tab-btn {
+    padding: 9px 18px;
+    font-size: 0.84rem;
+    font-weight: 600;
+    color: var(--p-text-color-secondary);
+    border: none;
+    background: transparent;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -2px;
+    cursor: pointer;
+    border-radius: 6px 6px 0 0;
+    transition: color 0.15s, border-color 0.15s, background 0.15s;
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    white-space: nowrap;
+}
+
+.tab-btn:hover {
+    color: var(--p-primary-500);
+    background: var(--p-surface-50);
+}
+
+.tab-btn.active {
+    color: var(--p-primary-500);
+    border-bottom-color: var(--p-primary-500);
+    background: var(--p-primary-50);
+}
+
+.tab-badge {
+    font-size: 0.68rem;
+    font-weight: 700;
+    background: var(--p-surface-200);
+    color: var(--p-surface-600);
+    border-radius: 10px;
+    padding: 1px 7px;
+    line-height: 1.6;
+}
+
+.tab-btn.active .tab-badge {
+    background: var(--p-primary-100);
+    color: var(--p-primary-700);
+}
+
+/* ─── Section Headers ───────────────────────────────────────── */
+.section-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.section-heading {
+    font-size: 1rem;
+    font-weight: 700;
+    color: var(--p-text-color);
+    margin: 0 0 3px 0;
+}
+
+.section-sub {
+    font-size: 0.8rem;
+    color: var(--p-text-color-secondary);
+    margin: 0;
+}
+
+/* ─── Cards ─────────────────────────────────────────────────── */
+.list-card {
+    background-color: var(--p-surface-0);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 10px;
+    margin-bottom: 10px;
+}
+
+:deep(.p-card-content) {
+    padding: 0;
+}
+
+.list-card-content {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.info h3 {
+    font-size: 0.95rem;
+    margin: 0 0 2px 0;
+    color: var(--p-surface-900);
+    font-weight: 600;
+}
+
+.subtitle {
+    color: var(--p-text-color-secondary);
+    font-size: 0.8rem;
+    margin: 0;
+}
+
+.card-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+/* ─── Empty State ───────────────────────────────────────────── */
+.empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    border: 1px dashed var(--p-surface-200);
+    border-radius: 10px;
+    background: var(--p-surface-50);
+}
+
+.empty-state-icon {
+    font-size: 2rem;
+    color: var(--p-surface-300);
+    margin-bottom: 10px;
+}
+
+.empty-state p {
+    color: var(--p-text-color-secondary);
+    font-size: 0.85rem;
+    margin: 0 0 16px 0;
+}
+
+/* ─── Badges ─────────────────────────────────────────────────── */
+.badge {
+    font-size: 0.7rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    background: var(--p-surface-100);
+    color: var(--p-surface-600);
+}
+
+.badge-success {
+    background: var(--p-green-100);
+    color: var(--p-green-700);
+}
+
+/* ─── API Keys ──────────────────────────────────────────────── */
+.key-label {
+    font-weight: 700;
+    font-size: 0.85rem;
+    color: var(--p-primary-500);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.key-meta {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 3px;
+    flex-wrap: wrap;
+}
+
+.key-config {
+    font-size: 0.75rem;
+    color: var(--p-text-color-secondary);
+}
+
+.key-date {
+    font-size: 0.75rem;
+    color: var(--p-text-color-secondary);
+}
+
+/* ─── Overview Cards ────────────────────────────────────────── */
+.overview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 12px;
+    margin-bottom: 24px;
+}
+
+.overview-card {
+    background: var(--p-surface-0);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 10px;
+    padding: 18px 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    cursor: pointer;
+    transition: border-color 0.15s, box-shadow 0.15s, background 0.15s;
+    text-decoration: none;
+}
+
+.overview-card:hover {
+    border-color: var(--p-primary-300);
+    box-shadow: 0 2px 10px rgba(0,0,0,0.06);
+    background: var(--p-primary-50);
+}
+
+.overview-card-icon {
+    font-size: 1.3rem;
+    color: var(--p-primary-400);
+    margin-bottom: 4px;
+}
+
+.overview-card-label {
+    font-size: 0.82rem;
+    font-weight: 700;
+    color: var(--p-text-color);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.overview-card-value {
+    font-size: 1.6rem;
+    font-weight: 800;
+    color: var(--p-primary-500);
+    line-height: 1;
+}
+
+.overview-card-sub {
+    font-size: 0.75rem;
+    color: var(--p-text-color-secondary);
+}
+
+/* ─── Quick Links ───────────────────────────────────────────── */
+.quick-links {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 10px;
+    margin-bottom: 8px;
+}
+
+.quick-link-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--p-surface-0);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 10px;
+    padding: 14px 16px;
+    cursor: pointer;
+    text-decoration: none;
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.quick-link-card:hover {
+    border-color: var(--p-primary-300);
+    box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+}
+
+.quick-link-icon {
+    width: 36px;
+    height: 36px;
+    border-radius: 8px;
+    background: var(--p-primary-50);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    color: var(--p-primary-500);
+    flex-shrink: 0;
+}
+
+.quick-link-text h4 {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: var(--p-text-color);
+    margin: 0 0 2px 0;
+}
+
+.quick-link-text p {
+    font-size: 0.75rem;
+    color: var(--p-text-color-secondary);
+    margin: 0;
+}
+
+/* ─── Settings Form ─────────────────────────────────────────── */
+.form-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+
+.form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.form-group label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--p-text-color-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.form-group small {
+    font-size: 0.74rem;
+    color: var(--p-text-color-secondary);
+}
+
+.col-span-2 {
+    grid-column: 1 / -1;
+}
+
+/* ─── Database Schema Block ─────────────────────────────────── */
+.schema-label-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+
+.schema-label-row label {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--p-text-color-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+/* ─── Dialog Forms ──────────────────────────────────────────── */
+.form {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.dialog-form-group {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.dialog-form-group label {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: var(--p-surface-700);
+}
+
+.dialog-form-group small {
+    font-size: 0.75rem;
+    color: var(--p-text-color-secondary);
+}
+
+/* ─── Generated Key ─────────────────────────────────────────── */
+.generated-key-container {
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-300);
+    border-radius: 8px;
+    padding: 14px 16px;
+}
+
+.code-block {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: var(--p-primary-500);
+    word-break: break-all;
+    line-height: 1.5;
+    margin-bottom: 8px;
+}
+
+.warning-text {
+    color: var(--p-orange-600);
+    font-size: 0.78rem;
+    font-weight: 600;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    margin: 0;
+}
+
+/* ─── Info Text ─────────────────────────────────────────────── */
+.info-text {
+    font-size: 0.78rem;
+    color: var(--p-text-color-secondary);
+}
+
+/* ─── Responsive ────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .page-header { padding: 0 12px; }
+    .form-grid { grid-template-columns: 1fr; }
+    .col-span-2 { grid-column: unset; }
+    .overview-grid { grid-template-columns: 1fr 1fr; }
+    .quick-links { grid-template-columns: 1fr; }
+    .tab-btn { padding: 7px 12px; font-size: 0.78rem; }
+    .list-card-content { flex-direction: column; align-items: stretch; }
+    .card-actions { flex-wrap: wrap; }
+}

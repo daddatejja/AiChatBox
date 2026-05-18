@@ -97,6 +97,11 @@ namespace AiChatBox.Api.Services
             await using var db = await _dbFactory.CreateDbContextAsync();
             var config = await db.Configurations
                 .FirstOrDefaultAsync(c => c.ProjectId == message.ProjectId && c.Name == "Default");
+            if (config == null)
+            {
+                config = await db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == message.ProjectId);
+            }
 
             if (config == null || string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
                 throw new InvalidOperationException("Project configuration settings are missing.");

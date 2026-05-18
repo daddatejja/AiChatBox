@@ -84,7 +84,24 @@ namespace AiChatBox.Api.DTOs
         public string? Error { get; set; }
         public ReportDownloadDto? ReportInfo { get; set; }
         public ToolResultDto? ToolResult { get; set; }
+        /// <summary>
+        /// Populated when a conversation rule with a non-text ResponseType matches.
+        /// The widget reads this to render redirect/card/file/form responses.
+        /// </summary>
+        public RuleResponseChunk? RuleResponse { get; set; }
     }
+
+    /// <summary>
+    /// Rich rule response payload sent to the widget in a stream chunk.
+    /// </summary>
+    public class RuleResponseChunk
+    {
+        /// <summary>text | redirect | card | ai | file | form | tool_call</summary>
+        public string ResponseType { get; set; } = "text";
+        /// <summary>Raw JSON payload for non-text response types (mirrors ConversationRule.ResponsePayload)</summary>
+        public string? Payload { get; set; }
+    }
+
 
     public class ToolCallDto
     {
@@ -110,6 +127,7 @@ namespace AiChatBox.Api.DTOs
 
     public class ChatConfigDto
     {
+        public Guid ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
         public string DefaultProvider { get; set; } = "gemini";
         public string DefaultModel { get; set; } = "gemini-3.1-flash-lite-preview";

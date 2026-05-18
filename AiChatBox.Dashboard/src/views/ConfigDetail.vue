@@ -10,6 +10,7 @@ import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Password from 'primevue/password';
 import InputNumber from 'primevue/inputnumber';
+import Slider from 'primevue/slider';
 
 const route = useRoute();
 const { apiFetch } = useApi();
@@ -49,6 +50,8 @@ const config = reactive({
     hasCustomProviderKey: false,
     handoffEnabled: false,
     handoffTriggerKeywords: '',
+    handoffEscalationCriteria: '',
+    handoffConfidenceThreshold: 70,
     handoffQueueMessage: '',
     themeSettingsJson: '',
     channelSettingsJson: ''
@@ -214,6 +217,10 @@ async function load() {
     if (res.ok) {
         const data = await res.json();
         Object.assign(config, data);
+        // Convert confidence threshold from 0.0-1.0 (API) to 0-100 (UI slider)
+        if (data.handoffConfidenceThreshold != null) {
+            config.handoffConfidenceThreshold = Math.round(data.handoffConfidenceThreshold * 100);
+        }
         originalPrompt.value = data.systemPrompt || '';
         promptDirty.value = false;
 
@@ -311,6 +318,8 @@ async function save() {
         changeNote: changeNote.value || null,
         handoffEnabled: config.handoffEnabled,
         handoffTriggerKeywords: config.handoffTriggerKeywords,
+        handoffEscalationCriteria: config.handoffEscalationCriteria,
+        handoffConfidenceThreshold: config.handoffConfidenceThreshold / 100,
         handoffQueueMessage: config.handoffQueueMessage,
         themeSettingsJson: JSON.stringify(theme),
         channelSettingsJson: JSON.stringify(channels)
@@ -862,16 +871,31 @@ onMounted(() => { loadProviders(); load(); });
                             <label for="handoffEnabled" class="font-medium">Enable Human Handoff</label>
                         </div>
                     </div>
-                    <div v-if="config.handoffEnabled" class="grid-2 mt-4">
+                    <div v-if="config.handoffEnabled" class="mt-4">
+                        <!-- AI-Powered Escalation Criteria -->
                         <div class="form-group">
-                            <label>Trigger Keywords (Comma separated)</label>
-                            <InputText v-model="config.handoffTriggerKeywords" placeholder="e.g. human, agent, support, escalate" fluid />
-                            <small class="info-text">If a user message contains any of these words, they will be placed in the queue.</small>
+                            <label>🧠 Escalation Criteria (AI-Powered)</label>
+                            <Textarea v-model="config.handoffEscalationCriteria" rows="3" placeholder="e.g. User is frustrated, requests human help, has a billing dispute, or the AI has failed to answer their question after 2 attempts" fluid />
+                            <small class="info-text">Describe in plain English when a conversation should be escalated. The AI will detect these situations semantically — no keyword guessing needed.</small>
                         </div>
-                        <div class="form-group">
-                            <label>Queue Message</label>
-                            <InputText v-model="config.handoffQueueMessage" placeholder="I'm connecting you with a live agent. Please hold on." fluid />
-                            <small class="info-text">The message shown to the user while they wait for an agent.</small>
+
+                        <div class="form-group mt-4">
+                            <label>Escalation Confidence: {{ config.handoffConfidenceThreshold }}%</label>
+                            <Slider v-model="config.handoffConfidenceThreshold" :min="30" :max="100" :step="5" />
+                            <small class="info-text">Lower = more sensitive (may escalate too often). Higher = more precise (may miss some cases).</small>
+                        </div>
+
+                        <div class="grid-2 mt-4">
+                            <div class="form-group">
+                                <label>Fallback Keywords <small class="info-text">(optional, comma-separated)</small></label>
+                                <InputText v-model="config.handoffTriggerKeywords" placeholder="e.g. human, agent, support, escalate" fluid />
+                                <small class="info-text">Instant-match keywords for explicit escalation requests. These run before AI classification at zero cost.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Queue Message</label>
+                                <InputText v-model="config.handoffQueueMessage" placeholder="I'm connecting you with a live agent. Please hold on." fluid />
+                                <small class="info-text">The message shown to the user while they wait for an agent.</small>
+                            </div>
                         </div>
                     </div>
                 </template>

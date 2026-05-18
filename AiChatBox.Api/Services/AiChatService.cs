@@ -173,6 +173,10 @@ namespace AiChatBox.Api.Services
             {
                 // Find the project's default configuration if not specified
                 config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == "Default");
+                if (config == null)
+                {
+                    config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id);
+                }
             }
 
             if (config != null)
@@ -250,31 +254,74 @@ namespace AiChatBox.Api.Services
             var apiKeyOverride = _llmFactory.ResolveApiKey(provider, config);
 
             // ─── Rule-Based Response Engine ───
-            // Check rules BEFORE any LLM call. If a rule matches, we stream the static
-            // response instantly and exit — zero LLM cost.
+            // Check rules BEFORE any LLM call. If a rule matches and ResponseType is not "ai",
+            // we respond instantly — zero LLM cost. For "ai" type, we inject a custom prompt
+            // and continue to the LLM as normal.
             if (project != null && request.ToolResults == null && !string.IsNullOrEmpty(request.Message))
             {
-                var ruleResponse = await _ruleEngine.TryMatchAsync(project.Id, request.Message);
-                if (ruleResponse != null)
+                var ruleResult = await _ruleEngine.TryMatchAsync(project.Id, request.Message, config,
+                    contextMessages.Where(m => m.Role == "user").Select(m => m.Content).TakeLast(3).ToList(),
+                    cancellationToken);
+                if (ruleResult != null)
                 {
-                    _logger.LogInformation("Rule matched for project {ProjectId}, skipping LLM", project.Id);
-                    var ruleMsg = await SaveMessageAsync(session.Id, "model", ruleResponse);
-                    yield return new ChatStreamChunk { Text = ruleResponse, SessionId = session.Id };
+                    var rType = (ruleResult.ResponseType ?? "text").ToLowerInvariant();
 
-                    // Log as a zero-cost request
-                    await _loggingService.LogRequestAsync(new Models.AiRequestLog
+                    _logger.LogInformation("Rule matched ({MatchType}/{ResponseType}, confidence={Confidence:F2}) for project {ProjectId}",
+                        ruleResult.MatchType, rType, ruleResult.Confidence, project.Id);
+
+                    if (rType == "ai")
                     {
-                        SessionId = session.Id,
-                        Provider = "rules",
-                        Model = "rule-engine",
-                        InputTokens = 0,
-                        OutputTokens = 0,
-                        DurationMs = 1,
-                        CreatedAt = DateTime.UtcNow
-                    });
+                        // Inject additional prompt instructions and fall through to LLM
+                        if (!string.IsNullOrWhiteSpace(ruleResult.ResponsePayload))
+                            systemPrompt = systemPrompt + "\n\n[RULE CONTEXT]\n" + ruleResult.ResponsePayload;
+                        // Do NOT yield break — fall through to LLM below
+                    }
+                    else
+                    {
+                        // All other types short-circuit the LLM
+                        string savedContent = rType == "text"
+                            ? ruleResult.Response
+                            : $"[{rType.ToUpperInvariant()} RESPONSE] {ruleResult.ResponsePayload}";
 
-                    yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = ruleMsg.Id };
-                    yield break;
+                        var ruleMsg = await SaveMessageAsync(session.Id, "model", savedContent);
+
+                        if (rType == "text")
+                        {
+                            yield return new ChatStreamChunk { Text = ruleResult.Response, SessionId = session.Id };
+                        }
+                        else
+                        {
+                            // Send a rich response chunk; widget handles rendering
+                            yield return new ChatStreamChunk
+                            {
+                                SessionId = session.Id,
+                                RuleResponse = new DTOs.RuleResponseChunk
+                                {
+                                    ResponseType = rType,
+                                    Payload = ruleResult.ResponsePayload
+                                }
+                            };
+
+                            // Also stream any text (e.g. card body or redirect message) for non-widget clients
+                            if (!string.IsNullOrWhiteSpace(ruleResult.Response))
+                                yield return new ChatStreamChunk { Text = ruleResult.Response, SessionId = session.Id };
+                        }
+
+                        // Log as a zero-cost request
+                        await _loggingService.LogRequestAsync(new Models.AiRequestLog
+                        {
+                            SessionId = session.Id,
+                            Provider = "rules",
+                            Model = ruleResult.MatchType == "intent" ? "intent-classifier" : "rule-engine",
+                            InputTokens = 0,
+                            OutputTokens = 0,
+                            DurationMs = 1,
+                            CreatedAt = DateTime.UtcNow
+                        });
+
+                        yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = ruleMsg.Id };
+                        yield break;
+                    }
                 }
             }
 
@@ -350,12 +397,22 @@ namespace AiChatBox.Api.Services
                 yield break;
             }
 
-            // Check if message triggers handoff (keyword-based)
+            // Check if message triggers handoff (keyword + intent classification)
             if (config != null && config.HandoffEnabled && request.ToolResults == null && !string.IsNullOrEmpty(request.Message))
             {
-                if (_handoffService.ShouldTriggerHandoff(request.Message, config))
+                var recentUserMessages = contextMessages
+                    .Where(m => m.Role == "user")
+                    .Select(m => m.Content)
+                    .TakeLast(5)
+                    .ToList();
+
+                var handoffResult = await _handoffService.ShouldTriggerHandoffAsync(
+                    request.Message, config, recentUserMessages, cancellationToken);
+
+                if (handoffResult.ShouldEscalate)
                 {
-                    _logger.LogInformation("Handoff triggered for session {SessionId}", session.Id);
+                    _logger.LogInformation("Handoff triggered for session {SessionId} ({MatchType}, confidence={Confidence:F2})",
+                        session.Id, handoffResult.MatchType, handoffResult.Confidence);
                     await _handoffService.QueueSessionAsync(session.Id);
 
                     var queueMsg = config.HandoffQueueMessage ?? "I'm connecting you with a live agent. Please hold on — someone will be with you shortly.";

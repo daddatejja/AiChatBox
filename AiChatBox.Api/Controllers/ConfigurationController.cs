@@ -108,6 +108,8 @@ namespace AiChatBox.Api.Controllers
                 PromptTemplateVariablesJson = config.PromptTemplateVariablesJson,
                 HandoffEnabled = config.HandoffEnabled,
                 HandoffTriggerKeywords = config.HandoffTriggerKeywords,
+                HandoffEscalationCriteria = config.HandoffEscalationCriteria,
+                HandoffConfidenceThreshold = config.HandoffConfidenceThreshold,
                 HandoffQueueMessage = config.HandoffQueueMessage,
                 ThemeSettingsJson = config.ThemeSettingsJson,
                 ChannelSettingsJson = config.ChannelSettingsJson,
@@ -192,10 +194,14 @@ namespace AiChatBox.Api.Controllers
                     if (incomingKeys != null)
                     {
                         // Load existing keys
-                        var existingKeys = new Dictionary<string, string>();
+                        var existingKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
                         if (!string.IsNullOrEmpty(config.ProviderKeysJson))
                         {
-                            try { existingKeys = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson) ?? []; }
+                            try 
+                            { 
+                                var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson);
+                                if (parsed != null) existingKeys = new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+                            }
                             catch { }
                         }
 
@@ -233,6 +239,8 @@ namespace AiChatBox.Api.Controllers
             if (model.PromptTemplateVariablesJson != null) config.PromptTemplateVariablesJson = string.IsNullOrEmpty(model.PromptTemplateVariablesJson) ? null : model.PromptTemplateVariablesJson;
             if (model.HandoffEnabled.HasValue) config.HandoffEnabled = model.HandoffEnabled.Value;
             if (model.HandoffTriggerKeywords != null) config.HandoffTriggerKeywords = string.IsNullOrEmpty(model.HandoffTriggerKeywords) ? null : model.HandoffTriggerKeywords;
+            if (model.HandoffEscalationCriteria != null) config.HandoffEscalationCriteria = string.IsNullOrEmpty(model.HandoffEscalationCriteria) ? null : model.HandoffEscalationCriteria;
+            if (model.HandoffConfidenceThreshold.HasValue) config.HandoffConfidenceThreshold = model.HandoffConfidenceThreshold.Value;
             if (model.HandoffQueueMessage != null) config.HandoffQueueMessage = string.IsNullOrEmpty(model.HandoffQueueMessage) ? null : model.HandoffQueueMessage;
             if (model.ThemeSettingsJson != null) config.ThemeSettingsJson = string.IsNullOrEmpty(model.ThemeSettingsJson) ? null : model.ThemeSettingsJson;
             if (model.ChannelSettingsJson != null) config.ChannelSettingsJson = string.IsNullOrEmpty(model.ChannelSettingsJson) ? null : model.ChannelSettingsJson;

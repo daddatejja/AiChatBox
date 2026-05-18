@@ -119,19 +119,80 @@ namespace AiChatBox.Api.Models
         public Guid ProjectId { get; set; }
         public Project? Project { get; set; }
 
-        /// <summary>keyword, regex, or exact</summary>
+        /// <summary>keyword, regex, exact, intent, or command</summary>
         [Required]
         [MaxLength(20)]
         public string Type { get; set; } = "keyword";
 
-        /// <summary>The trigger pattern: keyword(s), regex pattern, or exact question text.</summary>
+        /// <summary>
+        /// For keyword/regex/exact: the trigger pattern.
+        /// For intent: a plain-English description of the user's intent.
+        /// Example: "User is asking about pricing or subscription plans"
+        /// </summary>
         [Required]
-        [MaxLength(1000)]
+        [MaxLength(2000)]
         public string Trigger { get; set; } = string.Empty;
 
-        /// <summary>The static response to send when the rule matches.</summary>
+        /// <summary>
+        /// A short label for this intent (used as the intent ID in LLM classification).
+        /// Example: "pricing", "refund_request", "business_hours"
+        /// </summary>
+        [MaxLength(100)]
+        public string? IntentLabel { get; set; }
+
+        // ── Command-type fields ────────────────────────────────────────────────
+
+        /// <summary>
+        /// For command-type rules: the command name users type after the trigger char.
+        /// Example: "pricing" (user types "/pricing").
+        /// </summary>
+        [MaxLength(100)]
+        public string? CommandName { get; set; }
+
+        /// <summary>
+        /// The special character that prefixes the command. Defaults to "/".
+        /// Allowed: "/", "#", "@".
+        /// </summary>
+        [MaxLength(1)]
+        public string CommandTriggerChar { get; set; } = "/";
+
+        /// <summary>
+        /// Short description shown in the widget autocomplete popup.
+        /// Example: "Get pricing and subscription info"
+        /// </summary>
+        [MaxLength(200)]
+        public string? CommandDescription { get; set; }
+
+        // ── Rich response fields ───────────────────────────────────────────────
+
+        /// <summary>
+        /// Determines how the response is delivered.
+        /// Values: text | redirect | card | ai | file | form | tool_call
+        /// Defaults to "text" for backward compatibility.
+        /// </summary>
+        [MaxLength(20)]
+        public string ResponseType { get; set; } = "text";
+
+        /// <summary>
+        /// Structured JSON payload for non-text response types.
+        /// - redirect:  { "url": "https://..." }
+        /// - card:      { "title": "...", "body": "...", "buttonLabel": "...", "buttonUrl": "..." }
+        /// - ai:        Additional system prompt text (plain string, not JSON)
+        /// - file:      { "fileUrl": "...", "fileName": "...", "mimeType": "..." }
+        /// - form:      { "fields": [{"name","label","type","required"}], "webhookUrl": "...", "submitLabel": "..." }
+        /// - tool_call: { "toolName": "...", "parameters": { ... } }
+        /// </summary>
+        public string? ResponsePayload { get; set; }
+
+        /// <summary>The static text response (used when ResponseType = "text").</summary>
         [Required]
         public string Response { get; set; } = string.Empty;
+
+        /// <summary>
+        /// Minimum confidence score (0.0 to 1.0) required to trigger this rule.
+        /// Only used for intent-type rules. Lower = more sensitive, higher = more precise.
+        /// </summary>
+        public double ConfidenceThreshold { get; set; } = 0.75;
 
         /// <summary>Higher priority rules are checked first.</summary>
         public int Priority { get; set; } = 0;
@@ -260,9 +321,24 @@ namespace AiChatBox.Api.Models
 
         /// <summary>
         /// Comma-separated keywords that trigger escalation (e.g. "human,agent,help,escalate").
+        /// Kept for backward compatibility and as a fast-path check.
         /// </summary>
         [MaxLength(1000)]
         public string? HandoffTriggerKeywords { get; set; }
+
+        /// <summary>
+        /// Plain-English description of when to escalate to a human agent.
+        /// Used for LLM-powered intent classification when keywords don't match.
+        /// Example: "User is frustrated, requests human help, or has a billing dispute"
+        /// </summary>
+        [MaxLength(2000)]
+        public string? HandoffEscalationCriteria { get; set; }
+
+        /// <summary>
+        /// Confidence threshold for LLM-based escalation detection (0.0-1.0).
+        /// Default 0.7 for slightly more sensitive triggering.
+        /// </summary>
+        public double HandoffConfidenceThreshold { get; set; } = 0.7;
 
         /// <summary>Message shown to the user when placed in queue.</summary>
         [MaxLength(500)]

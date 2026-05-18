@@ -133,6 +133,7 @@ builder.Services.AddScoped<FlowExecutionService>();
 builder.Services.AddScoped<ITool, InternalSqlTool>();
 builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
+builder.Services.AddScoped<IntentClassifierService>();
 builder.Services.AddScoped<RuleEngine>();
 
 builder.Services.AddScoped<IAiChatService, AiChatService>();
@@ -202,6 +203,22 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine("[Startup] Running Migrations...");
         db.Database.Migrate();
         Console.WriteLine("[Startup] Migrations completed successfully.");
+
+        // Print projects and API keys for debugging/testing
+        var projects = db.Projects.ToList();
+        Console.WriteLine("[Startup] Active Projects:");
+        foreach (var p in projects)
+        {
+            var keyObj = db.ApiKeys.FirstOrDefault(k => k.ProjectId == p.Id);
+            Console.WriteLine($"[Startup] Project ID: {p.Id}, Name: {p.Name}, ApiKey Hash: {(keyObj != null ? keyObj.KeyHash : "None")}");
+        }
+
+        var apiKeys = db.ApiKeys.ToList();
+        Console.WriteLine("[Startup] Active ApiKeys:");
+        foreach (var k in apiKeys)
+        {
+            Console.WriteLine($"[Startup] Key Id: {k.Id}, ProjectId: {k.ProjectId}, Label: {k.Label}, Hash: {k.KeyHash}");
+        }
     }
     catch (Exception ex)
     {

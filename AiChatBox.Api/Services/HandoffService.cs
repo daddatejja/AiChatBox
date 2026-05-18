@@ -5,26 +5,73 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Services
 {
-    public class HandoffService(ChatDbContext db, IHubContext<LiveChatHub> hubContext, ILogger<HandoffService> logger)
+    public class HandoffService(ChatDbContext db, IHubContext<LiveChatHub> hubContext, IntentClassifierService classifier, ILogger<HandoffService> logger)
     {
         private readonly ChatDbContext _db = db;
         private readonly IHubContext<LiveChatHub> _hubContext = hubContext;
+        private readonly IntentClassifierService _classifier = classifier;
         private readonly ILogger<HandoffService> _logger = logger;
 
         /// <summary>
-        /// Checks if a user message matches any handoff trigger keywords.
-        /// Returns true if the session should be escalated.
+        /// Checks if a user message should trigger escalation to a human agent.
+        /// Uses a two-phase approach:
+        /// 1. Fast keyword check (instant, zero-cost, backward-compatible)
+        /// 2. LLM-based intent classification using escalation criteria (if keywords didn't match)
         /// </summary>
-        public bool ShouldTriggerHandoff(string message, ProjectConfiguration? config)
+        public async Task<HandoffCheckResult> ShouldTriggerHandoffAsync(
+            string message,
+            ProjectConfiguration? config,
+            List<string>? recentMessages = null,
+            CancellationToken cancellationToken = default)
         {
-            if (config == null || !config.HandoffEnabled || string.IsNullOrEmpty(config.HandoffTriggerKeywords))
-                return false;
+            if (config == null || !config.HandoffEnabled)
+                return HandoffCheckResult.NoMatch;
 
-            var keywords = config.HandoffTriggerKeywords
-                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            // ─── Phase 1: Fast keyword check (backward-compatible) ───
+            if (!string.IsNullOrEmpty(config.HandoffTriggerKeywords))
+            {
+                var keywords = config.HandoffTriggerKeywords
+                    .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
-            var lowerMessage = message.ToLowerInvariant();
-            return keywords.Any(kw => lowerMessage.Contains(kw.ToLowerInvariant()));
+                var lowerMessage = message.ToLowerInvariant();
+                if (keywords.Any(kw => lowerMessage.Contains(kw.ToLowerInvariant())))
+                {
+                    _logger.LogInformation("Handoff triggered by keyword match");
+                    return new HandoffCheckResult(true, 1.0, "keyword", "Keyword match");
+                }
+            }
+
+            // ─── Phase 2: LLM-based escalation detection ───
+            if (!string.IsNullOrEmpty(config.HandoffEscalationCriteria))
+            {
+                try
+                {
+                    var result = await _classifier.CheckEscalationAsync(
+                        message,
+                        recentMessages,
+                        config.HandoffEscalationCriteria,
+                        config,
+                        cancellationToken);
+
+                    if (result.IntentId == "escalation" && result.Confidence >= config.HandoffConfidenceThreshold)
+                    {
+                        _logger.LogInformation(
+                            "Handoff triggered by intent classification (confidence={Confidence:F2}, threshold={Threshold:F2})",
+                            result.Confidence, config.HandoffConfidenceThreshold);
+                        return new HandoffCheckResult(true, result.Confidence, "intent", result.Reasoning);
+                    }
+
+                    _logger.LogDebug(
+                        "Escalation check returned intent='{Intent}' confidence={Confidence:F2} (threshold={Threshold:F2}) — no escalation",
+                        result.IntentId, result.Confidence, config.HandoffConfidenceThreshold);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "LLM escalation check failed, not escalating");
+                }
+            }
+
+            return HandoffCheckResult.NoMatch;
         }
 
         /// <summary>
@@ -239,5 +286,17 @@ namespace AiChatBox.Api.Services
         public DateTime? ClaimedAt { get; set; }
         public string LastMessage { get; set; } = string.Empty;
         public int MessageCount { get; set; }
+    }
+
+    /// <summary>
+    /// Result of a handoff escalation check.
+    /// </summary>
+    public record HandoffCheckResult(
+        bool ShouldEscalate,
+        double Confidence,
+        string? MatchType = null,
+        string? Reason = null)
+    {
+        public static readonly HandoffCheckResult NoMatch = new(false, 0.0);
     }
 }

@@ -54,6 +54,8 @@ namespace AiChatBox.Api.DTOs
         public string? PromptTemplateVariablesJson { get; set; }
         public bool HandoffEnabled { get; set; }
         public string? HandoffTriggerKeywords { get; set; }
+        public string? HandoffEscalationCriteria { get; set; }
+        public double HandoffConfidenceThreshold { get; set; }
         public string? HandoffQueueMessage { get; set; }
         public string? ThemeSettingsJson { get; set; }
         public string? ChannelSettingsJson { get; set; }
@@ -98,6 +100,8 @@ namespace AiChatBox.Api.DTOs
         public string? ChangeNote { get; set; }
         public bool? HandoffEnabled { get; set; }
         public string? HandoffTriggerKeywords { get; set; }
+        public string? HandoffEscalationCriteria { get; set; }
+        public double? HandoffConfidenceThreshold { get; set; }
         public string? HandoffQueueMessage { get; set; }
         public string? ThemeSettingsJson { get; set; }
         public string? ChannelSettingsJson { get; set; }
