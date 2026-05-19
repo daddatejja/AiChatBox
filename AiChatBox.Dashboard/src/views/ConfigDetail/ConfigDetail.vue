@@ -512,57 +512,231 @@ const {
                  TAB: APPEARANCE
             ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'appearance'">
-                <p class="section-sub">Customize how the chat widget looks on your website.</p>
-                <Card class="provider-card">
-                    <template #content>
-                        <div class="grid-2">
-                            <div class="form-group">
-                                <label>Primary Color</label>
-                                <div class="color-picker-wrapper">
-                                    <input type="color" v-model="theme.primaryColor" class="color-input" />
-                                    <InputText v-model="theme.primaryColor" class="color-text" fluid />
+                <p class="section-sub">Customize how the chat widget looks on your website. All changes reflect in real-time in the preview below.</p>
+                
+                <div class="grid-2">
+                    <!-- Left Side: Styling Controls -->
+                    <div style="display: flex; flex-direction: column; gap: 16px;">
+                        <!-- Core Layout -->
+                        <Card class="config-card">
+                            <template #content>
+                                <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                                    <i class="pi pi-cog" style="color: var(--p-primary-500)"></i> Core Layout & Typography
+                                </h3>
+                                <div class="grid-2">
+                                    <div class="form-group">
+                                        <label>Primary Accent Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.primaryColor" class="color-input" />
+                                            <InputText v-model="theme.primaryColor" class="color-text" placeholder="#39a7b9" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Widget Background</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.bgColor" class="color-input" />
+                                            <InputText v-model="theme.bgColor" class="color-text" placeholder="#ffffff" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Font Family</label>
+                                        <Select v-model="theme.fontFamily" :options="fontOptions" optionLabel="label" optionValue="value" fluid />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Position on Screen</label>
+                                        <Select v-model="theme.position" :options="positionOptions" optionLabel="label" optionValue="value" fluid />
+                                    </div>
                                 </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Background Color</label>
-                                <div class="color-picker-wrapper">
-                                    <input type="color" v-model="theme.bgColor" class="color-input" />
-                                    <InputText v-model="theme.bgColor" class="color-text" fluid />
-                                </div>
-                            </div>
-                            <div class="form-group">
-                                <label>Font Family</label>
-                                <Select v-model="theme.fontFamily" :options="fontOptions" optionLabel="label" optionValue="value" fluid />
-                            </div>
-                            <div class="form-group">
-                                <label>Widget Position</label>
-                                <Select v-model="theme.position" :options="positionOptions" optionLabel="label" optionValue="value" fluid />
-                            </div>
-                        </div>
+                            </template>
+                        </Card>
 
+                        <!-- Header Customization -->
+                        <Card class="config-card">
+                            <template #content>
+                                <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                                    <i class="pi pi-window-minimize" style="color: var(--p-primary-500)"></i> Header Branding
+                                </h3>
+                                <div class="grid-2" style="margin-bottom: 12px;">
+                                    <div class="form-group">
+                                        <label>Widget Title</label>
+                                        <InputText v-model="theme.title" :placeholder="config.name || 'AI Assistant'" fluid />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Widget Subtitle</label>
+                                        <InputText v-model="theme.subtitle" placeholder="e.g. Ask me anything" fluid />
+                                    </div>
+                                </div>
+                                <div class="grid-2">
+                                    <div class="form-group">
+                                        <label>Header Background Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.headerBgColor" class="color-input" />
+                                            <InputText v-model="theme.headerBgColor" class="color-text" placeholder="Same as primary" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Header Text Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.headerTextColor" class="color-input" />
+                                            <InputText v-model="theme.headerTextColor" class="color-text" placeholder="#ffffff" fluid />
+                                        </div>
+                                    </div>
+                                </div>
+                            </template>
+                        </Card>
+
+                        <!-- Message Bubbles & Radii -->
+                        <Card class="config-card">
+                            <template #content>
+                                <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                                    <i class="pi pi-comments" style="color: var(--p-primary-500)"></i> Message Bubbles & Chat Area
+                                </h3>
+                                <div class="grid-2" style="margin-bottom: 12px;">
+                                    <div class="form-group">
+                                        <label>User Bubble Background</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.userBubbleBgColor" class="color-input" />
+                                            <InputText v-model="theme.userBubbleBgColor" class="color-text" placeholder="Same as primary" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>User Bubble Text</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.userBubbleTextColor" class="color-input" />
+                                            <InputText v-model="theme.userBubbleTextColor" class="color-text" placeholder="#ffffff" fluid />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid-2" style="margin-bottom: 12px;">
+                                    <div class="form-group">
+                                        <label>Bot Bubble Background</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.botBubbleBgColor" class="color-input" />
+                                            <InputText v-model="theme.botBubbleBgColor" class="color-text" placeholder="#ffffff" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Bot Bubble Text</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.botBubbleTextColor" class="color-input" />
+                                            <InputText v-model="theme.botBubbleTextColor" class="color-text" placeholder="#1e293b" fluid />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid-2">
+                                    <div class="form-group">
+                                        <label>Chat Area Background</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.chatBgColor" class="color-input" />
+                                            <InputText v-model="theme.chatBgColor" class="color-text" placeholder="#f7f9fc" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Input Placeholder Text</label>
+                                        <InputText v-model="theme.placeholder" placeholder="Message AI Assistant..." fluid />
+                                    </div>
+                                </div>
+                            </template>
+                        </Card>
+
+                        <!-- Launcher & Shapes -->
+                        <Card class="config-card">
+                            <template #content>
+                                <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
+                                    <i class="pi pi-tablet" style="color: var(--p-primary-500)"></i> Launcher Button & Border Radii
+                                </h3>
+                                <div class="grid-2" style="margin-bottom: 12px;">
+                                    <div class="form-group">
+                                        <label>Launcher Background</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.launcherBgColor" class="color-input" />
+                                            <InputText v-model="theme.launcherBgColor" class="color-text" placeholder="Same as primary" fluid />
+                                        </div>
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Launcher Icon Color</label>
+                                        <div class="color-picker-wrapper">
+                                            <input type="color" v-model="theme.launcherIconColor" class="color-input" />
+                                            <InputText v-model="theme.launcherIconColor" class="color-text" placeholder="#ffffff" fluid />
+                                        </div>
+                                    </div>
+                                </div>
+                                <div class="grid-3">
+                                    <div class="form-group">
+                                        <label>Chatbox Corner Radius</label>
+                                        <InputNumber v-model="theme.chatBorderRadius" :min="0" :max="40" suffix="px" showButtons fluid />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Message Corner Radius</label>
+                                        <InputNumber v-model="theme.bubbleBorderRadius" :min="0" :max="30" suffix="px" showButtons fluid />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Launcher Corner Radius</label>
+                                        <InputNumber v-model="theme.launcherBorderRadius" :min="0" :max="30" suffix="px" showButtons fluid />
+                                    </div>
+                                </div>
+                            </template>
+                        </Card>
+                    </div>
+
+                    <!-- Right Side: Real-Time Preview Panel -->
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <h3 class="section-heading" style="margin-left: 8px; margin-bottom: 0;">Interactive Live Preview</h3>
                         <div
                             class="theme-preview"
                             :style="{
                                 '--preview-primary': theme.primaryColor,
                                 '--preview-bg': theme.bgColor,
                                 '--preview-font': theme.fontFamily === 'system-ui' ? 'system-ui, sans-serif' : theme.fontFamily + ', sans-serif',
-                                'justify-content': theme.position === 'bottom-left' ? 'flex-start' : 'flex-end'
+                                '--preview-header-bg': theme.headerBgColor || theme.primaryColor,
+                                '--preview-header-text': theme.headerTextColor || '#ffffff',
+                                '--preview-user-msg-bg': theme.userBubbleBgColor || theme.primaryColor,
+                                '--preview-user-msg-text': theme.userBubbleTextColor || '#ffffff',
+                                '--preview-bot-msg-bg': theme.botBubbleBgColor || '#ffffff',
+                                '--preview-bot-msg-text': theme.botBubbleTextColor || '#1e293b',
+                                '--preview-chat-bg': theme.chatBgColor || '#f8fafc',
+                                '--preview-launcher-bg': theme.launcherBgColor || theme.primaryColor,
+                                '--preview-launcher-icon': theme.launcherIconColor || '#ffffff',
+                                '--preview-launcher-radius': (theme.launcherBorderRadius !== undefined ? theme.launcherBorderRadius : 16) + 'px',
+                                '--preview-chat-radius': (theme.chatBorderRadius !== undefined ? theme.chatBorderRadius : 10) + 'px',
+                                '--preview-bubble-radius': (theme.bubbleBorderRadius !== undefined ? theme.bubbleBorderRadius : 20) + 'px',
+                                'justify-content': theme.position === 'bottom-left' ? 'flex-start' : 'flex-end',
+                                'align-items': 'stretch',
+                                'height': 'auto',
+                                'min-height': '460px'
                             }"
                         >
-                            <div class="preview-widget">
-                                <div class="preview-header">Chat with us</div>
-                                <div class="preview-body">
-                                    <div class="preview-msg bot">Hi! How can I help you today?</div>
-                                    <div class="preview-msg user">I have a question about pricing.</div>
+                            <div :style="{ display: 'flex', 'flex-direction': 'column', 'align-items': theme.position === 'bottom-left' ? 'flex-start' : 'flex-end', gap: '16px', width: '100%', 'justify-content': 'flex-end' }">
+                                <!-- Mock Chatbox -->
+                                <div class="preview-widget" :style="{ 'border-radius': 'var(--preview-chat-radius)', width: '100%', 'max-width': '340px' }">
+                                    <div class="preview-header" :style="{ background: 'var(--preview-header-bg)', color: 'var(--preview-header-text)', display: 'flex', 'flex-direction': 'column', gap: '2px', padding: '12px 16px' }">
+                                        <span style="font-weight: 600; font-size: 0.95rem; line-height: 1.2;">{{ theme.title || config.name || 'AI Assistant' }}</span>
+                                        <span v-if="theme.subtitle" style="font-size: 0.75rem; opacity: 0.85; font-weight: 400; line-height: 1.2;">{{ theme.subtitle }}</span>
+                                    </div>
+                                    <div class="preview-body" :style="{ background: 'var(--preview-chat-bg)', padding: '16px', display: 'flex', 'flex-direction': 'column', gap: '12px' }">
+                                        <div class="preview-msg bot" :style="{ background: 'var(--preview-bot-msg-bg)', color: 'var(--preview-bot-msg-text)', 'border-radius': 'var(--preview-bubble-radius)', 'border-bottom-left-radius': '4px', padding: '10px 14px', 'font-size': '0.85rem', 'align-self': 'flex-start', 'max-width': '85%', 'box-shadow': '0 1px 2px rgba(0,0,0,0.05)' }">
+                                            Hi! How can I help you today?
+                                        </div>
+                                        <div class="preview-msg user" :style="{ background: 'var(--preview-user-msg-bg)', color: 'var(--preview-user-msg-text)', 'border-radius': 'var(--preview-bubble-radius)', 'border-bottom-right-radius': '4px', padding: '10px 14px', 'font-size': '0.85rem', 'align-self': 'flex-end', 'max-width': '85%', 'box-shadow': '0 1px 2px rgba(0,0,0,0.05)' }">
+                                            I have a question about pricing.
+                                        </div>
+                                    </div>
+                                    <div class="preview-input" :style="{ background: 'var(--preview-bg)', padding: '12px 16px', display: 'flex', 'justify-content': 'space-between', 'align-items': 'center', 'border-top': '1px solid var(--p-surface-200)' }">
+                                        <span style="font-size: 0.85rem; opacity: 0.7; color: var(--p-text-color-secondary);">{{ theme.placeholder || 'Message AI Assistant...' }}</span>
+                                        <div class="preview-send" :style="{ background: 'var(--preview-user-msg-bg)', color: 'var(--preview-user-msg-text)', width: '28px', height: '28px', 'border-radius': '50%', display: 'flex', 'align-items': 'center', 'justify-content': 'center' }">
+                                            <i class="pi pi-send" style="font-size: 0.75rem;"></i>
+                                        </div>
+                                    </div>
                                 </div>
-                                <div class="preview-input">
-                                    <span>Type your message…</span>
-                                    <div class="preview-send"><i class="pi pi-send"></i></div>
+                                
+                                <!-- Floating Mock Toggle FAB -->
+                                <div class="preview-launcher" :style="{ background: 'var(--preview-launcher-bg)', color: 'var(--preview-launcher-icon)', 'border-radius': 'var(--preview-launcher-radius)', display: 'flex', 'align-items': 'center', 'justify-content': 'center', width: '52px', height: '52px', 'box-shadow': '0 4px 12px rgba(0,0,0,0.15)', cursor: 'pointer' }">
+                                    <i class="pi pi-comments" style="font-size: 1.4rem;"></i>
                                 </div>
                             </div>
                         </div>
-                    </template>
-                </Card>
+                    </div>
+                </div>
             </div>
 
         </main>

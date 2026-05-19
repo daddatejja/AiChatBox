@@ -77,7 +77,27 @@ export function useConfigDetail() {
     });
 
     // ─── Theme Engine ───
-    const defaultTheme = { primaryColor: '#39a7b9', bgColor: '#ffffff', fontFamily: 'Outfit', position: 'bottom-right' };
+    const defaultTheme = {
+        primaryColor: '#39a7b9',
+        bgColor: '#ffffff',
+        fontFamily: 'Outfit',
+        position: 'bottom-right',
+        headerBgColor: '',
+        headerTextColor: '#ffffff',
+        userBubbleBgColor: '',
+        userBubbleTextColor: '#ffffff',
+        botBubbleBgColor: '#ffffff',
+        botBubbleTextColor: '#1e293b',
+        chatBgColor: '',
+        launcherBgColor: '',
+        launcherIconColor: '#ffffff',
+        launcherBorderRadius: 16,
+        chatBorderRadius: 10,
+        bubbleBorderRadius: 20,
+        title: '',
+        subtitle: '',
+        placeholder: ''
+    };
     const theme = reactive({ ...defaultTheme });
     const fontOptions = [
         { label: 'Outfit (Default)', value: 'Outfit' },
@@ -194,7 +214,10 @@ export function useConfigDetail() {
             parseTemplateVars(data.promptTemplateVariablesJson);
 
             if (data.themeSettingsJson) {
-                try { Object.assign(theme, JSON.parse(data.themeSettingsJson)); }
+                try {
+                    const parsed = JSON.parse(data.themeSettingsJson);
+                    Object.assign(theme, { ...defaultTheme, ...parsed });
+                }
                 catch { Object.assign(theme, defaultTheme); }
             } else {
                 Object.assign(theme, defaultTheme);

@@ -375,6 +375,61 @@
         this.style.setProperty("--widget-right", "24px");
         this.style.setProperty("--widget-left", "auto");
       }
+
+      // Extended customization custom properties
+      if (theme.headerBgColor) {
+        this.style.setProperty("--header-bg", theme.headerBgColor);
+      } else if (theme.primaryColor) {
+        this.style.setProperty("--header-bg", theme.primaryColor);
+      }
+      
+      if (theme.headerTextColor) {
+        this.style.setProperty("--header-text", theme.headerTextColor);
+      }
+      
+      if (theme.userBubbleBgColor) {
+        this.style.setProperty("--user-msg-bg", theme.userBubbleBgColor);
+      } else if (theme.primaryColor) {
+        this.style.setProperty("--user-msg-bg", `linear-gradient(135deg, ${theme.primaryColor} 0%, ${this.adjustColor(theme.primaryColor, -20)} 100%)`);
+      }
+      
+      if (theme.userBubbleTextColor) {
+        this.style.setProperty("--user-msg-text", theme.userBubbleTextColor);
+      }
+      
+      if (theme.botBubbleBgColor) {
+        this.style.setProperty("--bot-msg-bg", theme.botBubbleBgColor);
+      }
+      
+      if (theme.botBubbleTextColor) {
+        this.style.setProperty("--bot-msg-text", theme.botBubbleTextColor);
+      }
+      
+      if (theme.chatBgColor) {
+        this.style.setProperty("--chat-bg", theme.chatBgColor);
+      }
+      
+      if (theme.launcherBgColor) {
+        this.style.setProperty("--launcher-bg", theme.launcherBgColor);
+      } else if (theme.primaryColor) {
+        this.style.setProperty("--launcher-bg", `linear-gradient(135deg, ${theme.primaryColor} 0%, ${this.adjustColor(theme.primaryColor, -20)} 100%)`);
+      }
+      
+      if (theme.launcherIconColor) {
+        this.style.setProperty("--launcher-icon-color", theme.launcherIconColor);
+      }
+      
+      if (theme.launcherBorderRadius !== undefined && theme.launcherBorderRadius !== null) {
+        this.style.setProperty("--launcher-border-radius", `${theme.launcherBorderRadius}px`);
+      }
+      
+      if (theme.chatBorderRadius !== undefined && theme.chatBorderRadius !== null) {
+        this.style.setProperty("--chat-border-radius", `${theme.chatBorderRadius}px`);
+      }
+      
+      if (theme.bubbleBorderRadius !== undefined && theme.bubbleBorderRadius !== null) {
+        this.style.setProperty("--bubble-border-radius", `${theme.bubbleBorderRadius}px`);
+      }
     }
 
     // Helper to darken/lighten hex colors slightly for gradients
@@ -943,8 +998,8 @@
                     max-height: 150px;
                     white-space: pre-wrap;
                   }
-                  .agent-side .message-bubble { background: var(--primary-color, #6366f1); color: white; border-bottom-left-radius: 4px; border-bottom-right-radius: 12px; }
-                  .agent-avatar { background: var(--primary-color, #6366f1); color: white; }
+                  .agent-side .message-bubble { background: var(--bot-msg-bg, var(--primary-color, #6366f1)); color: var(--bot-msg-text, white); border-radius: var(--bubble-border-radius, 20px); border-bottom-left-radius: 4px; }
+                  .agent-avatar { background: var(--header-bg, var(--primary-color, #6366f1)); color: var(--header-text, white); }
                 </style>
                 
                 <button class="chatbox-toggle-btn" id="fab-toggle" title="Open AI Assistant">
@@ -956,7 +1011,10 @@
                     <div class="chatbox-header" id="drag-header">
                         <div class="chatbox-title">
                             ${this.icons.awesome}
-                            <span>${this.getAttribute("title") || this.config?.projectName || "AI Assistant"}</span>
+                            <div class="chatbox-title-text-group">
+                                <span class="chatbox-title-text">${this.getAttribute("title") || this.config?.theme?.title || this.config?.projectName || "AI Assistant"}</span>
+                                ${this.config?.theme?.subtitle ? `<span class="chatbox-subtitle-text">${this.config.theme.subtitle}</span>` : ''}
+                            </div>
                         </div>
                         <div class="chatbox-header-actions">
                             ${this.config?.liveVoiceEnabled !== false ? `<button class="header-action-btn" id="btn-live" title="Live Voice Mode">${this.icons.voice}</button>` : ''}
@@ -1006,7 +1064,7 @@
 
                         <div class="live-controls-bar glass-controls">
                             <div class="live-text-input-row">
-                                <textarea class="live-text-field" id="live-text-input" placeholder="Type a message..." rows="1"></textarea>
+                                <textarea class="live-text-field" id="live-text-input" placeholder="${this.config?.theme?.placeholder || "Type a message..."}" rows="1"></textarea>
                                 <button class="modern-action-btn live-send-btn" id="live-send-btn">${this.icons.send}</button>
                             </div>
                             <div class="live-action-buttons">
@@ -1053,7 +1111,7 @@
                                 <button class="modern-action-btn" id="btn-attach" title="Attach file">${this.icons.attach}</button>
                                 <input type="file" id="file-input" style="display:none" multiple>
                                 
-                                <textarea class="modern-chat-input" id="chat-input" placeholder="Message AI Assistant..." rows="1"></textarea>
+                                <textarea class="modern-chat-input" id="chat-input" placeholder="${this.config?.theme?.placeholder || "Message AI Assistant..."}" rows="1"></textarea>
                                 
                                 <button class="modern-send-btn" id="btn-mic" title="Hold to talk">${this.icons.mic}</button>
                                 <button class="modern-send-btn" id="btn-send" title="Send message" disabled>${this.icons.send}</button>
