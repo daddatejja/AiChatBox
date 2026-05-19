@@ -21,7 +21,9 @@ const {
     saveProjectSettings, detectSchema, saveDbConfig,
     createConfig, deleteConfig,
     generateKey, revokeKey,
-    openNewTool, openEditTool, saveTool, deleteTool
+    openNewTool, openEditTool, saveTool, deleteTool,
+    testingWebhook, webhookTestResult, testWebhookConnection,
+    showTestTool, testingTool, activeTestTool, toolTestResult, testToolArguments, openTestTool, executeToolTest
 } = useProjectDetail();
 </script>
 
@@ -208,6 +210,7 @@ const {
                                     <p class="subtitle">{{ t.description }}</p>
                                 </div>
                                 <div class="card-actions">
+                                    <Button label="Test" icon="pi pi-play" size="small" severity="warn" outlined @click="openTestTool(t)" />
                                     <Button label="Edit" size="small" severity="secondary" outlined @click="openEditTool(t)" />
                                     <Button label="Delete" size="small" severity="danger" outlined @click="deleteTool(t.id)" />
                                 </div>
@@ -365,6 +368,30 @@ const {
                     />
                     <small>If set, requests will include an X-Hub-Signature HMAC-SHA256 header.</small>
                 </div>
+                <div class="form-group col-span-2" style="margin-top: 10px;">
+                    <Button 
+                        label="Test Webhook Connection" 
+                        icon="pi pi-play" 
+                        severity="warn" 
+                        outlined 
+                        :loading="testingWebhook" 
+                        @click="testWebhookConnection"
+                        style="width: 100%;"
+                    />
+                </div>
+                <div v-if="webhookTestResult" class="form-group col-span-2" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 8px; padding: 14px; margin-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 600; font-size: 0.9rem;">Test Connection Results:</span>
+                        <span :class="webhookTestResult.success ? 'badge badge-success' : 'badge badge-danger'">
+                            {{ webhookTestResult.success ? 'Success' : 'Failed' }}
+                        </span>
+                    </div>
+                    <div style="font-size: 0.82rem; color: var(--p-text-color-secondary); margin-bottom: 8px; display: flex; gap: 16px;">
+                        <span>Status: <strong>{{ webhookTestResult.statusCode }}</strong></span>
+                        <span>Duration: <strong>{{ webhookTestResult.responseTimeMs }} ms</strong></span>
+                    </div>
+                    <pre style="background: var(--p-surface-100); color: var(--p-text-color); padding: 10px; border: 1px solid var(--p-surface-200); border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 150px; overflow-y: auto; margin: 0; white-space: pre-wrap; word-break: break-all;">{{ webhookTestResult.responseBody || '(Empty response)' }}</pre>
+                </div>
             </div>
 
             <template #footer>
@@ -481,6 +508,72 @@ const {
                     icon="pi pi-check"
                     :disabled="!newTool.name || !newTool.description"
                     @click="saveTool"
+                />
+            </template>
+        </Dialog>
+
+        <Dialog
+            v-model:visible="showTestTool"
+            modal
+            :header="'Test Custom Tool: ' + (activeTestTool?.name || '')"
+            :style="{ width: '640px' }"
+            :draggable="false"
+        >
+            <div class="form" v-if="activeTestTool">
+                <div class="dialog-form-group">
+                    <label>Description</label>
+                    <div style="font-size: 0.85rem; color: var(--p-text-color-secondary);">
+                        {{ activeTestTool.description }}
+                    </div>
+                </div>
+
+                <div class="dialog-form-group">
+                    <label>Parameters Schema (Read-only)</label>
+                    <pre style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.8rem; margin: 0; max-height: 120px; overflow-y: auto; color: var(--p-text-color-secondary);">{{ activeTestTool.parametersJsonSchema }}</pre>
+                </div>
+
+                <div class="dialog-form-group">
+                    <label>Test Arguments (JSON)</label>
+                    <Textarea
+                        v-model="testToolArguments"
+                        rows="6"
+                        style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;"
+                        placeholder="{}"
+                        fluid
+                    />
+                    <small>Provide arguments matching the schema in valid JSON.</small>
+                </div>
+
+                <div v-if="toolTestResult" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 8px; padding: 14px; margin-top: 10px;">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+                        <span style="font-weight: 600; font-size: 0.9rem;">Execution Results:</span>
+                        <span :class="toolTestResult.success ? 'badge badge-success' : 'badge badge-danger'">
+                            {{ toolTestResult.success ? 'Success' : 'Failed' }}
+                        </span>
+                    </div>
+                    
+                    <div v-if="toolTestResult.success" style="font-size: 0.85rem;">
+                        <div style="font-weight: 600; margin-bottom: 4px;">Content:</div>
+                        <pre style="background: var(--p-surface-100); color: var(--p-text-color); padding: 10px; border: 1px solid var(--p-surface-200); border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 150px; overflow-y: auto; margin: 0; white-space: pre-wrap; word-break: break-all;">{{ toolTestResult.content }}</pre>
+                    </div>
+                    
+                    <div v-else style="font-size: 0.85rem; color: var(--p-red-600);">
+                        <div style="font-weight: 600; margin-bottom: 4px;">Error:</div>
+                        <div style="background: var(--p-red-50); border: 1px solid var(--p-red-200); color: var(--p-red-700); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all;">
+                            {{ toolTestResult.error }}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <template #footer>
+                <Button label="Close" severity="secondary" outlined @click="showTestTool = false" />
+                <Button
+                    label="Run Execution Test"
+                    icon="pi pi-play"
+                    severity="warn"
+                    :loading="testingTool"
+                    @click="executeToolTest"
                 />
             </template>
         </Dialog>

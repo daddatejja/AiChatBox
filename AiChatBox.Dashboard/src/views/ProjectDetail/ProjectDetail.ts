@@ -275,6 +275,120 @@ export function useProjectDetail() {
         });
     }
 
+    // ─── Webhook Test State ──────────────────────────────────
+    const testingWebhook = ref(false);
+    const webhookTestResult = ref<any>(null);
+
+    // ─── Tool Test State ─────────────────────────────────────
+    const showTestTool = ref(false);
+    const testingTool = ref(false);
+    const activeTestTool = ref<any>(null);
+    const toolTestResult = ref<any>(null);
+    const testToolArguments = ref('');
+
+    async function testWebhookConnection() {
+        testingWebhook.value = true;
+        webhookTestResult.value = null;
+        try {
+            const res = await apiFetch(`/api/tool/project/${projectId.value}/test-webhook-connection`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    webhookUrl: project.value.webhookUrl || '',
+                    webhookSecret: project.value.webhookSecret || null
+                })
+            });
+            if (res.ok) {
+                webhookTestResult.value = await res.json();
+                if (webhookTestResult.value.success) {
+                    toast.add({ severity: 'success', summary: 'Success', detail: 'Webhook connection test succeeded.', life: 3000 });
+                } else {
+                    toast.add({ severity: 'error', summary: 'Failed', detail: 'Webhook returned an error status or exception.', life: 5000 });
+                }
+            } else {
+                const text = await res.text();
+                toast.add({ severity: 'error', summary: 'Error', detail: text || 'Failed to trigger connection test.', life: 5000 });
+            }
+        } catch (e: any) {
+            console.error(e);
+            toast.add({ severity: 'error', summary: 'Error', detail: e.message || 'An error occurred during testing.', life: 5000 });
+        } finally {
+            testingWebhook.value = false;
+        }
+    }
+
+    function openTestTool(tool: any) {
+        activeTestTool.value = tool;
+        toolTestResult.value = null;
+        
+        let defaultArgs: any = {};
+        try {
+            if (tool.parametersJsonSchema) {
+                const schema = JSON.parse(tool.parametersJsonSchema);
+                if (schema && schema.properties) {
+                    for (const key of Object.keys(schema.properties)) {
+                        const prop = schema.properties[key];
+                        if (prop.type === 'string') {
+                            defaultArgs[key] = `test_${key}`;
+                        } else if (prop.type === 'number' || prop.type === 'integer') {
+                            defaultArgs[key] = 123;
+                        } else if (prop.type === 'boolean') {
+                            defaultArgs[key] = true;
+                        } else if (prop.type === 'array') {
+                            defaultArgs[key] = [];
+                        } else if (prop.type === 'object') {
+                            defaultArgs[key] = {};
+                        } else {
+                            defaultArgs[key] = '';
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.error('Error parsing schema for defaults', e);
+        }
+        
+        testToolArguments.value = JSON.stringify(defaultArgs, null, 2);
+        showTestTool.value = true;
+    }
+
+    async function executeToolTest() {
+        if (!activeTestTool.value) return;
+        
+        try {
+            JSON.parse(testToolArguments.value);
+        } catch (e) {
+            toast.add({ severity: 'error', summary: 'Invalid JSON', detail: 'Please enter valid JSON arguments.', life: 3000 });
+            return;
+        }
+
+        testingTool.value = true;
+        toolTestResult.value = null;
+        try {
+            const res = await apiFetch(`/api/tool/${activeTestTool.value.id}/execute`, {
+                method: 'POST',
+                body: JSON.stringify({
+                    argumentsJson: testToolArguments.value
+                })
+            });
+            if (res.ok) {
+                toolTestResult.value = await res.json();
+                if (toolTestResult.value.success) {
+                    toast.add({ severity: 'success', summary: 'Test Complete', detail: 'Tool execution test succeeded.', life: 3000 });
+                } else {
+                    toast.add({ severity: 'error', summary: 'Execution Failed', detail: toolTestResult.value.error || 'Tool execution returned success=false.', life: 5000 });
+                }
+            } else {
+                const text = await res.text();
+                toast.add({ severity: 'error', summary: 'Error', detail: text || 'Failed to trigger tool execution.', life: 5000 });
+            }
+        } catch (e: any) {
+            console.error(e);
+            toast.add({ severity: 'error', summary: 'Error', detail: e.message || 'An error occurred during tool testing.', life: 5000 });
+        } finally {
+            testingTool.value = false;
+        }
+    }
+
     onMounted(() => {
         loadProject();
         loadConfigs();
@@ -295,6 +409,8 @@ export function useProjectDetail() {
         saveProjectSettings, detectSchema, saveDbConfig,
         createConfig, deleteConfig,
         generateKey, revokeKey,
-        openNewTool, openEditTool, saveTool, deleteTool
+        openNewTool, openEditTool, saveTool, deleteTool,
+        testingWebhook, webhookTestResult, testWebhookConnection,
+        showTestTool, testingTool, activeTestTool, toolTestResult, testToolArguments, openTestTool, executeToolTest
     };
 }

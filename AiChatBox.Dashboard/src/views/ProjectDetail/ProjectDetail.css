@@ -232,6 +232,11 @@
     color: var(--p-green-700);
 }
 
+.badge-danger {
+    background: var(--p-red-100);
+    color: var(--p-red-700);
+}
+
 /* ─── API Keys ──────────────────────────────────────────────── */
 .key-label {
     font-weight: 700;

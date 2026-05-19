@@ -47,4 +47,23 @@ namespace AiChatBox.Api.DTOs
         public string? Label { get; set; }
         public Guid? ConfigurationId { get; set; }
     }
+
+    public class ExecuteToolRequest
+    {
+        public string ArgumentsJson { get; set; } = "{}";
+    }
+
+    public class WebhookTestResultDto
+    {
+        public int StatusCode { get; set; }
+        public string ResponseBody { get; set; } = string.Empty;
+        public long ResponseTimeMs { get; set; }
+        public bool Success { get; set; }
+    }
+
+    public class TestWebhookConnectionRequest
+    {
+        public string WebhookUrl { get; set; } = string.Empty;
+        public string? WebhookSecret { get; set; }
+    }
 }
