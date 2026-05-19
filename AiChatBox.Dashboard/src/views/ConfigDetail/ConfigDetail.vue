@@ -14,7 +14,7 @@ import Dialog from 'primevue/dialog';
 import './ConfigDetail.css';
 
 const {
-    projectId, configId,
+    projectId,
     activeTab, showAdminDialog, showTemplateVarsDialog, showHistoryDialog,
     sectionsOpen, toggleSection,
     config, channels, theme, keyInputs, providerKeyInputs,

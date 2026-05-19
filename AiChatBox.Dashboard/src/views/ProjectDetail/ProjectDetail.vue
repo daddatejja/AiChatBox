@@ -11,7 +11,7 @@ import './ProjectDetail.css';
 
 const {
     projectId, project,
-    configs, keys, tools, configOptions,
+    configs, keys, tools,
     activeTab,
     showNewConfig, showNewKey, showNewTool, showSettingsDialog,
     isEditingTool, generatedKey,

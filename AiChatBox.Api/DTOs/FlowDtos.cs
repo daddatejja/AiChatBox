@@ -49,4 +49,29 @@ namespace AiChatBox.Api.DTOs
         public List<FlowNodeDto> Nodes { get; set; } = new();
         public List<FlowEdgeDto> Edges { get; set; } = new();
     }
+
+    public class FlowExecutionLogDto
+    {
+        public Guid Id { get; set; }
+        public Guid FlowId { get; set; }
+        public string FlowName { get; set; } = string.Empty;
+        public Guid SessionId { get; set; }
+        public string SessionTitle { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public int StepsCount { get; set; }
+        public double TotalDurationMs { get; set; }
+    }
+
+    public class FlowExecutionLogDetailDto
+    {
+        public Guid Id { get; set; }
+        public Guid FlowId { get; set; }
+        public string FlowName { get; set; } = string.Empty;
+        public Guid SessionId { get; set; }
+        public string SessionTitle { get; set; } = string.Empty;
+        public DateTime StartedAt { get; set; }
+        public DateTime? CompletedAt { get; set; }
+        public string StepsJson { get; set; } = "[]";
+    }
 }

@@ -1461,3 +1461,40 @@
   border: 1px solid var(--border-color);
   outline: none;
 }
+
+/* ── Rich Action Buttons (Quick Replies) ── */
+.rich-buttons-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.rich-action-button {
+  background: white;
+  color: var(--primary-color);
+  border: 1px solid var(--border-color);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.03);
+}
+.rich-action-button:hover:not(.historic):not(:disabled) {
+  background: var(--primary-color);
+  color: white;
+  border-color: var(--primary-color);
+  transform: translateY(-1.5px);
+  box-shadow: 0 4px 12px rgba(57, 167, 185, 0.25);
+}
+.rich-action-button.historic,
+.rich-action-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background: #f8fafc;
+  color: var(--secondary-text);
+  border-color: var(--border-color);
+  box-shadow: none;
+}
+

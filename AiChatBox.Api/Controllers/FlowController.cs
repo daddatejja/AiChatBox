@@ -1,10 +1,12 @@
 using AiChatBox.Api.Data;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Models;
+using AiChatBox.Api.Services;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using System.Security.Claims;
+using System.Text.Json;
 
 namespace AiChatBox.Api.Controllers
 {
@@ -185,6 +187,100 @@ namespace AiChatBox.Api.Controllers
             await _db.SaveChangesAsync();
 
             return NoContent();
+        }
+
+        [HttpGet("execution-logs")]
+        public async Task<IActionResult> GetExecutionLogs(
+            Guid projectId, 
+            [FromQuery] Guid? flowId = null, 
+            [FromQuery] Guid? sessionId = null, 
+            [FromQuery] int offset = 0, 
+            [FromQuery] int limit = 20)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId);
+            if (project == null) return NotFound("Project not found");
+
+            var query = _db.FlowExecutionLogs
+                .Where(l => l.Flow.ProjectId == projectId);
+
+            if (flowId.HasValue)
+            {
+                query = query.Where(l => l.FlowId == flowId.Value);
+            }
+
+            if (sessionId.HasValue)
+            {
+                query = query.Where(l => l.SessionId == sessionId.Value);
+            }
+
+            var total = await query.CountAsync();
+            var logsList = await query
+                .Include(l => l.Flow)
+                .Include(l => l.Session)
+                .OrderByDescending(l => l.StartedAt)
+                .Skip(offset)
+                .Take(limit)
+                .ToListAsync();
+
+            var dtos = logsList.Select(l => {
+                int stepsCount = 0;
+                double totalDuration = 0;
+                try
+                {
+                    var steps = JsonSerializer.Deserialize<List<FlowStepTelemetry>>(l.StepsJson);
+                    if (steps != null)
+                    {
+                        stepsCount = steps.Count;
+                        totalDuration = steps.Sum(s => s.DurationMs);
+                    }
+                }
+                catch {}
+
+                return new FlowExecutionLogDto
+                {
+                    Id = l.Id,
+                    FlowId = l.FlowId,
+                    FlowName = l.Flow.Name,
+                    SessionId = l.SessionId,
+                    SessionTitle = l.Session.Title ?? l.SessionId.ToString(),
+                    StartedAt = l.StartedAt,
+                    CompletedAt = l.CompletedAt,
+                    StepsCount = stepsCount,
+                    TotalDurationMs = totalDuration
+                };
+            }).ToList();
+
+            return Ok(new { items = dtos, total });
+        }
+
+        [HttpGet("execution-logs/{logId}")]
+        public async Task<IActionResult> GetExecutionLogDetail(Guid projectId, Guid logId)
+        {
+            var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == projectId && p.UserId == userId);
+            if (project == null) return NotFound("Project not found");
+
+            var log = await _db.FlowExecutionLogs
+                .Include(l => l.Flow)
+                .Include(l => l.Session)
+                .FirstOrDefaultAsync(l => l.Id == logId && l.Flow.ProjectId == projectId);
+
+            if (log == null) return NotFound("Execution log not found");
+
+            var dto = new FlowExecutionLogDetailDto
+            {
+                Id = log.Id,
+                FlowId = log.FlowId,
+                FlowName = log.Flow.Name,
+                SessionId = log.SessionId,
+                SessionTitle = log.Session.Title ?? log.SessionId.ToString(),
+                StartedAt = log.StartedAt,
+                CompletedAt = log.CompletedAt,
+                StepsJson = log.StepsJson
+            };
+
+            return Ok(dto);
         }
     }
 }

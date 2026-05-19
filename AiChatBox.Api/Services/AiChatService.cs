@@ -135,6 +135,30 @@ namespace AiChatBox.Api.Services
             var startTime = DateTime.UtcNow;
             var session = await GetOrCreateSessionAsync(userId, request.SessionId, request.ProjectId, request.ConfigurationId);
 
+            async IAsyncEnumerable<ChatStreamChunk> StreamFlowAsync(ChatSession s, string msg, Project p)
+            {
+                var flowStream = _flowService.ExecuteFlowStepAsync(s, msg, p);
+                string flowFullText = "";
+                await foreach (var chunk in flowStream)
+                {
+                    if (chunk.Text != null)
+                    {
+                        flowFullText += chunk.Text;
+                    }
+                    if (chunk.RuleResponse != null)
+                    {
+                        var rType = chunk.RuleResponse.ResponseType ?? "text";
+                        flowFullText += $" [{rType.ToUpperInvariant()} RESPONSE] {chunk.RuleResponse.Payload}";
+                    }
+                    
+                    chunk.SessionId = s.Id;
+                    yield return chunk;
+                }
+
+                var flowSavedMsg = await SaveMessageAsync(s.Id, "model", flowFullText);
+                yield return new ChatStreamChunk { Done = true, SessionId = s.Id, MessageId = flowSavedMsg.Id };
+            }
+
             // Yield initial session ID
             yield return new ChatStreamChunk { SessionId = session.Id };
 
@@ -181,6 +205,7 @@ namespace AiChatBox.Api.Services
 
             if (config != null)
             {
+                session.Configuration = config;
                 if (config.MaxSpendLimit > 0 && config.CurrentSpend >= config.MaxSpendLimit)
                 {
                     yield return new ChatStreamChunk { Error = "Budget limit reached for this project.", Done = true, SessionId = session.Id };
@@ -253,6 +278,45 @@ namespace AiChatBox.Api.Services
 
             var apiKeyOverride = _llmFactory.ResolveApiKey(provider, config);
 
+            // ─── Human Handoff Check ───
+            // If session is currently being handled by a human agent, don't call LLM
+            if (session.HandoffStatus == "active")
+            {
+                // Message was already saved above — notify the agent via SignalR
+                if (!string.IsNullOrEmpty(request.Message))
+                {
+                    var lastMsg = session.Messages?.OrderByDescending(m => m.CreatedAt).FirstOrDefault(m => m.Role == "user") 
+                        ?? await _db.ChatMessages.OrderByDescending(m => m.CreatedAt).FirstOrDefaultAsync(m => m.SessionId == session.Id && m.Role == "user");
+
+                    if (lastMsg != null)
+                    {
+                        await _chatHubContext.Clients.Group($"session-{session.Id}").SendAsync("ReceiveUserMessage", new
+                        {
+                            id = lastMsg.Id,
+                            sessionId = session.Id,
+                            content = lastMsg.Content,
+                            createdAt = lastMsg.CreatedAt,
+                            role = "user"
+                        });
+                    }
+                }
+
+                // yield an empty chunk to satisfy the stream response without hallucinating
+                yield return new ChatStreamChunk { Text = "", Done = true, SessionId = session.Id };
+                yield break;
+            }
+
+            // ─── Flow Engine Check ───
+            // Check if we are ALREADY in a flow
+            if (session.ActiveFlowId != null)
+            {
+                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                {
+                    yield return chunk;
+                }
+                yield break;
+            }
+
             // ─── Rule-Based Response Engine ───
             // Check rules BEFORE any LLM call. If a rule matches and ResponseType is not "ai",
             // we respond instantly — zero LLM cost. For "ai" type, we inject a custom prompt
@@ -275,6 +339,21 @@ namespace AiChatBox.Api.Services
                         if (!string.IsNullOrWhiteSpace(ruleResult.ResponsePayload))
                             systemPrompt = systemPrompt + "\n\n[RULE CONTEXT]\n" + ruleResult.ResponsePayload;
                         // Do NOT yield break — fall through to LLM below
+                    }
+                    else if (rType == "flow")
+                    {
+                        if (Guid.TryParse(ruleResult.ResponsePayload, out Guid flowId))
+                        {
+                            var triggered = await _flowService.TriggerFlowByIdAsync(session, flowId);
+                            if (triggered)
+                            {
+                                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                                {
+                                    yield return chunk;
+                                }
+                                yield break;
+                            }
+                        }
                     }
                     else
                     {
@@ -325,65 +404,27 @@ namespace AiChatBox.Api.Services
                 }
             }
 
-            // ─── Human Handoff Check ───
-            // If session is currently being handled by a human agent, don't call LLM
-            if (session.HandoffStatus == "active")
+            // Check if this is the very first message/start of session and trigger onStart flow if configured
+            var msgCount = await _db.ChatMessages.CountAsync(m => m.SessionId == session.Id);
+            if (msgCount <= 1)
             {
-                // Message was already saved above — notify the agent via SignalR
-                if (!string.IsNullOrEmpty(request.Message))
+                if (await _flowService.TryTriggerOnStartFlowAsync(session))
                 {
-                    var lastMsg = session.Messages?.OrderByDescending(m => m.CreatedAt).FirstOrDefault(m => m.Role == "user") 
-                        ?? await _db.ChatMessages.OrderByDescending(m => m.CreatedAt).FirstOrDefaultAsync(m => m.SessionId == session.Id && m.Role == "user");
-
-                    if (lastMsg != null)
+                    await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
                     {
-                        await _chatHubContext.Clients.Group($"session-{session.Id}").SendAsync("ReceiveUserMessage", new
-                        {
-                            id = lastMsg.Id,
-                            sessionId = session.Id,
-                            content = lastMsg.Content,
-                            createdAt = lastMsg.CreatedAt,
-                            role = "user"
-                        });
+                        yield return chunk;
                     }
+                    yield break;
                 }
-
-                // yield an empty chunk to satisfy the stream response without hallucinating
-                yield return new ChatStreamChunk { Text = "", Done = true, SessionId = session.Id };
-                yield break;
-            }
-
-            // ─── Flow Engine Check ───
-            // Check if we are ALREADY in a flow
-            if (session.ActiveFlowId != null)
-            {
-                var flowStream = _flowService.ExecuteFlowStepAsync(session, request.Message ?? "", project);
-                string flowFullText = "";
-                await foreach (var chunk in flowStream)
-                {
-                    flowFullText += chunk;
-                    yield return new ChatStreamChunk { Text = chunk, SessionId = session.Id };
-                }
-
-                var flowSavedMsg = await SaveMessageAsync(session.Id, "ai", flowFullText);
-                yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = flowSavedMsg.Id };
-                yield break;
             }
 
             // Check if we should TRIGGER a flow
             if (await _flowService.TryTriggerFlowAsync(session, request.Message ?? ""))
             {
-                // Flow triggered! Execute first step.
-                var flowStream = _flowService.ExecuteFlowStepAsync(session, request.Message ?? "", project);
-                string flowFullText = "";
-                await foreach (var chunk in flowStream)
+                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
                 {
-                    flowFullText += chunk;
-                    yield return new ChatStreamChunk { Text = chunk, SessionId = session.Id };
+                    yield return chunk;
                 }
-
-                var flowSavedMsg = await SaveMessageAsync(session.Id, "ai", flowFullText);
-                yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = flowSavedMsg.Id };
                 yield break;
             }
 

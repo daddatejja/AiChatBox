@@ -1,6 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '../layout/AppLayout.vue'
-import FlowBuilder from '../views/FlowBuilder.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -42,10 +41,16 @@ const router = createRouter({
           component: () => import('../views/Rules.vue')
         },
         {
-          path: 'project/:projectId/flow',
-          name: 'flow-builder',
-          component: FlowBuilder
+          path: 'project/:id/flow',
+          name: 'flow-list',
+          component: () => import('../views/FlowList.vue')
         },
+        {
+          path: 'project/:projectId/flow/:flowId',
+          name: 'flow-builder',
+          component: () => import('../views/FlowBuilder/FlowBuilder.vue')
+        },
+
         {
           path: 'analytics',
           name: 'analytics',

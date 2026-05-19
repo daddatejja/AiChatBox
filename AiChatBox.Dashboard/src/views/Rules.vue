@@ -34,6 +34,7 @@ interface Rule {
 }
 
 const rules = ref<Rule[]>([]);
+const projectFlows = ref<any[]>([]);
 const loading = ref(false);
 const showDialog = ref(false);
 const editing = ref<string | null>(null);
@@ -92,7 +93,8 @@ const responseTypeOptions = [
     { label: '🎴 Inline Action Card', value: 'card' },
     { label: '📁 File Attachment/Download', value: 'file' },
     { label: '📋 Interactive Dynamic Form', value: 'form' },
-    { label: '🛠️ Trigger Frontend Tool', value: 'tool_call' }
+    { label: '🛠️ Trigger Frontend Tool', value: 'tool_call' },
+    { label: '⚙️ Run Visual Flow Builder', value: 'flow' }
 ];
 
 const triggerCharOptions = [
@@ -125,6 +127,17 @@ async function loadRules() {
     const res = await apiFetch(`/api/rules/project/${projectId.value}`);
     if (res.ok) rules.value = await res.json();
     loading.value = false;
+}
+
+async function loadProjectFlows() {
+    try {
+        const res = await apiFetch(`/api/projects/${projectId.value}/flows`);
+        if (res.ok) {
+            projectFlows.value = await res.json();
+        }
+    } catch (e) {
+        console.error("Failed to load project flows", e);
+    }
 }
 
 function openCreate() {
@@ -201,38 +214,42 @@ function openEdit(rule: Rule) {
     
     // Parse response payload if present
     if (rule.responsePayload) {
-        try {
-            const data = JSON.parse(rule.responsePayload);
-            if (form.responseType === 'redirect') {
-                form.redirectUrl = data.url || '';
-                form.countdownText = data.countdownText || '';
-                form.redirectSeconds = typeof data.seconds === 'number' ? data.seconds : 5;
-            } else if (form.responseType === 'card') {
-                form.cardTitle = data.title || '';
-                form.cardBody = data.body || '';
-                form.cardButtonLabel = data.buttonLabel || '';
-                form.cardButtonUrl = data.buttonUrl || '';
-            } else if (form.responseType === 'file') {
-                form.fileName = data.fileName || '';
-                form.fileUrl = data.fileUrl || '';
-                form.fileMimeType = data.mimeType || 'pdf';
-            } else if (form.responseType === 'form') {
-                form.formTitle = data.title || '';
-                form.formSubmitLabel = data.submitLabel || 'Submit';
-                form.formSubmitUrl = data.submitUrl || '';
-                form.formFields = Array.isArray(data.fields) ? data.fields.map((f: any) => ({
-                    name: f.name || '',
-                    label: f.label || '',
-                    type: f.type || 'text',
-                    required: !!f.required,
-                    options: Array.isArray(f.options) ? f.options.join(', ') : (f.options || '')
-                })) : [];
-            } else if (form.responseType === 'tool_call') {
-                form.toolName = data.toolName || '';
-                form.toolArguments = data.arguments ? JSON.stringify(data.arguments, null, 2) : '{}';
+        if (form.responseType === 'flow') {
+            form.responsePayload = rule.responsePayload;
+        } else {
+            try {
+                const data = JSON.parse(rule.responsePayload);
+                if (form.responseType === 'redirect') {
+                    form.redirectUrl = data.url || '';
+                    form.countdownText = data.countdownText || '';
+                    form.redirectSeconds = typeof data.seconds === 'number' ? data.seconds : 5;
+                } else if (form.responseType === 'card') {
+                    form.cardTitle = data.title || '';
+                    form.cardBody = data.body || '';
+                    form.cardButtonLabel = data.buttonLabel || '';
+                    form.cardButtonUrl = data.buttonUrl || '';
+                } else if (form.responseType === 'file') {
+                    form.fileName = data.fileName || '';
+                    form.fileUrl = data.fileUrl || '';
+                    form.fileMimeType = data.mimeType || 'pdf';
+                } else if (form.responseType === 'form') {
+                    form.formTitle = data.title || '';
+                    form.formSubmitLabel = data.submitLabel || 'Submit';
+                    form.formSubmitUrl = data.submitUrl || '';
+                    form.formFields = Array.isArray(data.fields) ? data.fields.map((f: any) => ({
+                        name: f.name || '',
+                        label: f.label || '',
+                        type: f.type || 'text',
+                        required: !!f.required,
+                        options: Array.isArray(f.options) ? f.options.join(', ') : (f.options || '')
+                    })) : [];
+                } else if (form.responseType === 'tool_call') {
+                    form.toolName = data.toolName || '';
+                    form.toolArguments = data.arguments ? JSON.stringify(data.arguments, null, 2) : '{}';
+                }
+            } catch (e) {
+                console.error("Error parsing response payload:", e);
             }
-        } catch (e) {
-            console.error("Error parsing response payload:", e);
         }
     }
     showDialog.value = true;
@@ -291,6 +308,10 @@ async function saveRule() {
             arguments: argsObj
         });
         textResponse = `Executing custom tool: ${form.toolName}`;
+    } else if (form.responseType === 'flow') {
+        payloadStr = form.responsePayload;
+        const flowName = projectFlows.value.find(f => f.id === form.responsePayload)?.name || 'Visual Flow';
+        textResponse = `Initiating visual logic flow: ${flowName}...`;
     }
     
     // Set trigger pattern for command rule type
@@ -380,6 +401,7 @@ function responseTypeLabel(type: string): string {
         case 'file': return 'FILE';
         case 'form': return 'FORM';
         case 'tool_call': return 'TOOL CALL';
+        case 'flow': return 'VISUAL FLOW';
         default: return type?.toUpperCase() || 'TEXT';
     }
 }
@@ -420,11 +442,16 @@ function isFormSaveDisabled() {
         return form.formFields.some(f => !f.name.trim() || !f.label.trim());
     } else if (form.responseType === 'tool_call') {
         return !form.toolName.trim();
+    } else if (form.responseType === 'flow') {
+        return !form.responsePayload;
     }
     return false;
 }
 
-onMounted(loadRules);
+onMounted(async () => {
+    await loadRules();
+    await loadProjectFlows();
+});
 </script>
 
 <template>
@@ -696,6 +723,17 @@ onMounted(loadRules);
                     </div>
                 </div>
 
+                <div v-else-if="form.responseType === 'flow'" class="response-sub-panel">
+                    <div class="form-group">
+                        <label>Select Target Flow</label>
+                        <Select v-model="form.responsePayload" :options="projectFlows" optionLabel="name" optionValue="id" placeholder="Select a conversation flow to execute..." fluid />
+                        <small class="info-text">When this rule matches, the system will trigger the selected state-machine logic flow instead of an LLM prompt response.</small>
+                    </div>
+                    <div v-if="!projectFlows.length" class="mt-2" style="color: var(--p-orange-500); font-size: 0.8rem;">
+                        ⚠️ No visual flows created yet. Go to <router-link :to="'/project/' + projectId + '/flow'" style="color: var(--p-orange-500); font-weight: 600; text-decoration: underline;">Visual Flow Builder</router-link> to create one!
+                    </div>
+                </div>
+
                 <hr class="form-divider" />
 
                 <div v-if="form.type === 'intent'" class="form-group">
@@ -916,6 +954,7 @@ onMounted(loadRules);
 .res-file { background: color-mix(in srgb, var(--p-teal-500) 15%, transparent); color: var(--p-teal-700); }
 .res-form { background: color-mix(in srgb, var(--p-pink-500) 15%, transparent); color: var(--p-pink-700); }
 .res-tool_call { background: color-mix(in srgb, var(--p-purple-500) 15%, transparent); color: var(--p-purple-700); }
+.res-flow { background: color-mix(in srgb, var(--p-primary-500) 15%, transparent); color: var(--p-primary-700); border: 1px solid var(--p-primary-200); }
 
 .response-preview-text {
     overflow: hidden;

@@ -81,4 +81,25 @@ namespace AiChatBox.Api.Models
         [MaxLength(200)]
         public string? Condition { get; set; }
     }
+
+    public class FlowExecutionLog
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        public Guid FlowId { get; set; }
+        public virtual ConversationFlow Flow { get; set; } = null!;
+
+        public Guid SessionId { get; set; }
+        public virtual ChatSession Session { get; set; } = null!;
+
+        public DateTime StartedAt { get; set; } = DateTime.UtcNow;
+        public DateTime? CompletedAt { get; set; }
+
+        /// <summary>
+        /// JSON array of executed steps telemetry.
+        /// Each step details: node id, node type, variables snapshot, duration, status, inputs.
+        /// </summary>
+        public string StepsJson { get; set; } = "[]";
+    }
 }

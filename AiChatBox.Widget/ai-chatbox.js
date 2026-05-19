@@ -1324,7 +1324,7 @@
  
         if (type !== 'text') {
           bubble.dataset.hasRichResponse = "true";
-          if (textContent) {
+          if (textContent && (textContent.innerHTML === "" || textContent.querySelector(".typing-indicator"))) {
             textContent.innerHTML = "";
           }
         }
@@ -1569,6 +1569,46 @@
             
             widgetContainer.appendChild(formEl);
           }
+        } else if (type === 'buttons') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const btnContainer = document.createElement("div");
+            btnContainer.className = "rich-buttons-container";
+            
+            const buttons = payload.buttons || [];
+            buttons.forEach(btn => {
+              const buttonEl = document.createElement("button");
+              buttonEl.className = "rich-action-button";
+              buttonEl.textContent = btn.label || "Click";
+              
+              if (isHistoric) {
+                buttonEl.disabled = true;
+                buttonEl.classList.add("historic");
+              } else {
+                buttonEl.addEventListener("click", () => {
+                  // Disable all buttons in this container to prevent double actions
+                  btnContainer.querySelectorAll(".rich-action-button").forEach(b => {
+                    b.disabled = true;
+                    b.classList.add("historic");
+                  });
+
+                  const action = (btn.action || "next").toLowerCase();
+                  const value = btn.value || "";
+
+                  if (action === "url" && value) {
+                    window.open(value, "_blank");
+                  } else if (action === "next") {
+                    this.sendUserActionMessage(btn.label);
+                  } else if (action === "postback") {
+                    // Send display label as chat bubble but technical value as API message
+                    this.sendUserActionMessage(btn.label, value);
+                  }
+                });
+              }
+              btnContainer.appendChild(buttonEl);
+            });
+            widgetContainer.appendChild(btnContainer);
+          }
         } else if (type === 'tool_call') {
           if (!isHistoric && payload.toolName) {
             this.handleToolCalls([{
@@ -1602,6 +1642,164 @@
         }
       } catch (err) {
         console.error("Failed to render rich response:", err);
+      }
+    }
+
+    async sendUserActionMessage(displayText, apiValue) {
+      if (this.isTyping) return;
+
+      const emptyState = this.shadowRoot.querySelector(".chatbox-empty-state");
+      if (emptyState) emptyState.remove();
+
+      // Clear input box
+      const input = this.shadowRoot.getElementById("chat-input");
+      if (input) {
+        input.value = "";
+        input.style.height = "auto";
+      }
+      this.updateSendButtonState();
+
+      // Show user message bubble with displayText
+      this.addMessage("user", `<div class="message-text">${displayText}</div>`);
+
+      // Clear user typing status
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.isUserTypingSignalSent = false;
+
+      // Handle handoff
+      if (this.handoffStatus === "active" || this.handoffStatus === "queued") {
+        const textToSend = apiValue || displayText;
+        if (this.handoffConnection && this.handoffConnection.state === "Connected") {
+          try {
+            await this.handoffConnection.invoke("SendUserMessage", this.currentSessionId, textToSend, this.apiKey);
+          } catch (err) {
+            console.error("Failed to send action message via SignalR:", err);
+            await this.sendHandoffMessageViaHttp(textToSend);
+          }
+        } else {
+          await this.sendHandoffMessageViaHttp(textToSend);
+        }
+        return;
+      }
+
+      this.isTyping = true;
+      this.updateInputButtons();
+
+      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+      const bubble = aiWrapper.querySelector(".message-bubble");
+
+      try {
+        this.abortController = new AbortController();
+        const { modelName: selectedModel, provider: selectedProvider } = this.getSelectedModel();
+        const response = await fetch(`${this.apiUrl}/api/chat`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          signal: this.abortController.signal,
+          body: JSON.stringify({
+            message: apiValue || displayText,
+            sessionId: this.currentSessionId,
+            projectId: this.projectId,
+            configurationId: this.configurationId,
+            provider: selectedProvider,
+            modelName: selectedModel,
+            attachedFileId: null,
+            imageDataUrl: null,
+            context: this.getPageContext()
+          }),
+        });
+
+        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "", hasStarted = false;
+
+        bubble.innerHTML = '<div class="message-text-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div><div class="message-widget-container"></div>';
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                const toolCalls = data.ToolCalls || data.toolCalls;
+                const toolCall = data.ToolCall || data.toolCall;
+                const toolResult = data.ToolResult || data.toolResult;
+                const sid = data.SessionId || data.sessionId || data.sid;
+                const textChunk = data.Text || data.text;
+                const errorChunk = data.Error || data.error;
+
+                if (sid && !this.currentSessionId) {
+                  this.currentSessionId = sid;
+                  localStorage.setItem("ai_chat_session_id", sid);
+                }
+
+                const isDone = data.Done || data.done;
+                const msgId = data.MessageId || data.messageId;
+                if (isDone && msgId) {
+                  aiWrapper.dataset.messageId = msgId;
+                }
+
+                if (errorChunk) {
+                  textContent.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
+                  hasStarted = true;
+                  continue;
+                }
+
+                if (toolCalls && toolCalls.length > 0) {
+                  hasStarted = true;
+                  this.handleToolCalls(toolCalls, bubble);
+                  continue;
+                }
+
+                if (toolCall) {
+                  hasStarted = true;
+                  this.handleToolCalls([toolCall], bubble);
+                  continue; 
+                }
+
+                if (toolResult) {
+                  const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                  if (isDbTool) {
+                    if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                    this.renderDataResult(toolResult.result, widgetContainer);
+                    continue;
+                  }
+                }
+
+                const ruleResponse = data.RuleResponse || data.ruleResponse;
+                if (ruleResponse) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderRichResponse(ruleResponse, bubble);
+                  this.scrollToBottom();
+                }
+
+                if (textChunk) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  fullText += textChunk;
+                  textContent.innerHTML = this.formatMarkdown(fullText);
+                  this.scrollToBottom();
+                }
+              } catch(e) { console.error("Stream parse error:", e); }
+            }
+          }
+        }
+        
+        if (!hasStarted) {
+          bubble.innerHTML = '<span style="opacity:0.6; font-style:italic">No response from AI</span>';
+        }
+      } catch (err) {
+        bubble.innerHTML = `<span style="color:var(--danger-color)">Error: ${err.message}</span>`;
+      } finally {
+        this.isTyping = false;
+        this.updateInputButtons();
+        this.startHandoffConnection();
       }
     }
 
@@ -1840,11 +2038,7 @@
                 if (textChunk) {
                   if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                   fullText += textChunk;
-                  if (bubble.dataset.hasRichResponse !== "true") {
-                    textContent.innerHTML = this.formatMarkdown(fullText);
-                  } else {
-                    textContent.innerHTML = "";
-                  }
+                  textContent.innerHTML = this.formatMarkdown(fullText);
                   this.scrollToBottom();
                 }
               } catch(e) { console.error("Stream parse error:", e); }
@@ -2036,11 +2230,7 @@
               if (textChunk) {
                 if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                 fullText += textChunk;
-                if (bubble.dataset.hasRichResponse !== "true") {
-                  textContent.innerHTML = this.formatMarkdown(fullText);
-                } else {
-                  textContent.innerHTML = "";
-                }
+                textContent.innerHTML = this.formatMarkdown(fullText);
                 this.scrollToBottom();
               }
             } catch(e) { console.error("Stream parse error:", e); }
@@ -2869,32 +3059,36 @@
           const isTool = role === "tool";
           const rawContent = m.Content || m.content || "";
           
-          // Intercept saved rich responses (starting with "[REDIRECT RESPONSE] ", etc.)
+          // Intercept saved rich responses (starting with or containing "[REDIRECT RESPONSE] ", etc.)
           let isRichResponse = false;
           let richType = null;
           let richPayload = null;
+          let cleanContent = rawContent;
 
-          if (isAi && rawContent.startsWith('[')) {
-            const closingBracketIndex = rawContent.indexOf('] ');
-            if (closingBracketIndex > 0) {
-              const prefix = rawContent.substring(1, closingBracketIndex); // e.g. "REDIRECT RESPONSE" or "CARD RESPONSE"
-              if (prefix.endsWith(" RESPONSE")) {
-                const typeStr = prefix.substring(0, prefix.length - 9).toLowerCase(); // "redirect", "card", etc.
-                const jsonPart = rawContent.substring(closingBracketIndex + 2);
-                try {
-                  richPayload = JSON.parse(jsonPart);
-                  richType = typeStr;
-                  isRichResponse = true;
-                } catch (e) {
-                  console.error("Failed to parse historic rich response JSON:", e);
-                }
+          if (isAi || role === "agent") {
+            const regex = /\[([A-Z0-9_-]+)\s+RESPONSE\]/i;
+            const match = rawContent.match(regex);
+            if (match) {
+              const fullMatch = match[0];
+              const typeStr = match[1].toLowerCase();
+              const index = rawContent.indexOf(fullMatch);
+              const textBefore = rawContent.substring(0, index).trim();
+              const jsonPart = rawContent.substring(index + fullMatch.length).trim();
+              try {
+                richPayload = JSON.parse(jsonPart);
+                richType = typeStr;
+                isRichResponse = true;
+                cleanContent = textBefore;
+              } catch (e) {
+                console.error("Failed to parse historic rich response JSON:", e);
               }
             }
           }
 
           if (isRichResponse) {
             const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
-            const msgWrap = this.addMessage(displayRole, `<div class="message-text-content"></div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
+            const formattedText = cleanContent ? this.formatMarkdown(cleanContent) : "";
+            const msgWrap = this.addMessage(displayRole, `<div class="message-text-content">${formattedText}</div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
             this.renderRichResponse({
               responseType: richType,
               responsePayload: richPayload

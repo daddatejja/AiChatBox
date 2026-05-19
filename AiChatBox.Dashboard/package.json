@@ -17,6 +17,7 @@
     "@vue-flow/core": "^1.48.2",
     "@vue-flow/minimap": "^1.5.4",
     "chart.js": "^4.5.1",
+    "dagre": "^0.8.5",
     "dompurify": "^3.4.2",
     "marked": "^18.0.3",
     "papaparse": "^5.5.3",
@@ -26,6 +27,7 @@
     "vue-router": "^5.0.6"
   },
   "devDependencies": {
+    "@types/dagre": "^0.7.54",
     "@types/dompurify": "^3.0.5",
     "@types/node": "^24.12.2",
     "@types/papaparse": "^5.5.2",

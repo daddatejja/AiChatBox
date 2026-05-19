@@ -27,12 +27,25 @@ namespace AiChatBox.Api.Data
         public DbSet<ConversationFlow> ConversationFlows { get; set; }
         public DbSet<FlowNode> FlowNodes { get; set; }
         public DbSet<FlowEdge> FlowEdges { get; set; }
+        public DbSet<FlowExecutionLog> FlowExecutionLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
             
             modelBuilder.HasPostgresExtension("vector");
+
+            modelBuilder.Entity<FlowExecutionLog>()
+                .HasOne(l => l.Flow)
+                .WithMany()
+                .HasForeignKey(l => l.FlowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<FlowExecutionLog>()
+                .HasOne(l => l.Session)
+                .WithMany()
+                .HasForeignKey(l => l.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Project>()
                 .HasOne(p => p.Database)
