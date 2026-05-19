@@ -42,11 +42,7 @@ services:
       - chat-network
 
   dashboard:
-    build:
-      context: ./AiChatBox.Dashboard
-      args:
-        - VITE_API_URL=${PUBLIC_API_URL}
-        - VITE_CLARITY_ID=${VITE_CLARITY_ID}
+    image: ghcr.io/daddatejja/aichatbox-dashboard:latest
     container_name: aichatbox-dashboard
     restart: always
     networks:
