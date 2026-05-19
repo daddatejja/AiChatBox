@@ -17,6 +17,7 @@ namespace AiChatBox.Api.Services
                                    IAiChatService chatService,
                                    IDbContextFactory<ChatDbContext> dbFactory,
                                    IEmbeddingService embeddingService,
+                                   WebhookService webhookService,
                                    ToolRegistry toolRegistry) : IGeminiLiveService
     {
         private readonly string _apiKey = config["Gemini:ApiKey"] ?? "";
@@ -26,6 +27,7 @@ namespace AiChatBox.Api.Services
         private readonly IAiChatService _chatService = chatService;
         private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
         private readonly IEmbeddingService _embeddingService = embeddingService;
+        private readonly WebhookService _webhookService = webhookService;
         private readonly ToolRegistry _toolRegistry = toolRegistry;
         
         private ClientWebSocket? _webSocket;
@@ -45,7 +47,8 @@ namespace AiChatBox.Api.Services
         public event Func<byte[], Task>? OnAudioReceived;
         public event Func<string, bool, Task>? OnTextReceived;
         public event Func<string, Task>? OnInputTranscribed;
-        public event Func<string, string, Dictionary<string, object>, Task>? OnToolCall;
+        public event Func<string, string, Dictionary<string, object>, bool, Task>? OnToolCall;
+        public event Func<string, string, object, Task>? OnToolResult;
         public event Action<string>? OnError;
 
         private readonly List<TimelineEvent> _timelineEvents = new();
@@ -131,8 +134,11 @@ namespace AiChatBox.Api.Services
                 : await _contextService.BuildSystemPromptAsync(userId);
 
             systemPrompt += "\n\nYOU ARE IN LIVE VOICE MODE. Be extremely concise, conversational, and proactive. " +
-                            "Keep responses brief and to the point. Speak naturally as a human would.";
+                            "Keep responses brief and to the point. Speak naturally as a human would. " +
+                            "When you execute data-related tools (like SQL queries), the results will be rendered as interactive tables/charts in the user's transcript. " +
+                            "You can tell the user they can see the data there and even export it to PDF or Excel using the buttons on the widget.";
 
+            var tools = await BuildToolDeclarations();
             var setupReq = new GeminiLiveSetupRequest
             {
                 Setup = new GeminiLiveSetup
@@ -156,7 +162,7 @@ namespace AiChatBox.Api.Services
                     {
                         Parts = [new GeminiLivePart { Text = systemPrompt }]
                     },
-                    Tools = BuildToolDeclarations(),
+                    Tools = tools,
                     InputAudioTranscription = new { },
                     OutputAudioTranscription = new { }
                 }
@@ -380,32 +386,33 @@ namespace AiChatBox.Api.Services
 
                 if (response.ToolCall != null)
                 {
-                    foreach (var fc in response.ToolCall.FunctionCalls)
+                    _logger.LogInformation("Processing {Count} tool calls in parallel", response.ToolCall.FunctionCalls.Length);
+                    
+                    var tools = await GetProjectToolsAsync();
+                    var tasks = response.ToolCall.FunctionCalls.Select(async fc => 
                     {
-                        _logger.LogInformation("Tool call received: {Name}", fc.Name);
-                        var argsJson = JsonSerializer.Serialize(fc.Args, _jsonOptions);
-                        _timelineEvents.Add(new TimelineEvent { Type = "ToolCall", Meta = fc.Name, Content = argsJson });
-
-                        // Log to DB
-                        await _aiLogger.LogRequestAsync(new AiRequestLog
+                        var result = await ExecuteToolInternalAsync(fc, tools, cancellationToken);
+                        return new GeminiLiveFunctionResponse
                         {
-                            ProjectId = this.ProjectId,
-                            ConfigurationId = this.ConfigurationId,
-                            SessionId = this.SessionId,
-                            UserId = this.UserId,
-                            Provider = "gemini",
-                            Model = "models/gemini-2.5-flash-native-audio-latest",
-                            Endpoint = $"Live Tool: {fc.Name}",
-                            RawRequest = argsJson,
-                            DurationMs = 0
-                        });
-                        
-                        if (OnToolCall != null) await OnToolCall.Invoke(fc.Id, fc.Name, fc.Args);
+                            Id = fc.Id,
+                            Name = fc.Name,
+                            Response = new { result = result }
+                        };
+                    });
 
-                        // Auto-execute tools in Live mode
-                        await ExecuteAndSendToolResponseAsync(fc, cancellationToken);
-                    }
+                    var results = await Task.WhenAll(tasks);
+
+                    var req = new GeminiLiveClientContentRequest
+                    {
+                        ToolResponse = new GeminiLiveToolResponse
+                        {
+                            FunctionResponses = results
+                        }
+                    };
+                    var jsonResp = JsonSerializer.Serialize(req, _jsonOptions);
+                    await SendJsonAsync(jsonResp, cancellationToken);
                 }
+
             }
             catch (Exception ex)
             {
@@ -413,15 +420,30 @@ namespace AiChatBox.Api.Services
             }
         }
 
-        private object[] BuildToolDeclarations()
+        private async Task<List<ITool>> GetProjectToolsAsync()
         {
             var tools = new List<ITool>(_toolRegistry.GetAllTools());
             if (ProjectId.HasValue)
             {
                 var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
                 tools.Add(new Services.Tools.KnowledgeSearchTool(_dbFactory, _embeddingService, ProjectId.Value, apiKey));
-            }
 
+                using var db = _dbFactory.CreateDbContext();
+                var project = await db.Projects.Include(p => p.CustomTools).FirstOrDefaultAsync(p => p.Id == ProjectId.Value);
+                if (project != null)
+                {
+                    foreach (var tool in project.CustomTools.Where(t => t.IsActive))
+                    {
+                        tools.Add(new AgentService.DynamicTool(tool, project, _webhookService));
+                    }
+                }
+            }
+            return tools;
+        }
+
+        private async Task<object[]> BuildToolDeclarations()
+        {
+            var tools = await GetProjectToolsAsync();
             return
             [
                 new
@@ -436,36 +458,72 @@ namespace AiChatBox.Api.Services
             ];
         }
 
-        private async Task ExecuteAndSendToolResponseAsync(GeminiLiveFunctionCall fc, CancellationToken cancellationToken)
+        private async Task<object> ExecuteToolInternalAsync(GeminiLiveFunctionCall fc, List<ITool> tools, CancellationToken cancellationToken)
         {
+            var argsJson = JsonSerializer.Serialize(fc.Args, _jsonOptions);
+            _timelineEvents.Add(new TimelineEvent { Type = "ToolCall", Meta = fc.Name, Content = argsJson });
+            
+            if (OnToolCall != null) await OnToolCall.Invoke(fc.Id, fc.Name, fc.Args, true);
+
+            var sw = System.Diagnostics.Stopwatch.StartNew();
+            AiRequestLog? log = null;
             try
             {
-                var tools = new List<ITool>(_toolRegistry.GetAllTools());
-                if (ProjectId.HasValue)
-                {
-                    var apiKey = !string.IsNullOrEmpty(ApiKeyOverride) ? ApiKeyOverride : _apiKey;
-                    tools.Add(new Services.Tools.KnowledgeSearchTool(_dbFactory, _embeddingService, ProjectId.Value, apiKey));
-                }
-
                 var tool = tools.FirstOrDefault(t => t.Name == fc.Name);
-                if (tool == null)
+                if (tool == null) 
                 {
-                    await SendToolResponseAsync(fc.Id, fc.Name, new { error = $"Tool '{fc.Name}' not found." }, cancellationToken);
-                    return;
+                    var error = $"Tool '{fc.Name}' not found.";
+                    await LogToolResultAsync(fc.Name, argsJson, null, error, 0);
+                    return new { error };
                 }
 
-                var argsJson = JsonSerializer.Serialize(fc.Args);
                 var result = await tool.ExecuteAsync(argsJson, UserId ?? "live-user");
+                sw.Stop();
+                
+                var responseContent = result.Content ?? result.Error;
+                var responseJson = JsonSerializer.Serialize(responseContent, _jsonOptions);
+                
+                _timelineEvents.Add(new TimelineEvent { Type = "ToolResponse", Meta = fc.Name, Content = responseJson });
+                if (OnToolResult != null) await OnToolResult.Invoke(fc.Id, fc.Name, responseContent);
 
-                _timelineEvents.Add(new TimelineEvent { Type = "ToolResponse", Meta = fc.Name, Content = JsonSerializer.Serialize(result.Content) });
+                await LogToolResultAsync(fc.Name, argsJson, responseJson, result.Error, sw.ElapsedMilliseconds);
 
-                await SendToolResponseAsync(fc.Id, fc.Name, new { result = result.Content }, cancellationToken);
+                return responseContent;
             }
             catch (Exception ex)
             {
+                sw.Stop();
                 _logger.LogError(ex, "Failed to execute tool {ToolName} in Live mode", fc.Name);
                 _timelineEvents.Add(new TimelineEvent { Type = "ToolResponse", Meta = fc.Name, Content = ex.Message });
-                await SendToolResponseAsync(fc.Id, fc.Name, new { error = ex.Message }, cancellationToken);
+                
+                await LogToolResultAsync(fc.Name, argsJson, null, ex.Message, sw.ElapsedMilliseconds);
+                
+                return new { error = ex.Message };
+            }
+        }
+
+        private async Task LogToolResultAsync(string name, string request, string? response, string? error, long duration)
+        {
+            try
+            {
+                await _aiLogger.LogRequestAsync(new AiRequestLog
+                {
+                    ProjectId = this.ProjectId,
+                    ConfigurationId = this.ConfigurationId,
+                    SessionId = this.SessionId,
+                    UserId = this.UserId,
+                    Provider = "gemini",
+                    Model = "models/gemini-2.5-flash-native-audio-latest",
+                    Endpoint = $"Live Tool: {name}",
+                    RawRequest = request,
+                    RawResponse = response,
+                    ErrorMessage = error,
+                    DurationMs = (int)duration
+                });
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to log live tool result");
             }
         }
 

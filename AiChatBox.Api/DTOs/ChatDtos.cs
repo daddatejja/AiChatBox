@@ -15,7 +15,7 @@ namespace AiChatBox.Api.DTOs
         public string Provider { get; set; } = "gemini";
         public string? ModelName { get; set; }
         public string? SystemPrompt { get; set; }
-        public ToolResultDto? ToolResult { get; set; }
+        public List<ToolResultDto>? ToolResults { get; set; }
         public PageContext? Context { get; set; }
     }
 
@@ -28,8 +28,10 @@ namespace AiChatBox.Api.DTOs
 
     public class ToolResultDto
     {
+        public string? ToolCallId { get; set; }
         public string ToolName { get; set; } = string.Empty;
         public object? Result { get; set; }
+        public string? ThoughtSignature { get; set; }
     }
 
     public class TranscribeRequest
@@ -75,24 +77,45 @@ namespace AiChatBox.Api.DTOs
     public class ChatStreamChunk
     {
         public string? Text { get; set; }
-        public ToolCallDto? ToolCall { get; set; }
+        public List<ToolCallDto>? ToolCalls { get; set; }
         public Guid? SessionId { get; set; }
+        public Guid? MessageId { get; set; }
         public bool Done { get; set; }
         public string? Error { get; set; }
         public ReportDownloadDto? ReportInfo { get; set; }
+        public ToolResultDto? ToolResult { get; set; }
+        /// <summary>
+        /// Populated when a conversation rule with a non-text ResponseType matches.
+        /// The widget reads this to render redirect/card/file/form responses.
+        /// </summary>
+        public RuleResponseChunk? RuleResponse { get; set; }
     }
+
+    /// <summary>
+    /// Rich rule response payload sent to the widget in a stream chunk.
+    /// </summary>
+    public class RuleResponseChunk
+    {
+        /// <summary>text | redirect | card | ai | file | form | tool_call</summary>
+        public string ResponseType { get; set; } = "text";
+        /// <summary>Raw JSON payload for non-text response types (mirrors ConversationRule.ResponsePayload)</summary>
+        public string? Payload { get; set; }
+    }
+
 
     public class ToolCallDto
     {
         public string Id { get; set; } = string.Empty;
         public string Name { get; set; } = string.Empty;
         public string Arguments { get; set; } = string.Empty;
+        public string? ThoughtSignature { get; set; }
     }
 
     public class AgentChunk
     {
         public string? Text { get; set; }
-        public ToolCallDto? ToolCall { get; set; }
+        public List<ToolCallDto>? ToolCalls { get; set; }
+        public ToolResultDto? ToolResult { get; set; }
     }
 
     public class ReportDownloadDto
@@ -104,13 +127,19 @@ namespace AiChatBox.Api.DTOs
 
     public class ChatConfigDto
     {
+        public Guid ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
         public string DefaultProvider { get; set; } = "gemini";
         public string DefaultModel { get; set; } = "gemini-3.1-flash-lite-preview";
         public bool LiveVoiceEnabled { get; set; }
         public List<ModelOptionDto> EnabledModels { get; set; } = [];
         public List<string> Suggestions { get; set; } = [];
-        public string? SystemPrompt { get; set; }
+        public string SystemPrompt { get; set; } = string.Empty;
+        public bool HandoffEnabled { get; set; }
+        /// <summary>
+        /// JSON object representing theme settings (colors, layout) parsed from configuration
+        /// </summary>
+        public object? Theme { get; set; }
     }
 
     public class ModelOptionDto

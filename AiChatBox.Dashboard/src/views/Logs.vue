@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
+import { useRouter } from 'vue-router';
 import { useApi } from '../composables/useApi';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
@@ -7,8 +8,6 @@ import Button from 'primevue/button';
 import Select from 'primevue/select';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
-import IconField from 'primevue/iconfield';
-import InputIcon from 'primevue/inputicon';
 import Tag from 'primevue/tag';
 import Tabs from 'primevue/tabs';
 import TabList from 'primevue/tablist';
@@ -19,12 +18,21 @@ import Timeline from 'primevue/timeline';
 import ScrollPanel from 'primevue/scrollpanel';
 
 const { apiFetch } = useApi();
+const router = useRouter();
 
 const logs = ref<any[]>([]);
 const totalLogs = ref(0);
 const offset = ref(0);
 const limit = ref(20);
 const loading = ref(true);
+
+const flowLogs = ref<any[]>([]);
+const totalFlowLogs = ref(0);
+const flowOffset = ref(0);
+const flowLimit = ref(20);
+const flowLoading = ref(true);
+const activeTab = ref('request-logs');
+
 const projects = ref<any[]>([]);
 const selectedProject = ref<any>(null);
 const searchQuery = ref('');
@@ -34,7 +42,12 @@ const sortOrder = ref(-1);
 async function loadProjects() {
     try {
         const res = await apiFetch('/api/project');
-        if (res.ok) projects.value = await res.json();
+        if (res.ok) {
+            projects.value = await res.json();
+            if (projects.value.length > 0 && !selectedProject.value) {
+                selectedProject.value = projects.value[0];
+            }
+        }
     } catch(e) { console.error(e); }
 }
 
@@ -63,10 +76,36 @@ async function load() {
     loading.value = false;
 }
 
+async function loadFlowLogs() {
+    if (!selectedProject.value) {
+        flowLogs.value = [];
+        totalFlowLogs.value = 0;
+        return;
+    }
+    flowLoading.value = true;
+    try {
+        const res = await apiFetch(`/api/projects/${selectedProject.value.id}/flows/execution-logs?offset=${flowOffset.value}&limit=${flowLimit.value}`);
+        if (res.ok) {
+            const data = await res.json();
+            flowLogs.value = data.items || [];
+            totalFlowLogs.value = data.total || 0;
+        }
+    } catch(e) {
+        console.error(e);
+    }
+    flowLoading.value = false;
+}
+
 const onPage = (event: any) => {
     offset.value = event.first;
     limit.value = event.rows;
     load();
+};
+
+const onFlowPage = (event: any) => {
+    flowOffset.value = event.first;
+    flowLimit.value = event.rows;
+    loadFlowLogs();
 };
 
 const onSort = (event: any) => {
@@ -79,14 +118,26 @@ let searchTimeout: any = null;
 watch(searchQuery, () => {
     if (searchTimeout) clearTimeout(searchTimeout);
     searchTimeout = setTimeout(() => {
-        offset.value = 0;
-        load();
+        if (activeTab.value === 'request-logs') {
+            offset.value = 0;
+            load();
+        }
     }, 500);
 });
 
 watch(selectedProject, () => {
     offset.value = 0;
+    flowOffset.value = 0;
     load();
+    loadFlowLogs();
+});
+
+watch(activeTab, (newTab) => {
+    if (newTab === 'flow-logs') {
+        loadFlowLogs();
+    } else {
+        load();
+    }
 });
 
 const formatDate = (value: string) => {
@@ -200,6 +251,32 @@ async function togglePin(log: any) {
             log.isPinned = data.isPinned;
         }
     } catch(e) { console.error(e); }
+}
+
+const visibleFlowDetail = ref(false);
+const selectedFlowLog = ref<any>(null);
+const flowLogSteps = ref<any[]>([]);
+
+async function showFlowDetail(log: any) {
+    selectedFlowLog.value = log;
+    visibleFlowDetail.value = true;
+    flowLogSteps.value = [];
+    
+    try {
+        const res = await apiFetch(`/api/projects/${selectedProject.value.id}/flows/execution-logs/${log.id}`);
+        if (res.ok) {
+            const data = await res.json();
+            selectedFlowLog.value = data;
+            flowLogSteps.value = JSON.parse(data.stepsJson || '[]');
+        }
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+function replayRun(log: any) {
+    visibleFlowDetail.value = false;
+    router.push(`/project/${selectedProject.value.id}/flow/${log.flowId}?replayLogId=${log.id}`);
 }
 
 const pcmBase64ArrayToWavDataUrl = (base64Chunks: string[], sampleRate: number = 24000) => {
@@ -335,76 +412,224 @@ onMounted(() => {
     <div>
         <header class="header">
             <div class="header-main">
-                <h1>API Request Logs</h1>
-                <p class="subtitle">Recent AI provider requests</p>
+                <h1>Execution Telemetry & Logs</h1>
+                <p class="subtitle">Inspect API request telemetry and interactive conversation flows</p>
             </div>
             <div class="header-actions">
-                <IconField iconPosition="left">
-                    <InputIcon class="pi pi-search" />
-                    <InputText v-model="searchQuery" placeholder="Search logs..." class="w-64" />
-                </IconField>
+                <div class="search-container" v-if="activeTab === 'request-logs'">
+                    <i class="pi pi-search search-icon"></i>
+                    <InputText v-model="searchQuery" placeholder="Search logs..." class="w-64 search-input" />
+                </div>
                 <Select v-model="selectedProject" :options="projects" optionLabel="name" placeholder="Filter by Project" showClear class="w-64" />
             </div>
         </header>
 
-        <div class="logs-container">
-            <DataTable 
-                :value="logs" 
-                lazy 
-                paginator 
-                :rows="limit" 
-                :totalRecords="totalLogs"
-                :loading="loading"
-                @page="onPage" 
-                @sort="onSort"
-                sortField="createdAt"
-                :sortOrder="-1"
-                class="p-datatable-sm logs-table" 
-                responsiveLayout="scroll"
-                scrollable 
-                scrollHeight="calc(100vh - 280px)"
-            >
-                <Column field="createdAt" header="Time" sortable style="min-width: 160px">
-                    <template #body="slotProps">
-                        <span class="text-secondary">{{ formatDate(slotProps.data.createdAt) }}</span>
-                    </template>
-                </Column>
-                <Column field="endpoint" header="Endpoint" sortable style="min-width: 120px">
-                    <template #body="slotProps">
-                        <span class="mono-text">{{ slotProps.data.endpoint || '-' }}</span>
-                    </template>
-                </Column>
-                <Column field="inputTokens" header="In" sortable style="width: 80px"></Column>
-                <Column field="outputTokens" header="Out" sortable style="width: 80px"></Column>
-                <Column field="durationMs" header="Duration" sortable style="width: 100px">
-                    <template #body="slotProps">
-                        {{ slotProps.data.durationMs }}ms
-                    </template>
-                </Column>
-                <Column field="errorMessage" header="Status" style="width: 120px">
-                    <template #body="slotProps">
-                        <Tag v-if="slotProps.data.errorMessage" severity="danger" :value="getErrorSummary(slotProps.data.errorMessage)" :title="slotProps.data.errorMessage" />
-                        <Tag v-else severity="success" value="Success" />
-                    </template>
-                </Column>
-                <Column header="Pin" style="width: 60px">
-                    <template #body="slotProps">
-                        <Button :icon="slotProps.data.isPinned ? 'pi pi-star-fill' : 'pi pi-star'" 
-                                :severity="slotProps.data.isPinned ? 'warn' : 'secondary'" 
-                                :text="!slotProps.data.isPinned" 
-                                rounded 
-                                @click="togglePin(slotProps.data)" />
-                    </template>
-                </Column>
-                <Column header="Details" style="width: 80px">
-                    <template #body="slotProps">
-                        <Button icon="pi pi-eye" severity="secondary" text rounded @click="showDetail(slotProps.data)" />
-                    </template>
-                </Column>
-            </DataTable>
-            
-            <p v-if="!loading && !logs.length" class="empty-text">No logs found matching your criteria.</p>
-        </div>
+        <Tabs v-model:value="activeTab" class="w-full">
+            <TabList class="mb-4">
+                <Tab value="request-logs">API Request Logs</Tab>
+                <Tab value="flow-logs">Flow Runs & Playback</Tab>
+            </TabList>
+            <TabPanels>
+                <TabPanel value="request-logs">
+                    <div class="logs-container">
+                        <DataTable 
+                            :value="logs" 
+                            lazy 
+                            paginator 
+                            :rows="limit" 
+                            :totalRecords="totalLogs"
+                            :loading="loading"
+                            @page="onPage" 
+                            @sort="onSort"
+                            sortField="createdAt"
+                            :sortOrder="-1"
+                            class="p-datatable-sm logs-table" 
+                            responsiveLayout="scroll"
+                            scrollable 
+                            scrollHeight="calc(100vh - 280px)"
+                        >
+                            <Column field="createdAt" header="Time" sortable style="min-width: 160px">
+                                <template #body="slotProps">
+                                    <span class="text-secondary">{{ formatDate(slotProps.data.createdAt) }}</span>
+                                </template>
+                            </Column>
+                            <Column field="endpoint" header="Endpoint" sortable style="min-width: 120px">
+                                <template #body="slotProps">
+                                    <span class="mono-text">{{ slotProps.data.endpoint || '-' }}</span>
+                                </template>
+                            </Column>
+                            <Column field="inputTokens" header="In" sortable style="width: 80px"></Column>
+                            <Column field="outputTokens" header="Out" sortable style="width: 80px"></Column>
+                            <Column field="durationMs" header="Duration" sortable style="width: 100px">
+                                <template #body="slotProps">
+                                    {{ slotProps.data.durationMs }}ms
+                                </template>
+                            </Column>
+                            <Column field="errorMessage" header="Status" style="width: 120px">
+                                <template #body="slotProps">
+                                    <Tag v-if="slotProps.data.errorMessage" severity="danger" :value="getErrorSummary(slotProps.data.errorMessage)" :title="slotProps.data.errorMessage" />
+                                    <Tag v-else severity="success" value="Success" />
+                                </template>
+                            </Column>
+                            <Column header="Pin" style="width: 60px">
+                                <template #body="slotProps">
+                                    <Button :icon="slotProps.data.isPinned ? 'pi pi-star-fill' : 'pi pi-star'" 
+                                            :severity="slotProps.data.isPinned ? 'warn' : 'secondary'" 
+                                            :text="!slotProps.data.isPinned" 
+                                            rounded 
+                                            @click="togglePin(slotProps.data)" />
+                                </template>
+                            </Column>
+                            <Column header="Details" style="width: 80px">
+                                <template #body="slotProps">
+                                    <Button icon="pi pi-eye" severity="secondary" text rounded @click="showDetail(slotProps.data)" />
+                                </template>
+                            </Column>
+                        </DataTable>
+                        
+                        <p v-if="!loading && !logs.length" class="empty-text">No logs found matching your criteria.</p>
+                    </div>
+                </TabPanel>
+
+                <TabPanel value="flow-logs">
+                    <div class="logs-container">
+                        <DataTable 
+                            :value="flowLogs" 
+                            lazy 
+                            paginator 
+                            :rows="flowLimit" 
+                            :totalRecords="totalFlowLogs"
+                            :loading="flowLoading"
+                            @page="onFlowPage"
+                            class="p-datatable-sm logs-table"
+                            responsiveLayout="scroll"
+                            scrollable
+                            scrollHeight="calc(100vh - 280px)"
+                        >
+                            <Column field="startedAt" header="Start Time" style="min-width: 160px">
+                                <template #body="slotProps">
+                                    <span class="text-secondary">{{ formatDate(slotProps.data.startedAt) }}</span>
+                                </template>
+                            </Column>
+                            <Column field="flowName" header="Conversation Flow" style="min-width: 140px">
+                                <template #body="slotProps">
+                                    <span class="font-bold text-primary">{{ slotProps.data.flowName }}</span>
+                                </template>
+                            </Column>
+                            <Column field="sessionTitle" header="Client Session" style="min-width: 160px">
+                                <template #body="slotProps">
+                                    <span class="mono-text text-sm">{{ slotProps.data.sessionTitle }}</span>
+                                </template>
+                            </Column>
+                            <Column field="stepsCount" header="Steps" style="width: 80px">
+                                <template #body="slotProps">
+                                    <Tag severity="info" :value="slotProps.data.stepsCount + ' steps'" rounded />
+                                </template>
+                            </Column>
+                            <Column field="totalDurationMs" header="Execution Time" style="width: 120px">
+                                <template #body="slotProps">
+                                    <span class="mono-text">{{ slotProps.data.totalDurationMs.toFixed(1) }}ms</span>
+                                </template>
+                            </Column>
+                            <Column field="completedAt" header="Status" style="width: 120px">
+                                <template #body="slotProps">
+                                    <Tag v-if="slotProps.data.completedAt" severity="success" value="Completed" />
+                                    <Tag v-else severity="warn" value="Active / Paused" />
+                                </template>
+                            </Column>
+                            <Column header="Trace Playback" style="width: 100px">
+                                <template #body="slotProps">
+                                    <Button icon="pi pi-play" severity="primary" text rounded @click="showFlowDetail(slotProps.data)" label="Replay" class="p-button-sm" />
+                                </template>
+                            </Column>
+                        </DataTable>
+                        <p v-if="!flowLoading && !flowLogs.length" class="empty-text">No active flow logs found for this project.</p>
+                    </div>
+                </TabPanel>
+            </TabPanels>
+        </Tabs>
+
+        <Dialog v-model:visible="visibleFlowDetail" modal header="Flow Execution Playback" :style="{ width: '55vw' }">
+            <div v-if="selectedFlowLog" class="flow-log-playback-detail" style="margin: -1rem; padding: 1.5rem;">
+                <div class="playback-header flex items-center justify-between mb-4 p-4 bg-surface-50 border border-surface-200 rounded-lg">
+                    <div>
+                        <h3 class="text-lg font-bold text-primary mb-1">{{ selectedFlowLog.flowName }}</h3>
+                        <p class="text-xs text-secondary">
+                            Session: <code class="mono-text">{{ selectedFlowLog.sessionTitle }}</code> | Started at: {{ formatDate(selectedFlowLog.startedAt) }}
+                        </p>
+                    </div>
+                    <Button label="Visual Replay in Canvas" icon="pi pi-sparkles" severity="success" @click="replayRun(selectedFlowLog)" />
+                </div>
+                
+                <h4 class="text-sm font-semibold mb-3 flex items-center gap-1"><i class="pi pi-list text-primary"></i>Node Traversal Path Telemetry:</h4>
+                <ScrollPanel style="width: 100%; height: 420px" class="trace-scroll">
+                    <Timeline :value="flowLogSteps" align="left" class="custom-timeline">
+                        <template #marker="slotProps">
+                            <span class="custom-marker flex items-center justify-center rounded-full" 
+                                  :style="{ 
+                                      width: '2rem', 
+                                      height: '2rem',
+                                      backgroundColor: slotProps.item.NodeType === 'trigger' ? 'var(--p-emerald-500)' :
+                                                       slotProps.item.NodeType === 'message' ? 'var(--p-blue-500)' :
+                                                       slotProps.item.NodeType === 'ai' ? 'var(--p-purple-500)' :
+                                                       slotProps.item.NodeType === 'richresponse' ? 'var(--p-orange-500)' :
+                                                       slotProps.item.NodeType === 'condition' ? 'var(--p-pink-500)' :
+                                                       slotProps.item.NodeType === 'webhook' ? 'var(--p-sky-500)' : 'var(--p-slate-500)'
+                                  }">
+                                <i :class="slotProps.item.NodeType === 'trigger' ? 'pi pi-bolt' :
+                                           slotProps.item.NodeType === 'message' ? 'pi pi-comment' :
+                                           slotProps.item.NodeType === 'input' ? 'pi pi-sign-in' :
+                                           slotProps.item.NodeType === 'ai' ? 'pi pi-sparkles' :
+                                           slotProps.item.NodeType === 'richresponse' ? 'pi pi-image' :
+                                           slotProps.item.NodeType === 'condition' ? 'pi pi-sitemap' :
+                                           slotProps.item.NodeType === 'webhook' ? 'pi pi-globe' : 'pi pi-circle'" 
+                                   style="font-size: 0.9rem; color: #fff;"></i>
+                            </span>
+                        </template>
+                        <template #content="slotProps">
+                            <div class="timeline-item is-selected">
+                                <div class="item-header flex items-center justify-between">
+                                    <div class="header-left flex items-center gap-2">
+                                        <span class="item-time text-xs">{{ new Date(slotProps.item.ExecutedAt).toLocaleTimeString() }}</span>
+                                        <span class="font-bold text-sm text-surface-900">{{ slotProps.item.NodeLabel }}</span>
+                                        <Tag size="small" severity="secondary" :value="slotProps.item.NodeType.toUpperCase()" />
+                                    </div>
+                                    <span class="text-xs text-secondary font-mono">{{ slotProps.item.DurationMs.toFixed(1) }}ms</span>
+                                </div>
+                                
+                                <div class="trace-content mt-2 flex flex-col gap-2">
+                                    <!-- Input/Output Message previews -->
+                                    <div v-if="slotProps.item.InputMessage" class="content-block request">
+                                        <span class="block-label text-xs">USER INPUT RECEIVED</span>
+                                        <div class="block-text text-sm">"{{ slotProps.item.InputMessage }}"</div>
+                                    </div>
+                                    
+                                    <div v-if="slotProps.item.OutputMessage" class="content-block response">
+                                        <span class="block-label text-xs">OUTPUT RESPONDED</span>
+                                        <div class="block-text text-sm">{{ slotProps.item.OutputMessage }}</div>
+                                    </div>
+
+                                    <!-- Variables snapshot Visualizer -->
+                                    <div class="variables-panel mt-2 p-2 bg-surface-50 border border-surface-200 rounded" 
+                                         v-if="slotProps.item.VariablesSnapshotJson && slotProps.item.VariablesSnapshotJson !== '{}'">
+                                        <span class="text-xs font-semibold text-secondary flex items-center gap-1 mb-1">
+                                            <i class="pi pi-database text-xs"></i> Session Variables Snapshot:
+                                        </span>
+                                        <div class="flex flex-wrap gap-2">
+                                            <div v-for="(val, key) in JSON.parse(slotProps.item.VariablesSnapshotJson)" :key="key" 
+                                                 class="flex items-center gap-1 bg-surface-100 border border-surface-200 px-2 py-0.5 rounded text-xs">
+                                                <strong class="text-surface-700 font-mono">{{ key }}:</strong>
+                                                <span class="text-primary font-mono">"{{ val }}"</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </Timeline>
+                </ScrollPanel>
+            </div>
+        </Dialog>
 
         <Dialog v-model:visible="visibleDetail" modal header="Request Details & Trace" :style="{ width: '70vw' }">
             <div v-if="selectedLog" class="log-detail">
@@ -803,6 +1028,12 @@ onMounted(() => {
     .header-actions :deep(.p-inputtext) {
         width: 100% !important;
     }
+    .search-container {
+        width: 100%;
+    }
+    .search-input {
+        width: 100% !important;
+    }
     .header-actions :deep(.p-select) {
         width: 100% !important;
     }
@@ -812,5 +1043,21 @@ onMounted(() => {
         border-left: none;
         border-right: none;
     }
+}
+
+.search-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+}
+.search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--p-surface-400);
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+.search-input {
+    padding-left: 36px !important;
 }
 </style>

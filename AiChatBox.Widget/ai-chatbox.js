@@ -200,6 +200,11 @@
       this.currentSessionId = localStorage.getItem("ai_chat_session_id") || null;
       this.liveTimerInterval = null;
       this.liveStartTime = null;
+      
+      this.handoffPoller = null;
+      this.handoffConnection = null;
+      this.handoffStatus = "ai";
+      this.lastHandoffPollTime = new Date().toISOString();
 
       // Attributes
       this.apiUrl = null;
@@ -211,6 +216,8 @@
       this.provider = null;
       this.modelName = null;
       this.suggestions = [];
+      this.commands = [];
+      this.activeCommandIndex = -1;
 
       // Tools
       this.toolHandlers = new Map();
@@ -248,6 +255,13 @@
         error: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/></svg>',
         person: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>',
         minimize: '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M19 13H5v-2h14v2z"/></svg>',
+        list: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M3 13h2v-2H3v2zm0 4h2v-2H3v2zm0-8h2V7H3v2zm4 4h14v-2H7v2zm0 4h14v-2H7v2zM7 7v2h14V7H7z"/></svg>',
+        chart: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 9.2h3V19H5zM10.6 5h2.8v14h-2.8zm5.6 8H19v6h-2.8z"/></svg>',
+        expand: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>',
+        collapse: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>',
+        excel: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6zm2 16H8v-2h8v2zm0-4H8v-2h8v2zm-3-5V3.5L18.5 9H13z"/></svg>',
+        pdf: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M20 2H8a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2zm-8.5 7.5c0 .83-.67 1.5-1.5 1.5H9v2H7.5V7H10c.83 0 1.5.67 1.5 1.5v1zm5 2c0 .83-.67 1.5-1.5 1.5h-2.5V7H15c.83 0 1.5.67 1.5 1.5v3zm4-3H19v1h1.5V11H19v2h-1.5V7h3v1.5zM9 8.5V10h1V8.5H9zm5 0V12h1V8.5h-1zM4 6H2v14a2 2 0 0 0 2 2h14v-2H4V6z"/></svg>',
+        download: '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg>',
       };
 
       this.config = null;
@@ -306,15 +320,67 @@
         });
         if (response.ok) {
           this.config = await this.safeJson(response);
+          if (this.config.projectId) this.projectId = this.config.projectId;
           if (this.config.defaultModel) this.modelName = this.config.defaultModel;
           if (this.config.defaultProvider) this.provider = this.config.defaultProvider;
           if (this.config.suggestions && Array.isArray(this.config.suggestions) && this.config.suggestions.length > 0) {
             this.suggestions = this.config.suggestions;
           }
+          if (this.config.theme) {
+            this.applyTheme(this.config.theme);
+          }
         }
       } catch (err) {
         console.error("Failed to fetch widget config:", err);
       }
+    }
+
+    async fetchCommands() {
+      if (!this.projectId) return;
+      try {
+        const response = await fetch(`${this.apiUrl}/api/rules/project/${this.projectId}/commands`, {
+          headers: this.getHeaders()
+        });
+        if (response.ok) {
+          this.commands = await this.safeJson(response);
+          console.log("Loaded commands:", this.commands);
+        }
+      } catch (err) {
+        console.error("Failed to fetch commands:", err);
+      }
+    }
+
+    applyTheme(theme) {
+      if (!theme) return;
+      if (theme.primaryColor) {
+        this.style.setProperty("--primary-color", theme.primaryColor);
+        // Create a simple gradient based on primary color
+        this.style.setProperty("--primary-gradient", `linear-gradient(135deg, ${theme.primaryColor} 0%, ${this.adjustColor(theme.primaryColor, -20)} 100%)`);
+      }
+      if (theme.bgColor) {
+        this.style.setProperty("--bg-color", theme.bgColor);
+      }
+      if (theme.fontFamily) {
+        if (theme.fontFamily === 'system-ui') {
+          this.style.setProperty("--font-family", "system-ui, -apple-system, sans-serif");
+        } else {
+          this.style.setProperty("--font-family", `"${theme.fontFamily}", sans-serif`);
+        }
+      }
+      // Layout positions will be handled via a host class or inline style
+      if (theme.position === 'bottom-left') {
+        this.style.setProperty("--widget-right", "auto");
+        this.style.setProperty("--widget-left", "24px");
+      } else {
+        this.style.setProperty("--widget-right", "24px");
+        this.style.setProperty("--widget-left", "auto");
+      }
+    }
+
+    // Helper to darken/lighten hex colors slightly for gradients
+    adjustColor(color, amount) {
+        return '#' + color.replace(/^#/, '').replace(/../g, color => 
+            ('0'+Math.min(255, Math.max(0, parseInt(color, 16) + amount)).toString(16)).substr(-2));
     }
 
     async connectedCallback() {
@@ -337,6 +403,7 @@
       await this.loadExternalScripts();
 
       await this.fetchConfig();
+      await this.fetchCommands();
       this.render();
       this.setupEventListeners();
       this.setupDraggable();
@@ -352,6 +419,533 @@
       const stylePath = this.getAttribute("css-path") || `${this.apiUrl}/widget/ai-chatbox.css`;
       this.shadowRoot.innerHTML = `
                 <link rel="stylesheet" href="${stylePath}">
+                <style>
+                  .message-text-content:empty, .message-widget-container:empty { display: none; }
+                  .message-text-content { margin-bottom: 8px; line-height: 1.5; }
+                  
+                  /* Command Autocomplete Dropdown Styling */
+                  .command-autocomplete-dropdown {
+                    position: absolute;
+                    bottom: calc(100% + 8px);
+                    left: 12px;
+                    right: 12px;
+                    background: rgba(30, 41, 59, 0.95);
+                    backdrop-filter: blur(16px);
+                    border: 1px solid rgba(255, 255, 255, 0.08);
+                    border-radius: 12px;
+                    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.4), 0 8px 10px -6px rgba(0, 0, 0, 0.4);
+                    max-height: 220px;
+                    overflow-y: auto;
+                    z-index: 1000;
+                    padding: 6px;
+                    display: none;
+                    flex-direction: column;
+                    gap: 2px;
+                    animation: slideUp 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+                  }
+                  @keyframes slideUp {
+                    from { opacity: 0; transform: translateY(8px); }
+                    to { opacity: 1; transform: translateY(0); }
+                  }
+                  .command-item {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    cursor: pointer;
+                    transition: all 0.15s ease;
+                  }
+                  .command-item-trigger {
+                    font-weight: 700;
+                    color: var(--primary-color, #6366f1);
+                    font-size: 14px;
+                    background: rgba(99, 102, 241, 0.15);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                  }
+                  .command-item-name {
+                    font-weight: 600;
+                    color: #fff;
+                    font-size: 13.5px;
+                  }
+                  .command-item-desc {
+                    color: var(--text-muted, #94a3b8);
+                    font-size: 12px;
+                    flex: 1;
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .command-item:hover, .command-item.active {
+                    background: rgba(255, 255, 255, 0.08);
+                  }
+
+                  /* Rich Response Styles */
+                  .rich-redirect {
+                    display: flex;
+                    align-items: center;
+                    gap: 14px;
+                    padding: 14px;
+                    background: rgba(57, 167, 185, 0.06);
+                    border: 1px solid rgba(57, 167, 185, 0.2);
+                    border-radius: 12px;
+                    color: var(--text-color, #1e293b);
+                    transition: all 0.2s ease;
+                  }
+                  .rich-redirect:hover {
+                    background: rgba(57, 167, 185, 0.1);
+                    border-color: rgba(57, 167, 185, 0.3);
+                  }
+                  .rich-redirect-icon {
+                    font-size: 22px;
+                    filter: drop-shadow(0 2px 4px rgba(57,167,185,0.2));
+                  }
+                  .rich-redirect-content {
+                    flex: 1;
+                    min-width: 0;
+                  }
+                  .rich-redirect-title {
+                    font-weight: 700;
+                    color: var(--primary-color, #39a7b9);
+                    font-size: 14px;
+                    margin-bottom: 2px;
+                  }
+                  .rich-redirect-url {
+                    font-size: 11px;
+                    color: var(--secondary-text, #64748b);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .rich-redirect-countdown {
+                    font-size: 12px;
+                    font-weight: 600;
+                    color: var(--text-color, #1e293b);
+                    margin-top: 6px;
+                  }
+                  .rich-redirect-progress {
+                    width: 100%;
+                    height: 4px;
+                    background: var(--border-color, #e2e8f0);
+                    border-radius: 2px;
+                    margin-top: 8px;
+                    overflow: hidden;
+                  }
+                  .rich-redirect-progress-bar {
+                    height: 100%;
+                    background: var(--primary-color, #39a7b9);
+                    width: 100%;
+                    transform-origin: left;
+                    animation: redirectProgress linear forwards;
+                  }
+                  @keyframes redirectProgress {
+                    from { transform: scaleX(1); }
+                    to { transform: scaleX(0); }
+                  }
+
+                  .rich-card {
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 14px;
+                    padding: 16px;
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.04);
+                    margin-top: 8px;
+                    overflow: hidden;
+                    display: flex;
+                    flex-direction: column;
+                  }
+                  .rich-card-banner {
+                    width: calc(100% + 32px);
+                    margin: -16px -16px 12px -16px;
+                    height: 130px;
+                    object-fit: cover;
+                    border-top-left-radius: 12px;
+                    border-top-right-radius: 12px;
+                    border-bottom: 1px solid var(--border-color, #e2e8f0);
+                  }
+                  .rich-card-title {
+                    font-weight: 700;
+                    font-size: 15px;
+                    color: var(--text-color, #1e293b);
+                    margin-bottom: 8px;
+                  }
+                  .rich-card-body {
+                    font-size: 13px;
+                    line-height: 1.5;
+                    color: var(--secondary-text, #64748b);
+                    margin-bottom: 12px;
+                  }
+                  .rich-card-btn {
+                    display: inline-flex;
+                    align-items: center;
+                    justify-content: center;
+                    background: var(--primary-color, #39a7b9);
+                    color: #fff !important;
+                    border: none;
+                    padding: 10px 18px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    transition: all 0.2s ease;
+                    box-shadow: 0 2px 8px rgba(57, 167, 185, 0.2);
+                    text-align: center;
+                  }
+                  .rich-card-btn:hover {
+                    transform: translateY(-1px);
+                    box-shadow: 0 4px 14px rgba(57, 167, 185, 0.3);
+                  }
+
+                  .rich-file {
+                    display: flex;
+                    align-items: center;
+                    justify-content: space-between;
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 12px;
+                    padding: 12px;
+                    margin-top: 8px;
+                    gap: 12px;
+                    box-shadow: 0 2px 10px rgba(0,0,0,0.02);
+                  }
+                  .rich-file-info {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    flex: 1;
+                    min-width: 0;
+                  }
+                  .rich-file-icon {
+                    width: 34px;
+                    height: 34px;
+                    background: rgba(57, 167, 185, 0.08);
+                    color: var(--primary-color, #39a7b9);
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    flex-shrink: 0;
+                  }
+                  .rich-file-icon svg {
+                    width: 18px;
+                    height: 18px;
+                  }
+                  .rich-file-name {
+                    font-size: 13px;
+                    font-weight: 600;
+                    color: var(--text-color, #1e293b);
+                    white-space: nowrap;
+                    overflow: hidden;
+                    text-overflow: ellipsis;
+                  }
+                  .rich-file-btn {
+                    background: var(--border-color, #e2e8f0);
+                    border: none;
+                    color: var(--text-color, #1e293b);
+                    padding: 6px 12px;
+                    border-radius: 6px;
+                    font-size: 12px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    text-decoration: none;
+                    transition: all 0.2s;
+                    white-space: nowrap;
+                  }
+                  .rich-file-btn:hover {
+                    background: rgba(57, 167, 185, 0.1);
+                    color: var(--primary-color, #39a7b9);
+                  }
+
+                  .rich-form {
+                    background: rgba(247, 249, 252, 0.8);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 14px;
+                    padding: 16px;
+                    margin-top: 8px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    box-shadow: 0 2px 12px rgba(0,0,0,0.02);
+                  }
+                  .rich-form-title {
+                    font-weight: 700;
+                    font-size: 14px;
+                    color: var(--text-color, #1e293b);
+                    margin-bottom: 4px;
+                  }
+                  .rich-form-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                  }
+                  .rich-form-label {
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: var(--secondary-text, #64748b);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                  }
+                  .rich-form-input, .rich-form-select {
+                    background: var(--bg-color, #ffffff);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 8px;
+                    padding: 8px 12px;
+                    color: var(--text-color, #1e293b);
+                    font-size: 13px;
+                    outline: none;
+                    transition: all 0.2s ease;
+                  }
+                  .rich-form-input:focus, .rich-form-select:focus {
+                    border-color: var(--primary-color, #39a7b9);
+                    box-shadow: 0 0 0 3px rgba(57, 167, 185, 0.1);
+                  }
+                  .rich-form-select option {
+                    background: var(--bg-color, #ffffff);
+                    color: var(--text-color, #1e293b);
+                  }
+                  .rich-form-check-group {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 8px;
+                    margin-top: 4px;
+                  }
+                  .rich-form-check-option {
+                    display: flex;
+                    align-items: center;
+                    gap: 8px;
+                    cursor: pointer;
+                  }
+                  .rich-form-checkbox, .rich-form-radio {
+                    accent-color: var(--primary-color, #39a7b9);
+                    width: 16px;
+                    height: 16px;
+                    margin: 0;
+                    cursor: pointer;
+                  }
+                  .rich-form-check-label {
+                    font-size: 13px;
+                    color: var(--text-color, #1e293b);
+                    cursor: pointer;
+                    user-select: none;
+                  }
+                  .rich-form-submit {
+                    background: var(--primary-color, #39a7b9);
+                    color: #fff;
+                    border: none;
+                    padding: 10px 14px;
+                    border-radius: 8px;
+                    font-size: 13px;
+                    font-weight: 600;
+                    cursor: pointer;
+                    transition: all 0.2s ease;
+                    text-align: center;
+                  }
+                  .rich-form-submit:hover {
+                    background: var(--primary-gradient, #2d8a99);
+                    transform: translateY(-0.5px);
+                  }
+                  .rich-form-submit:disabled {
+                    background: var(--border-color, #e2e8f0);
+                    color: var(--secondary-text, #64748b);
+                    cursor: not-allowed;
+                    transform: none;
+                  }
+
+                  /* Historic Tool Call Badge Styles */
+                  .rich-tool-badge {
+                    background: rgba(241, 245, 249, 0.9);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 12px;
+                    padding: 12px;
+                    margin-top: 8px;
+                    box-shadow: 0 2px 8px rgba(0,0,0,0.02);
+                  }
+                  .rich-tool-badge-header {
+                    display: flex;
+                    align-items: center;
+                    gap: 6px;
+                    margin-bottom: 8px;
+                  }
+                  .rich-tool-badge-icon {
+                    font-size: 15px;
+                  }
+                  .rich-tool-badge-title {
+                    font-weight: 700;
+                    font-size: 12px;
+                    color: var(--text-color, #1e293b);
+                    text-transform: uppercase;
+                    letter-spacing: 0.5px;
+                  }
+                  .rich-tool-badge-body {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 6px;
+                  }
+                  .rich-tool-badge-name {
+                    font-size: 13px;
+                    color: var(--secondary-text, #64748b);
+                  }
+                  .rich-tool-badge-name code {
+                    background: rgba(57, 167, 185, 0.08);
+                    color: var(--primary-color, #39a7b9);
+                    padding: 2px 6px;
+                    border-radius: 4px;
+                    font-weight: 600;
+                    font-family: var(--code-font, monospace);
+                  }
+                  .rich-tool-badge-args {
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    margin-top: 4px;
+                  }
+                  .rich-tool-badge-args-title {
+                    font-size: 11px;
+                    font-weight: 700;
+                    color: var(--secondary-text, #64748b);
+                  }
+                  .rich-tool-badge-args pre {
+                    margin: 0;
+                    background: rgba(15, 23, 42, 0.03);
+                    border: 1px solid var(--border-color, #e2e8f0);
+                    border-radius: 8px;
+                    padding: 8px;
+                    overflow-x: auto;
+                  }
+                  .rich-tool-badge-args code {
+                    color: var(--text-color, #1e293b);
+                    font-size: 11px;
+                    font-family: var(--code-font, monospace);
+                  }
+                  
+                  .message-widget-container { width: 100%; overflow: hidden; margin-top: 10px; transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+                  .message-widget-container.expanded { width: calc(100% + 40px); margin-left: -20px; }
+                  
+                  .data-result-widget { 
+                    background: var(--bg-glass, rgba(255, 255, 255, 0.03)); 
+                    backdrop-filter: blur(12px);
+                    border-radius: 16px; 
+                    border: 1px solid var(--border-color, rgba(255, 255, 255, 0.1)); 
+                    overflow: hidden; 
+                    box-shadow: 0 8px 32px rgba(0,0,0,0.2);
+                    display: flex;
+                    flex-direction: column;
+                  }
+
+                  .data-tabs {
+                    display: flex;
+                    padding: 6px;
+                    background: rgba(0,0,0,0.2);
+                    gap: 4px;
+                    border-bottom: 1px solid rgba(255,255,255,0.05);
+                  }
+
+                  .data-tab {
+                    flex: 1;
+                    padding: 8px 12px;
+                    border: none;
+                    background: transparent;
+                    color: var(--text-muted, #94a3b8);
+                    font-size: 13px;
+                    font-weight: 500;
+                    cursor: pointer;
+                    border-radius: 8px;
+                    transition: all 0.2s ease;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    gap: 6px;
+                  }
+
+                  .data-tab svg { width: 14px; height: 14px; }
+                  .data-tab:hover { background: rgba(255,255,255,0.05); color: #fff; }
+                  .data-tab.active { background: var(--primary-color, #6366f1); color: #fff; box-shadow: 0 2px 8px rgba(99, 102, 241, 0.4); }
+
+                  .data-actions { display: flex; gap: 4px; padding-left: 8px; border-left: 1px solid rgba(255,255,255,0.1); }
+                  .data-action-btn {
+                    padding: 6px;
+                    background: transparent;
+                    border: none;
+                    color: var(--text-muted);
+                    cursor: pointer;
+                    border-radius: 6px;
+                    transition: all 0.2s;
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                  }
+                  .data-action-btn:hover { background: rgba(255,255,255,0.1); color: #fff; }
+                  .data-action-btn svg { width: 14px; height: 14px; }
+
+                  .data-content { padding: 12px; position: relative; min-height: 200px; }
+                  .data-panel { display: none; }
+                  .data-panel.active { display: block; animation: fadeIn 0.3s ease; }
+                  
+                  @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+
+                  .table-container { overflow-x: auto; border-radius: 8px; border: 1px solid rgba(255,255,255,0.05); }
+                  .data-result-widget table { width: 100%; border-collapse: collapse; font-size: 12px; color: var(--text-main); }
+                  .data-result-widget th { background: rgba(0,0,0,0.3); padding: 10px 12px; text-align: left; font-weight: 600; color: #fff; }
+                  .data-result-widget td { padding: 8px 12px; border-bottom: 1px solid rgba(255,255,255,0.05); white-space: nowrap; }
+                  .data-result-widget tr:nth-child(even) { background: rgba(255,255,255,0.02); }
+                  .data-result-widget tr:hover { background: rgba(99, 102, 241, 0.1); }
+
+                  .chart-controls { display: flex; justify-content: flex-end; margin-bottom: 10px; gap: 8px; }
+                  .chart-type-select {
+                    background: rgba(0,0,0,0.4);
+                    color: #fff;
+                    border: 1px solid rgba(255,255,255,0.1);
+                    border-radius: 6px;
+                    padding: 4px 8px;
+                    font-size: 12px;
+                    outline: none;
+                  }
+
+                  .data-chart-canvas { width: 100% !important; height: 220px !important; }
+                  
+                  /* Typing Indicator */
+                  .typing-indicator { display: flex; gap: 5px; padding: 8px 12px; }
+                  .typing-dot { width: 7px; height: 7px; border-radius: 50%; background: #94a3b8; animation: typingBounce 1.4s ease-in-out infinite; }
+                  .typing-dot:nth-child(2) { animation-delay: 0.15s; }
+                  .typing-dot:nth-child(3) { animation-delay: 0.3s; }
+                  @keyframes typingBounce {
+                    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
+                    30% { transform: translateY(-6px); opacity: 1; }
+                  }
+
+                  .tool-calling-indicator {
+                    display: flex;
+                    align-items: center;
+                    gap: 10px;
+                    padding: 10px 14px;
+                    background: rgba(57, 167, 185, 0.05);
+                    border-radius: 10px;
+                    color: var(--primary-color);
+                    font-size: 13px;
+                    border: 1px dashed var(--primary-color);
+                    margin: 4px 0;
+                  }
+                  .spin-animation { animation: spin 1s linear infinite; display: inline-block; }
+                  @keyframes spin { 100% { transform: rotate(360deg); } }
+                  .live-widget-container { width: 100%; overflow: hidden; }
+                  .live-simple-result {
+                    font-size: 11px;
+                    opacity: 0.8;
+                    margin-top: 8px;
+                    overflow-x: auto;
+                    background: rgba(0,0,0,0.2);
+                    padding: 8px;
+                    border-radius: 8px;
+                    border: 1px solid rgba(255,255,255,0.1);
+                    color: #cbd5e1;
+                    max-height: 150px;
+                    white-space: pre-wrap;
+                  }
+                  .agent-side .message-bubble { background: var(--primary-color, #6366f1); color: white; border-bottom-left-radius: 4px; border-bottom-right-radius: 12px; }
+                  .agent-avatar { background: var(--primary-color, #6366f1); color: white; }
+                </style>
                 
                 <button class="chatbox-toggle-btn" id="fab-toggle" title="Open AI Assistant">
                     ${this.icons.awesome}
@@ -451,7 +1045,8 @@
                     </button>
 
                     <div class="chatbox-input-area">
-                        <div class="modern-input-wrapper">
+                        <div class="modern-input-wrapper" style="position: relative;">
+                            <div class="command-autocomplete-dropdown" id="command-dropdown" style="display:none"></div>
                             <div class="attachments-row" id="attachments-container" style="display:none"></div>
                             
                             <div class="input-row">
@@ -525,15 +1120,88 @@
       root.getElementById("btn-stop").onclick = () => this.stopGeneration();
       
       const chatInput = root.getElementById("chat-input");
+
+      // Click away hides autocomplete
+      document.addEventListener("click", (e) => {
+        const dropdown = root.getElementById("command-dropdown");
+        if (dropdown && !e.target.closest(".modern-input-wrapper")) {
+          this.hideAutocompleteDropdown();
+        }
+      });
+
       chatInput.onkeydown = (e) => {
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault();
-          this.sendMessage();
+        const dropdown = root.getElementById("command-dropdown");
+        const isDropdownVisible = dropdown && dropdown.style.display === "flex";
+        
+        if (isDropdownVisible) {
+          const items = dropdown.querySelectorAll(".command-item");
+          if (e.key === "ArrowDown") {
+            e.preventDefault();
+            this.activeCommandIndex = (this.activeCommandIndex + 1) % items.length;
+            this.updateAutocompleteActiveItem(items);
+          } else if (e.key === "ArrowUp") {
+            e.preventDefault();
+            this.activeCommandIndex = (this.activeCommandIndex - 1 + items.length) % items.length;
+            this.updateAutocompleteActiveItem(items);
+          } else if (e.key === "Enter" || e.key === "Tab") {
+            e.preventDefault();
+            const activeItem = dropdown.querySelector(".command-item.active");
+            if (activeItem) {
+              const name = activeItem.getAttribute("data-name");
+              this.selectCommand(name);
+            } else if (items.length > 0) {
+              const name = items[0].getAttribute("data-name");
+              this.selectCommand(name);
+            }
+          } else if (e.key === "Escape") {
+            e.preventDefault();
+            this.hideAutocompleteDropdown();
+          }
+        } else {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            this.sendMessage();
+          }
         }
       };
+
       chatInput.oninput = (e) => {
         this.adjustTextAreaHeight(e.target);
         this.updateSendButtonState();
+        this.handleUserTyping();
+
+        const value = e.target.value;
+        const cursorPosition = e.target.selectionStart || value.length;
+        const textBeforeCursor = value.substring(0, cursorPosition);
+        
+        const match = textBeforeCursor.match(/(?:^|\s)([\/@#])([a-zA-Z0-9_-]*)$/);
+        
+        if (match) {
+          const triggerChar = match[1];
+          const filterText = match[2].toLowerCase();
+          
+          const matchIndex = textBeforeCursor.length - match[0].length + (match[0].startsWith(' ') || match[0].startsWith('\n') ? 1 : 0);
+          const matchLength = textBeforeCursor.length - matchIndex;
+
+          this.lastCommandMatch = {
+            index: matchIndex,
+            length: matchLength,
+            triggerChar: triggerChar
+          };
+
+          const matched = (this.commands || []).filter(c => 
+            (c.commandTriggerChar || '/').trim() === triggerChar && 
+            c.commandName.toLowerCase().startsWith(filterText)
+          );
+
+          if (matched.length > 0) {
+            this.renderAutocompleteDropdown(matched, triggerChar);
+          } else {
+            this.hideAutocompleteDropdown();
+          }
+        } else {
+          this.hideAutocompleteDropdown();
+        }
       };
 
       // Attachment Actions
@@ -574,6 +1242,565 @@
       const messagesContainer = root.getElementById("messages-container");
       messagesContainer.onscroll = () => this.handleMessagesScroll();
       root.getElementById("scroll-down-btn").onclick = () => this.scrollToBottom();
+    }
+
+    renderAutocompleteDropdown(matched, triggerChar) {
+      const dropdown = this.shadowRoot.getElementById("command-dropdown");
+      if (!dropdown) return;
+      
+      dropdown.innerHTML = matched.map((cmd, index) => `
+        <div class="command-item ${index === this.activeCommandIndex ? 'active' : ''}" data-index="${index}" data-name="${cmd.commandName}">
+          <span class="command-item-trigger">${cmd.commandTriggerChar || triggerChar || '/'}</span>
+          <span class="command-item-name">${cmd.commandName}</span>
+          <span class="command-item-desc">${cmd.commandDescription || ''}</span>
+        </div>
+      `).join('');
+      
+      dropdown.style.display = "flex";
+      
+      dropdown.querySelectorAll(".command-item").forEach(item => {
+        item.onclick = () => {
+          const name = item.getAttribute("data-name");
+          this.selectCommand(name);
+        };
+      });
+    }
+
+    updateAutocompleteActiveItem(items) {
+      items.forEach((item, index) => {
+        if (index === this.activeCommandIndex) {
+          item.classList.add("active");
+          item.scrollIntoView({ block: "nearest" });
+        } else {
+          item.classList.remove("active");
+        }
+      });
+    }
+
+    selectCommand(name) {
+      const input = this.shadowRoot.getElementById("chat-input");
+      if (input) {
+        const val = input.value;
+        const matchInfo = this.lastCommandMatch;
+        if (matchInfo) {
+          const before = val.substring(0, matchInfo.index);
+          const after = val.substring(matchInfo.index + matchInfo.length);
+          const inserted = `${matchInfo.triggerChar}${name} `;
+          input.value = before + inserted + after;
+          const newCursorPos = matchInfo.index + inserted.length;
+          input.setSelectionRange(newCursorPos, newCursorPos);
+        } else {
+          input.value = `/${name} `;
+        }
+        input.focus();
+        this.hideAutocompleteDropdown();
+        this.updateSendButtonState();
+      }
+    }
+
+    hideAutocompleteDropdown() {
+      const dropdown = this.shadowRoot.getElementById("command-dropdown");
+      if (dropdown) {
+        dropdown.style.display = "none";
+      }
+      this.activeCommandIndex = -1;
+    }
+
+    renderRichResponse(ruleResponse, bubble, isHistoric = false) {
+      try {
+        const rawPayload = ruleResponse.responsePayload !== undefined ? ruleResponse.responsePayload 
+          : (ruleResponse.ResponsePayload !== undefined ? ruleResponse.ResponsePayload 
+          : (ruleResponse.payload !== undefined ? ruleResponse.payload : ruleResponse.Payload));
+
+        const payload = typeof rawPayload === 'string' 
+          ? JSON.parse(rawPayload) 
+          : rawPayload;
+        
+        const type = (ruleResponse.responseType || ruleResponse.ResponseType || ruleResponse.type || ruleResponse.Type || '').toLowerCase();
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+ 
+        console.log("Rendering rich response type:", type, payload, "isHistoric:", isHistoric);
+ 
+        if (type !== 'text') {
+          bubble.dataset.hasRichResponse = "true";
+          if (textContent && (textContent.innerHTML === "" || textContent.querySelector(".typing-indicator"))) {
+            textContent.innerHTML = "";
+          }
+        }
+
+        if (type === 'text') {
+          if (textContent) {
+            textContent.innerHTML = this.formatMarkdown(payload.text || payload.content || payload.message || JSON.stringify(payload));
+          }
+        } else if (type === 'redirect') {
+          const url = payload.url || payload.redirectUrl || payload.Url || payload.RedirectUrl;
+          const delaySeconds = Number(payload.seconds || payload.redirectSeconds || payload.Seconds || payload.RedirectSeconds) || 5;
+          const countdownTpl = payload.countdownText || payload.CountdownText || "Redirecting you in {seconds} seconds...";
+          const countdownId = "countdown-" + Math.random().toString(36).substring(7);
+          const text = isHistoric ? "Automated redirection executed" : countdownTpl.replace("{seconds}", delaySeconds);
+
+          if (widgetContainer) {
+            widgetContainer.innerHTML = `
+              <div class="rich-redirect" style="cursor: pointer;" onclick="window.open('${url}', '_blank')">
+                <div class="rich-redirect-icon">🔗</div>
+                <div class="rich-redirect-content">
+                  <div class="rich-redirect-title">Redirect Link</div>
+                  <div class="rich-redirect-url" title="${url}">Click to visit: ${url}</div>
+                  <div id="${countdownId}" class="rich-redirect-countdown">${text}</div>
+                  ${!isHistoric ? `
+                    <div class="rich-redirect-progress">
+                      <div class="rich-redirect-progress-bar" style="animation-duration: ${delaySeconds}s"></div>
+                    </div>
+                  ` : ''}
+                </div>
+              </div>
+            `;
+          }
+
+          if (!isHistoric && url) {
+            let currentSec = delaySeconds;
+            const timer = setInterval(() => {
+              currentSec--;
+              const countdownEl = this.shadowRoot.getElementById(countdownId);
+              if (countdownEl) {
+                countdownEl.textContent = countdownTpl.replace("{seconds}", currentSec);
+              }
+              if (currentSec <= 0) {
+                clearInterval(timer);
+                window.location.href = url;
+              }
+            }, 1000);
+          }
+        } else if (type === 'card') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const cardEl = document.createElement("div");
+            cardEl.className = "rich-card";
+            
+            const imgUrl = payload.imageUrl || payload.ImageUrl || payload.image || payload.Image;
+            const imgHtml = imgUrl ? `<img src="${imgUrl}" class="rich-card-banner" alt="Banner" />` : "";
+            
+            const titleVal = payload.title || payload.Title;
+            const title = titleVal ? `<div class="rich-card-title">${titleVal}</div>` : "";
+            
+            const bodyVal = payload.content || payload.body || payload.Content || payload.Body;
+            const content = bodyVal ? `<div class="rich-card-body">${bodyVal}</div>` : "";
+            
+            let button = "";
+            const btnText = payload.buttonLabel || payload.buttonText || payload.ButtonLabel || payload.ButtonText;
+            const btnUrl = payload.buttonUrl || payload.url || payload.ButtonUrl || payload.Url;
+            if (btnText && btnUrl) {
+              button = `<a href="${btnUrl}" target="_blank" class="rich-card-btn">${btnText}</a>`;
+            }
+            
+            cardEl.innerHTML = `${imgHtml}${title}${content}${button}`;
+            widgetContainer.appendChild(cardEl);
+          }
+        } else if (type === 'file') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const fileEl = document.createElement("div");
+            fileEl.className = "rich-file";
+            
+            const name = payload.fileName || payload.name || payload.FileName || payload.Name || "download-file";
+            const url = payload.fileUrl || payload.url || payload.FileUrl || payload.Url;
+            const ext = name.split('.').pop().toLowerCase();
+            
+            let icon = this.icons.attach;
+            if (ext === 'xlsx' || ext === 'xls') icon = this.icons.excel || this.icons.attach;
+            if (ext === 'pdf') icon = this.icons.pdf || this.icons.attach;
+            
+            fileEl.innerHTML = `
+              <div class="rich-file-info">
+                <div class="rich-file-icon">${icon}</div>
+                <div class="rich-file-name" title="${name}">${name}</div>
+              </div>
+              <a href="${url}" target="_blank" download="${name}" class="rich-file-btn">
+                ${this.icons.download || '⬇️'} Download
+              </a>
+            `;
+            widgetContainer.appendChild(fileEl);
+          }
+        } else if (type === 'form') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const formEl = document.createElement("form");
+            formEl.className = "rich-form";
+            
+            const title = payload.title ? `<div class="rich-form-title">${payload.title}</div>` : "";
+            formEl.innerHTML = title;
+            
+            const fields = payload.fields || [];
+            fields.forEach(field => {
+              const group = document.createElement("div");
+              group.className = "rich-form-group";
+              
+              const label = `<label class="rich-form-label">${field.label || field.name} ${field.required ? '<span style="color:var(--danger-color, #ef4444)">*</span>' : ''}</label>`;
+              let input = "";
+              
+              if (field.type === 'textarea') {
+                input = `<textarea name="${field.name}" class="rich-form-input" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''} rows="2"></textarea>`;
+              } else if (field.type === 'select') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                const options = opts.map(opt => `<option value="${opt.value || opt}">${opt.label || opt}</option>`).join('');
+                input = `<select name="${field.name}" class="rich-form-select" ${field.required ? 'required' : ''}>${options}</select>`;
+              } else if (field.type === 'checkbox') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                if (opts.length > 0) {
+                  let optionsHtml = "";
+                  opts.forEach((opt, idx) => {
+                    const optLabel = opt.label || opt.name || opt;
+                    const optVal = opt.value || opt;
+                    const id = `chk-${field.name}-${idx}-${Math.random().toString(36).substring(7)}`;
+                    optionsHtml += `
+                      <div class="rich-form-check-option">
+                        <input type="checkbox" id="${id}" name="${field.name}" value="${optVal}" class="rich-form-checkbox">
+                        <label for="${id}" class="rich-form-check-label">${optLabel}</label>
+                      </div>
+                    `;
+                  });
+                  input = `<div class="rich-form-check-group">${optionsHtml}</div>`;
+                } else {
+                  const id = `chk-${field.name}-${Math.random().toString(36).substring(7)}`;
+                  input = `
+                    <div class="rich-form-check-option">
+                      <input type="checkbox" id="${id}" name="${field.name}" value="true" class="rich-form-checkbox" ${field.required ? 'required' : ''}>
+                      <label for="${id}" class="rich-form-check-label">${field.placeholder || 'Accept'}</label>
+                    </div>
+                  `;
+                }
+              } else if (field.type === 'radio') {
+                let opts = field.options || [];
+                if (typeof opts === 'string') {
+                  opts = opts.split(',').map(s => s.trim());
+                }
+                let optionsHtml = "";
+                opts.forEach((opt, idx) => {
+                  const optLabel = opt.label || opt.name || opt;
+                  const optVal = opt.value || opt;
+                  const id = `rad-${field.name}-${idx}-${Math.random().toString(36).substring(7)}`;
+                  optionsHtml += `
+                    <div class="rich-form-check-option">
+                      <input type="radio" id="${id}" name="${field.name}" value="${optVal}" class="rich-form-radio" ${field.required && idx === 0 ? 'required' : ''}>
+                      <label for="${id}" class="rich-form-check-label">${optLabel}</label>
+                    </div>
+                  `;
+                });
+                input = `<div class="rich-form-check-group">${optionsHtml}</div>`;
+              } else {
+                input = `<input type="${field.type || 'text'}" name="${field.name}" class="rich-form-input" placeholder="${field.placeholder || ''}" ${field.required ? 'required' : ''}>`;
+              }
+              
+              group.innerHTML = `${label}${input}`;
+              formEl.appendChild(group);
+            });
+            
+            const submitBtn = document.createElement("button");
+            submitBtn.type = "submit";
+            submitBtn.className = "rich-form-submit";
+            submitBtn.textContent = payload.submitLabel || payload.submitText || "Submit";
+            formEl.appendChild(submitBtn);
+            
+            formEl.onsubmit = async (e) => {
+              e.preventDefault();
+              submitBtn.disabled = true;
+              submitBtn.textContent = "Submitting...";
+              
+              const formData = new FormData(formEl);
+              const body = {};
+              formData.forEach((val, key) => {
+                if (body[key]) {
+                  if (Array.isArray(body[key])) {
+                    body[key].push(val);
+                  } else {
+                    body[key] = [body[key], val];
+                  }
+                } else {
+                  body[key] = val;
+                }
+              });
+              Object.keys(body).forEach(k => {
+                if (Array.isArray(body[k])) {
+                  body[k] = body[k].join(", ");
+                }
+              });
+              
+              try {
+                const res = await fetch(`${this.apiUrl}/api/rules/form-submit`, {
+                  method: "POST",
+                  headers: { 
+                    ...this.getHeaders(),
+                    "Content-Type": "application/json" 
+                  },
+                  body: JSON.stringify({
+                    sessionId: this.currentSessionId,
+                    projectId: this.projectId,
+                    formTitle: payload.title,
+                    submitUrl: payload.submitUrl,
+                    data: body
+                  })
+                });
+                if (res.ok) {
+                  formEl.innerHTML = `<div style="color:var(--success-color, #10b981); font-weight:600; display:flex; align-items:center; gap:8px; padding: 12px; background: rgba(16, 185, 129, 0.1); border: 1px solid rgba(16, 185, 129, 0.2); border-radius: 8px;">
+                    ${this.icons.check || '✅'} Submission received successfully!
+                  </div>`;
+                } else {
+                  throw new Error("Submit failed");
+                }
+              } catch(err) {
+                console.error(err);
+                submitBtn.disabled = false;
+                submitBtn.textContent = "Retry Submit";
+                const errEl = document.createElement("div");
+                errEl.style.color = "var(--danger-color, #ef4444)";
+                errEl.style.fontSize = "12px";
+                errEl.style.marginTop = "8px";
+                errEl.textContent = "Submission failed. Please try again.";
+                formEl.appendChild(errEl);
+              }
+            };
+            
+            widgetContainer.appendChild(formEl);
+          }
+        } else if (type === 'buttons') {
+          if (widgetContainer) {
+            widgetContainer.innerHTML = '';
+            const btnContainer = document.createElement("div");
+            btnContainer.className = "rich-buttons-container";
+            
+            const buttons = payload.buttons || [];
+            buttons.forEach(btn => {
+              const buttonEl = document.createElement("button");
+              buttonEl.className = "rich-action-button";
+              buttonEl.textContent = btn.label || "Click";
+              
+              if (isHistoric) {
+                buttonEl.disabled = true;
+                buttonEl.classList.add("historic");
+              } else {
+                buttonEl.addEventListener("click", () => {
+                  // Disable all buttons in this container to prevent double actions
+                  btnContainer.querySelectorAll(".rich-action-button").forEach(b => {
+                    b.disabled = true;
+                    b.classList.add("historic");
+                  });
+
+                  const action = (btn.action || "next").toLowerCase();
+                  const value = btn.value || "";
+
+                  if (action === "url" && value) {
+                    window.open(value, "_blank");
+                  } else if (action === "next") {
+                    this.sendUserActionMessage(btn.label);
+                  } else if (action === "postback") {
+                    // Send display label as chat bubble but technical value as API message
+                    this.sendUserActionMessage(btn.label, value);
+                  }
+                });
+              }
+              btnContainer.appendChild(buttonEl);
+            });
+            widgetContainer.appendChild(btnContainer);
+          }
+        } else if (type === 'tool_call') {
+          if (!isHistoric && payload.toolName) {
+            this.handleToolCalls([{
+              name: payload.toolName,
+              arguments: payload.arguments || {},
+              id: "tool-rule-" + Math.random().toString(36).substring(7)
+            }], bubble);
+          } else if (isHistoric && payload.toolName) {
+            if (widgetContainer) {
+              widgetContainer.innerHTML = '';
+              const toolCallEl = document.createElement("div");
+              toolCallEl.className = "rich-tool-badge";
+              toolCallEl.innerHTML = `
+                <div class="rich-tool-badge-header">
+                  <span class="rich-tool-badge-icon">🔧</span>
+                  <span class="rich-tool-badge-title">Automated Action Executed</span>
+                </div>
+                <div class="rich-tool-badge-body">
+                  <div class="rich-tool-badge-name"><strong>Command:</strong> <code>${payload.toolName}</code></div>
+                  ${payload.arguments && Object.keys(payload.arguments).length > 0 ? `
+                    <div class="rich-tool-badge-args">
+                      <div class="rich-tool-badge-args-title">Parameters:</div>
+                      <pre><code>${JSON.stringify(payload.arguments, null, 2)}</code></pre>
+                    </div>
+                  ` : ''}
+                </div>
+              `;
+              widgetContainer.appendChild(toolCallEl);
+            }
+          }
+        }
+      } catch (err) {
+        console.error("Failed to render rich response:", err);
+      }
+    }
+
+    async sendUserActionMessage(displayText, apiValue) {
+      if (this.isTyping) return;
+
+      const emptyState = this.shadowRoot.querySelector(".chatbox-empty-state");
+      if (emptyState) emptyState.remove();
+
+      // Clear input box
+      const input = this.shadowRoot.getElementById("chat-input");
+      if (input) {
+        input.value = "";
+        input.style.height = "auto";
+      }
+      this.updateSendButtonState();
+
+      // Show user message bubble with displayText
+      this.addMessage("user", `<div class="message-text">${displayText}</div>`);
+
+      // Clear user typing status
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.isUserTypingSignalSent = false;
+
+      // Handle handoff
+      if (this.handoffStatus === "active" || this.handoffStatus === "queued") {
+        const textToSend = apiValue || displayText;
+        if (this.handoffConnection && this.handoffConnection.state === "Connected") {
+          try {
+            await this.handoffConnection.invoke("SendUserMessage", this.currentSessionId, textToSend, this.apiKey);
+          } catch (err) {
+            console.error("Failed to send action message via SignalR:", err);
+            await this.sendHandoffMessageViaHttp(textToSend);
+          }
+        } else {
+          await this.sendHandoffMessageViaHttp(textToSend);
+        }
+        return;
+      }
+
+      this.isTyping = true;
+      this.updateInputButtons();
+
+      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
+      const bubble = aiWrapper.querySelector(".message-bubble");
+
+      try {
+        this.abortController = new AbortController();
+        const { modelName: selectedModel, provider: selectedProvider } = this.getSelectedModel();
+        const response = await fetch(`${this.apiUrl}/api/chat`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          signal: this.abortController.signal,
+          body: JSON.stringify({
+            message: apiValue || displayText,
+            sessionId: this.currentSessionId,
+            projectId: this.projectId,
+            configurationId: this.configurationId,
+            provider: selectedProvider,
+            modelName: selectedModel,
+            attachedFileId: null,
+            imageDataUrl: null,
+            context: this.getPageContext()
+          }),
+        });
+
+        if (!response.ok) throw new Error(`API Error: ${response.status}`);
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let fullText = "", hasStarted = false;
+
+        bubble.innerHTML = '<div class="message-text-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div><div class="message-widget-container"></div>';
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          const chunk = decoder.decode(value);
+          const lines = chunk.split("\n");
+
+          for (const line of lines) {
+            if (line.startsWith("data: ")) {
+              try {
+                const data = JSON.parse(line.substring(6));
+                const toolCalls = data.ToolCalls || data.toolCalls;
+                const toolCall = data.ToolCall || data.toolCall;
+                const toolResult = data.ToolResult || data.toolResult;
+                const sid = data.SessionId || data.sessionId || data.sid;
+                const textChunk = data.Text || data.text;
+                const errorChunk = data.Error || data.error;
+
+                if (sid && !this.currentSessionId) {
+                  this.currentSessionId = sid;
+                  localStorage.setItem("ai_chat_session_id", sid);
+                }
+
+                const isDone = data.Done || data.done;
+                const msgId = data.MessageId || data.messageId;
+                if (isDone && msgId) {
+                  aiWrapper.dataset.messageId = msgId;
+                }
+
+                if (errorChunk) {
+                  textContent.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
+                  hasStarted = true;
+                  continue;
+                }
+
+                if (toolCalls && toolCalls.length > 0) {
+                  hasStarted = true;
+                  this.handleToolCalls(toolCalls, bubble);
+                  continue;
+                }
+
+                if (toolCall) {
+                  hasStarted = true;
+                  this.handleToolCalls([toolCall], bubble);
+                  continue; 
+                }
+
+                if (toolResult) {
+                  const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                  if (isDbTool) {
+                    if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                    this.renderDataResult(toolResult.result, widgetContainer);
+                    continue;
+                  }
+                }
+
+                const ruleResponse = data.RuleResponse || data.ruleResponse;
+                if (ruleResponse) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderRichResponse(ruleResponse, bubble);
+                  this.scrollToBottom();
+                }
+
+                if (textChunk) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  fullText += textChunk;
+                  textContent.innerHTML = this.formatMarkdown(fullText);
+                  this.scrollToBottom();
+                }
+              } catch(e) { console.error("Stream parse error:", e); }
+            }
+          }
+        }
+        
+        if (!hasStarted) {
+          bubble.innerHTML = '<span style="opacity:0.6; font-style:italic">No response from AI</span>';
+        }
+      } catch (err) {
+        bubble.innerHTML = `<span style="color:var(--danger-color)">Error: ${err.message}</span>`;
+      } finally {
+        this.isTyping = false;
+        this.updateInputButtons();
+        this.startHandoffConnection();
+      }
     }
 
 
@@ -686,10 +1913,32 @@
       this.pastedImage = null;
       this.renderAttachments();
 
+      // Clear user typing status when sending
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.isUserTypingSignalSent = false;
+      if (this.handoffConnection && this.currentSessionId && this.handoffStatus !== "ai") {
+        this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, false, this.apiKey).catch(console.error);
+      }
+
+      // Bypass streaming UI completely if human handoff is active or queued
+      if (this.handoffStatus === "active" || this.handoffStatus === "queued") {
+        if (this.handoffConnection && this.handoffConnection.state === "Connected") {
+          try {
+            await this.handoffConnection.invoke("SendUserMessage", this.currentSessionId, text, this.apiKey);
+          } catch (err) {
+            console.error("Failed to send message via SignalR:", err);
+            await this.sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl);
+          }
+        } else {
+          await this.sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl);
+        }
+        return;
+      }
+
       this.isTyping = true;
       this.updateInputButtons();
 
-      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><span class="typing-dot"></span><span class="typing-dot"></span><span class="typing-dot"></span></div>');
+      const aiWrapper = this.addMessage("ai", '<div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>');
       const bubble = aiWrapper.querySelector(".message-bubble");
 
       try {
@@ -718,6 +1967,11 @@
         const decoder = new TextDecoder();
         let fullText = "", hasStarted = false;
 
+        // Initialize containers for text and widgets
+        bubble.innerHTML = '<div class="message-text-content"><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div></div><div class="message-widget-container"></div>';
+        const textContent = bubble.querySelector(".message-text-content");
+        const widgetContainer = bubble.querySelector(".message-widget-container");
+
         while (true) {
           const { done, value } = await reader.read();
           if (done) break;
@@ -728,7 +1982,9 @@
             if (line.startsWith("data: ")) {
               try {
                 const data = JSON.parse(line.substring(6));
+                const toolCalls = data.ToolCalls || data.toolCalls;
                 const toolCall = data.ToolCall || data.toolCall;
+                const toolResult = data.ToolResult || data.toolResult;
                 const sid = data.SessionId || data.sessionId || data.sid;
                 const textChunk = data.Text || data.text;
                 const errorChunk = data.Error || data.error;
@@ -738,24 +1994,54 @@
                   localStorage.setItem("ai_chat_session_id", sid);
                 }
 
+                // Capture message ID from Done chunk for feedback
+                const isDone = data.Done || data.done;
+                const msgId = data.MessageId || data.messageId;
+                if (isDone && msgId) {
+                  aiWrapper.dataset.messageId = msgId;
+                }
+
                 if (errorChunk) {
-                  bubble.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
+                  textContent.innerHTML = `<span style="color:var(--danger-color)">${errorChunk}</span>`;
                   hasStarted = true;
-                  break;
+                  continue;
+                }
+
+                if (toolCalls && toolCalls.length > 0) {
+                  hasStarted = true;
+                  this.handleToolCalls(toolCalls, bubble);
+                  continue;
                 }
 
                 if (toolCall) {
-                  this.handleToolCall(toolCall, bubble);
-                  return; // Stop processing this stream, handleToolCall will continue
+                  hasStarted = true;
+                  this.handleToolCalls([toolCall], bubble);
+                  continue; 
+                }
+
+                if (toolResult) {
+                  const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                  if (isDbTool) {
+                    if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                    this.renderDataResult(toolResult.result, widgetContainer);
+                    continue;
+                  }
+                }
+
+                const ruleResponse = data.RuleResponse || data.ruleResponse;
+                if (ruleResponse) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderRichResponse(ruleResponse, bubble);
+                  this.scrollToBottom();
                 }
 
                 if (textChunk) {
-                  if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
                   fullText += textChunk;
-                  bubble.innerHTML = this.formatMarkdown(fullText);
+                  textContent.innerHTML = this.formatMarkdown(fullText);
                   this.scrollToBottom();
                 }
-              } catch(e) {}
+              } catch(e) { console.error("Stream parse error:", e); }
             }
           }
         }
@@ -768,67 +2054,122 @@
       } finally {
         this.isTyping = false;
         this.updateInputButtons();
+        this.startHandoffConnection();
       }
     }
 
-    async handleToolCall(toolCall, bubble) {
-      const toolName = toolCall.name || toolCall.Name;
-      const toolArgs = toolCall.arguments || toolCall.Arguments;
-      const callId = toolCall.id || toolCall.Id || Date.now().toString();
-
-      console.log('Executing tool:', toolName, toolArgs);
-      
-      // Update UI to show thinking/calling tool
-      bubble.innerHTML = `<div class="tool-calling-indicator">
-        <span class="spin-animation">${this.icons.refresh}</span>
-        <span>Calling tool: <strong>${toolName}</strong>...</span>
-      </div>`;
-
-      let result = null;
-      const handler = this.toolHandlers.get(toolName);
-      
-      if (handler) {
-        try {
-          const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
-          result = await handler(args);
-        } catch (err) {
-          result = { error: `Handler error: ${err.message}` };
-        }
-      } else {
-        // Create result promise before dispatching event to avoid race condition
-        const resultPromise = new Promise((resolve) => {
-          const onResult = (e) => {
-            if (e.detail.callId === callId) {
-              this.removeEventListener('tool-result-submitted', onResult);
-              resolve(e.detail.result);
+    async sendHandoffMessageViaHttp(text, attachedFileId, imageDataUrl) {
+      try {
+        const { modelName: selectedModel, provider: selectedProvider } = this.getSelectedModel();
+        const response = await fetch(`${this.apiUrl}/api/chat`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({
+            message: text,
+            sessionId: this.currentSessionId,
+            projectId: this.projectId,
+            configurationId: this.configurationId,
+            provider: selectedProvider,
+            modelName: selectedModel,
+            attachedFileId,
+            imageDataUrl,
+            context: this.getPageContext()
+          }),
+        });
+        
+        if (response.ok) {
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = decoder.decode(value);
+            const lines = chunk.split("\n");
+            for (const line of lines) {
+              if (line.startsWith("data: ")) {
+                try {
+                  const data = JSON.parse(line.substring(6));
+                  const sid = data.SessionId || data.sessionId || data.sid;
+                  if (sid && !this.currentSessionId) {
+                    this.currentSessionId = sid;
+                    localStorage.setItem("ai_chat_session_id", sid);
+                  }
+                } catch (e) {}
+              }
             }
-          };
-          this.addEventListener('tool-result-submitted', onResult);
-          
-          // Timeout after 30 seconds
-          setTimeout(() => {
-            this.removeEventListener('tool-result-submitted', onResult);
-            resolve({ error: "Tool execution timed out" });
-          }, 30000);
-        });
-
-        // Dispatch event for external handling
-        const event = new CustomEvent("tool-call", {
-          detail: { 
-            name: toolName, 
-            args: typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs,
-            callId: callId
-          },
-          bubbles: true,
-          composed: true
-        });
-        this.dispatchEvent(event);
-
-        // Wait for submitToolResult to be called
-        result = await resultPromise;
+          }
+        }
+      } catch (err) {
+        console.error("Failed to send HTTP handoff message:", err);
+      } finally {
+        this.startHandoffConnection();
       }
+    }
 
-      // Send result back to API to continue conversation
+    async handleToolCalls(toolCalls, bubble) {
+      const results = await Promise.all(toolCalls.map(async (tc) => {
+        const toolName = tc.name || tc.Name;
+        const toolArgs = tc.arguments || tc.Arguments;
+        const callId = tc.id || tc.Id || Math.random().toString(36).substring(7);
+        const thoughtSignature = tc.thoughtSignature || tc.ThoughtSignature || tc.thought_signature;
+
+        console.log('Executing tool:', toolName, toolArgs);
+        
+        const textContent = bubble.querySelector(".message-text-content");
+        if (textContent) {
+          textContent.innerHTML = `<div class="tool-calling-indicator">
+            <span class="spin-animation">${this.icons.refresh}</span>
+            <span>Executing ${toolCalls.length > 1 ? toolCalls.length + ' parallel tasks' : 'tool ' + toolName}...</span>
+          </div>`;
+        }
+
+        let result = null;
+        const handler = this.toolHandlers.get(toolName);
+        
+        if (handler) {
+          try {
+            const args = typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs;
+            result = await handler(args);
+          } catch (err) {
+            result = { error: `Handler error: ${err.message}` };
+          }
+        } else {
+          const resultPromise = new Promise((resolve) => {
+            const onResult = (e) => {
+              if (e.detail.callId === callId) {
+                this.removeEventListener('tool-result-submitted', onResult);
+                resolve(e.detail.result);
+              }
+            };
+            this.addEventListener('tool-result-submitted', onResult);
+            setTimeout(() => {
+              this.removeEventListener('tool-result-submitted', onResult);
+              resolve({ error: "Tool execution timed out" });
+            }, 30000);
+          });
+
+          this.dispatchEvent(new CustomEvent("tool-call", {
+            detail: { 
+              name: toolName, 
+              args: typeof toolArgs === 'string' ? JSON.parse(toolArgs) : toolArgs,
+              callId: callId
+            },
+            bubbles: true,
+            composed: true
+          }));
+
+          result = await resultPromise;
+        }
+
+        return {
+          toolCallId: callId,
+          toolName: toolName,
+          result: result,
+          thoughtSignature: thoughtSignature
+        };
+      }));
+
+      // Send results back to API
       const { modelName: toolModel, provider: toolProvider } = this.getSelectedModel();
       const response = await fetch(`${this.apiUrl}/api/chat`, {
         method: "POST",
@@ -838,18 +2179,16 @@
           sessionId: this.currentSessionId,
           provider: toolProvider,
           modelName: toolModel,
-          toolResult: {
-            toolName: toolName,
-            result: result
-          },
+          toolResults: results,
           context: this.getPageContext()
         }),
       });
 
-      // Restart the streaming UI for the new response
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
       let fullText = "", hasStarted = false;
+      const textContent = bubble.querySelector(".message-text-content");
+      const widgetContainer = bubble.querySelector(".message-widget-container");
 
       while (true) {
         const { done, value } = await reader.read();
@@ -860,37 +2199,75 @@
           if (line.startsWith("data: ")) {
             try {
               const data = JSON.parse(line.substring(6));
-              const textChunk = data.text || data.Text;
-              if (textChunk) {
-                if (!hasStarted) { bubble.innerHTML = ""; hasStarted = true; }
-                fullText += textChunk;
-                bubble.innerHTML = this.formatMarkdown(fullText);
+              const nextToolCalls = data.ToolCalls || data.toolCalls;
+              const nextToolCall = data.ToolCall || data.toolCall;
+              const toolResult = data.ToolResult || data.toolResult;
+              const textChunk = data.Text || data.text;
+
+              if (nextToolCalls && nextToolCalls.length > 0) {
+                return this.handleToolCalls(nextToolCalls, bubble);
+              }
+              if (nextToolCall) {
+                return this.handleToolCalls([nextToolCall], bubble);
+              }
+
+              if (toolResult) {
+                const isDbTool = (toolResult.toolName === 'query_project_database' || toolResult.toolName === 'query_database' || toolResult.toolName === 'query_data');
+                if (isDbTool) {
+                  if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                  this.renderDataResult(toolResult.result, widgetContainer);
+                  continue;
+                }
+              }
+
+              const ruleResponse = data.RuleResponse || data.ruleResponse;
+              if (ruleResponse) {
+                if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                this.renderRichResponse(ruleResponse, bubble);
                 this.scrollToBottom();
               }
-            } catch(e) {}
+
+              if (textChunk) {
+                if (!hasStarted) { textContent.innerHTML = ""; hasStarted = true; }
+                fullText += textChunk;
+                textContent.innerHTML = this.formatMarkdown(fullText);
+                this.scrollToBottom();
+              }
+            } catch(e) { console.error("Stream parse error:", e); }
           }
         }
       }
-      
       this.isTyping = false;
       this.updateInputButtons();
+      
+      // Ensure we are connected for human handoff agent messages
+      this.startHandoffConnection();
     }
 
-    async handleLiveToolCall(name, args, id = null) {
-      console.log("Live Tool Call:", name, args, id);
+    async handleLiveToolCall(name, args, callId = null, isBackend = false) {
+      console.log(`[LiveToolCall] name=${name}, callId=${callId}, isBackend=${isBackend}`, args);
       
-      // Add a special tool message to live transcript
       const area = this.shadowRoot.getElementById("live-transcript");
       const div = document.createElement("div");
       div.className = "live-transcript-msg live-msg-tool";
+      
+      // Use name as fallback if callId is not provided
+      const domId = callId ? `tool-call-${callId}` : `tool-call-${name}-${Date.now()}`;
+      
       div.innerHTML = `
         <div class="live-msg-avatar">${this.icons.refresh}</div>
-        <div class="live-msg-bubble tool-bubble">
+        <div class="live-msg-bubble tool-bubble" id="${domId}" data-name="${name}">
           <span>Executing <strong>${name}</strong>...</span>
         </div>
       `;
       area.appendChild(div);
       area.scrollTop = area.scrollHeight;
+      
+      // If it's a backend tool, the server handles it; we return and wait for ReceiveToolResult
+      if (isBackend) {
+        console.log(`[LiveToolCall] Backend tool detected: ${name}. Waiting for server result.`);
+        return;
+      }
 
       let result = null;
       const handler = this.toolHandlers.get(name);
@@ -934,31 +2311,96 @@
       // Send result back to hub
       if (this.liveConnection) {
         try {
-          await this.liveConnection.invoke("SendToolResult", name, JSON.stringify(result));
-          div.style.opacity = '0';
-          div.style.transition = 'opacity 0.3s ease';
-          setTimeout(() => div.remove(), 300);
+          await this.liveConnection.invoke("SendToolResult", callId, JSON.stringify(result));
+          // Don't remove the div, handleLiveToolResult will update it
         } catch (err) {
           console.error("Failed to send tool result:", err);
           div.querySelector(".live-msg-bubble").innerHTML = `<span style="color:var(--danger-color)">Failed to execute <strong>${name}</strong></span>`;
-          setTimeout(() => div.remove(), 5000);
         }
       }
     }
 
 
-    addMessage(role, htmlContent, fileId = null, fileName = null) {
+    async handleLiveToolResult(callId, name, result) {
+      console.log(`[LiveToolResult] id=${callId}, name=${name}`, result);
+      
+      const area = this.shadowRoot.getElementById("live-transcript");
+      let bubble = this.shadowRoot.getElementById(`tool-call-${callId}`);
+      if (!bubble) {
+        const bubbles = this.shadowRoot.querySelectorAll(`.tool-bubble[data-name="${name}"]`);
+        bubble = bubbles[bubbles.length - 1]; 
+      }
+
+      if (bubble) {
+        bubble.classList.add("tool-completed");
+        
+        // Update the message wrapper to show AI avatar instead of loading spinner when done
+        const wrapper = bubble.closest(".live-transcript-msg");
+        if (wrapper) {
+          wrapper.classList.add("tool-done");
+          const avatar = wrapper.querySelector(".live-msg-avatar");
+          if (avatar) {
+            avatar.innerHTML = this.icons.awesome;
+            avatar.style.animation = "none";
+          }
+        }
+
+        bubble.innerHTML = `<div class="tool-result-header">
+          ${this.icons.check} <span>Completed <strong>${name}</strong></span>
+        </div>
+        <div class="live-widget-container" style="margin-top:10px"></div>`;
+        
+        const container = bubble.querySelector(".live-widget-container");
+        
+        let data = result;
+        
+        // Handle various wrapping formats
+        if (data && (data.content !== undefined || data.Content !== undefined)) {
+          data = data.content !== undefined ? data.content : data.Content;
+        }
+        
+        if (data && (data.result !== undefined || data.Result !== undefined)) {
+          data = data.result !== undefined ? data.result : data.Result;
+        }
+
+        // Sometimes the result is a JSON string that needs parsing
+        if (typeof data === 'string' && data.trim().startsWith('[')) {
+          try { data = JSON.parse(data); } catch(e) {}
+        }
+
+        console.log(`[LiveToolResult] Final data for ${name}:`, data);
+
+        const isData = data && (data.rows || data.data || Array.isArray(data));
+        
+        if (isData) {
+           this.renderDataResult(data, container);
+        } else if (data !== null && data !== undefined) {
+           const pre = document.createElement("pre");
+           pre.className = "live-simple-result";
+           pre.textContent = typeof data === 'string' ? data : JSON.stringify(data, null, 2);
+           bubble.appendChild(pre);
+        }
+        
+        this.scrollToBottom();
+      }
+    }
+
+    addMessage(role, htmlContent, fileId = null, fileName = null, messageId = null) {
       const container = this.shadowRoot.getElementById("messages-container");
       const wrapper = document.createElement("div");
       const isUser = role === "user";
-      wrapper.className = `message-wrapper ${isUser ? "user-side" : ""} message-appear`;
+      const isAgent = role === "agent";
+      wrapper.className = `message-wrapper ${isUser ? "user-side" : "ai-side"} ${isAgent ? "agent-side" : ""} message-appear`;
+      if (messageId) {
+        wrapper.dataset.messageId = messageId;
+      }
       
       const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-      const avatar = isUser ? "" : `<div class="message-avatar ai-avatar">${this.icons.awesome}</div>`;
+      const avatar = isUser ? "" : `<div class="message-avatar ${isAgent ? 'agent-avatar' : 'ai-avatar'}">${isAgent ? this.icons.person : this.icons.awesome}</div>`;
       const userAvatar = isUser ? `<div class="message-avatar user-avatar">${this.icons.user}</div>` : "";
       
       // Remove previous regenerate buttons
-      if (!isUser) {
+      if (!isUser && !isAgent) {
         container.querySelectorAll("[data-action='regenerate']").forEach(btn => btn.remove());
       }
 
@@ -969,6 +2411,9 @@
             <button class="msg-action-btn" data-action="copy" title="Copy">${this.icons.copy}</button>
             <button class="msg-action-btn" data-action="speak" title="Listen">${this.icons.voice}</button>
             <button class="msg-action-btn" data-action="regenerate" title="Regenerate">${this.icons.refresh}</button>
+            <span class="feedback-divider"></span>
+            <button class="msg-action-btn feedback-btn" data-action="thumbsup" title="Good response">👍</button>
+            <button class="msg-action-btn feedback-btn" data-action="thumbsdown" title="Bad response">👎</button>
           </div>
         `;
       }
@@ -1016,6 +2461,12 @@
               window.speechSynthesis.speak(utterance);
             } else if (action === "regenerate") {
               this.regenerateLastResponse();
+            } else if (action === "thumbsup" || action === "thumbsdown") {
+              const msgId = wrapper.dataset.messageId;
+              if (msgId) {
+                const feedbackValue = action === "thumbsup" ? 1 : -1;
+                this.submitFeedback(msgId, feedbackValue, btn, wrapper);
+              }
             }
           };
         });
@@ -1023,6 +2474,27 @@
 
       this.scrollToBottom();
       return wrapper;
+    }
+
+    async submitFeedback(messageId, feedback, btn, wrapper) {
+      try {
+        const response = await fetch(`${this.apiUrl}/api/chat/messages/${messageId}/feedback`, {
+          method: "POST",
+          headers: { ...this.getHeaders(), "Content-Type": "application/json" },
+          body: JSON.stringify({ feedback }),
+        });
+        if (response.ok) {
+          // Highlight the selected button
+          wrapper.querySelectorAll(".feedback-btn").forEach(b => {
+            b.classList.remove("feedback-active");
+            b.style.opacity = "0.4";
+          });
+          btn.classList.add("feedback-active");
+          btn.style.opacity = "1";
+        }
+      } catch (e) {
+        console.error("Feedback submission failed:", e);
+      }
     }
 
     async regenerateLastResponse() {
@@ -1040,6 +2512,28 @@
 
       this.shadowRoot.getElementById("chat-input").value = text;
       this.sendMessage();
+    }
+
+    startNewChat() {
+      if (this.abortController) {
+        this.abortController.abort();
+      }
+      this.stopGeneration();
+      this.stopHandoffConnection();
+      this.handoffStatus = "ai";
+      this.currentSessionId = null;
+      localStorage.removeItem("ai_chat_session_id");
+      this.shadowRoot.getElementById("messages-container").innerHTML = "";
+
+      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
+      if (transcriptArea) transcriptArea.innerHTML = "";
+
+      this.renderEmptyState();
+      if (this.isHistoryOpen) this.toggleHistory();
+
+      // Select the generic AI mode if an agent session ended
+      this.isTyping = false;
+      this.updateInputButtons();
     }
 
     // ---- Live Mode Logic ----
@@ -1092,7 +2586,8 @@
           }
         });
         this.liveConnection.on("ReceiveInputTranscription", text => this.addLiveMessage("user", text));
-        this.liveConnection.on("ReceiveToolCall", (id, name, args) => this.handleLiveToolCall(name, args, id));
+        this.liveConnection.on("ReceiveToolCall", (id, name, args, isBackend) => this.handleLiveToolCall(name, args, id, isBackend));
+        this.liveConnection.on("ReceiveToolResult", (id, name, result) => this.handleLiveToolResult(id, name, result));
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
@@ -1282,14 +2777,18 @@
       const avatarIcon = isUser ? this.icons.person : this.icons.awesome;
 
       if (last && last.classList.contains(roleClass)) {
-        last.querySelector(".live-msg-text").textContent += text;
+        const textSpan = last.querySelector(".live-msg-text");
+        // Store raw text in a data attribute to handle cumulative markdown rendering
+        const currentText = (textSpan.dataset.raw || textSpan.textContent) + text;
+        textSpan.dataset.raw = currentText;
+        textSpan.innerHTML = this.formatMarkdown(currentText);
       } else {
         const div = document.createElement("div");
-        div.className = `live-transcript-msg ${roleClass}`;
+        div.className = `live-transcript-msg ${roleClass} message-appear`;
         div.innerHTML = `
           <div class="live-msg-avatar">${avatarIcon}</div>
           <div class="live-msg-bubble">
-            <span class="live-msg-text">${text}</span>
+            <span class="live-msg-text" data-raw="${text}">${this.formatMarkdown(text)}</span>
             <span class="live-msg-time">${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
           </div>
         `;
@@ -1315,9 +2814,236 @@
       }
     }
 
+    async startHandoffConnection() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || this.currentSessionId === "null" || this.currentSessionId === "undefined") return;
+      if (!this.apiKey) {
+        this.startHandoffPoller();
+        return;
+      }
+      
+      if (this.handoffConnection) return; // already connected or connecting
+      
+      try {
+        if (typeof window.signalR === "undefined") {
+          await new Promise((res, rej) => {
+            const s = document.createElement("script");
+            s.src = "https://cdnjs.cloudflare.com/ajax/libs/microsoft-signalr/8.0.0/signalr.min.js";
+            s.onload = res; s.onerror = rej; document.head.appendChild(s);
+          });
+        }
+
+        this.handoffConnection = new window.signalR.HubConnectionBuilder()
+          .withUrl(`${this.apiUrl}/liveChatHub`)
+          .withAutomaticReconnect()
+          .build();
+
+        this.handoffConnection.on("HandoffStatus", (data) => {
+          console.log("[HandoffConnection] Status update:", data);
+          if (data.status) {
+            this.handoffStatus = data.status;
+          }
+        });
+
+        this.handoffConnection.on("ReceiveAgentMessage", (msg) => {
+          console.log("[HandoffConnection] Received agent message:", msg);
+          const existingMsg = this.shadowRoot.querySelector(`[data-message-id="${msg.id}"]`);
+          if (!existingMsg) {
+            this.toggleAgentTypingIndicator(false);
+            const aiWrapper = this.addMessage("agent", "", null, null, msg.id);
+            const bubble = aiWrapper.querySelector(".message-bubble");
+            bubble.innerHTML = `<div class="message-text-content">${this.formatMarkdown(msg.content)}</div>`;
+            this.scrollToBottom();
+          }
+        });
+
+        this.handoffConnection.on("ReceiveAgentTyping", (data) => {
+          if (data.sessionId === this.currentSessionId) {
+            this.toggleAgentTypingIndicator(data.isTyping);
+          }
+        });
+
+        this.handoffConnection.on("AgentJoined", (data) => {
+          console.log("[HandoffConnection] Agent joined:", data);
+          this.handoffStatus = "active";
+          this.addSystemNotice(data.message || "A support agent has joined the conversation.");
+        });
+
+        this.handoffConnection.on("SessionResolved", (data) => {
+          console.log("[HandoffConnection] Session resolved:", data);
+          this.handoffStatus = "ai";
+          this.addSystemNotice(data.message || "The support session has ended. You're now chatting with AI again.");
+          this.stopHandoffConnection();
+        });
+
+        this.handoffConnection.on("ReturnedToAi", (data) => {
+          console.log("[HandoffConnection] Returned to AI:", data);
+          this.handoffStatus = "ai";
+          this.addSystemNotice(data.message || "You've been returned to the AI assistant.");
+          this.stopHandoffConnection();
+        });
+
+        this.handoffConnection.on("ReceiveError", (msg) => {
+          console.error("[HandoffConnection] Error:", msg);
+        });
+
+        this.handoffConnection.onclose(() => {
+          console.log("[HandoffConnection] Connection closed.");
+        });
+
+        await this.handoffConnection.start();
+        console.log("[HandoffConnection] Connection started successfully.");
+        await this.handoffConnection.invoke("JoinSession", this.currentSessionId, this.apiKey);
+
+      } catch (err) {
+        console.error("[HandoffConnection] Start failed, falling back to polling:", err);
+        this.handoffConnection = null;
+        this.startHandoffPoller();
+      }
+    }
+
+    stopHandoffConnection() {
+      if (this.handoffConnection) {
+        this.handoffConnection.stop().catch(console.error);
+        this.handoffConnection = null;
+      }
+      this.stopHandoffPoller();
+    }
+
+    toggleAgentTypingIndicator(isTyping) {
+      const container = this.shadowRoot.getElementById("messages-container");
+      let indicator = this.shadowRoot.getElementById("agent-typing-indicator");
+      
+      if (isTyping) {
+        if (!indicator) {
+          indicator = document.createElement("div");
+          indicator.id = "agent-typing-indicator";
+          indicator.className = "message-wrapper ai-side message-appear agent-side";
+          indicator.innerHTML = `
+            <div class="message-avatar agent-avatar">${this.icons.user}</div>
+            <div class="message ai-message">
+              <div class="message-bubble">
+                <div class="typing-indicator">
+                  <div class="typing-dot"></div>
+                  <div class="typing-dot"></div>
+                  <div class="typing-dot"></div>
+                </div>
+              </div>
+            </div>
+          `;
+          container.appendChild(indicator);
+          this.scrollToBottom();
+        }
+      } else {
+        if (indicator) {
+          indicator.remove();
+        }
+      }
+    }
+
+    addSystemNotice(text) {
+      const container = this.shadowRoot.getElementById("messages-container");
+      const wrapper = document.createElement("div");
+      wrapper.className = "message-wrapper system-notice message-appear";
+      wrapper.style.display = "flex";
+      wrapper.style.justifyContent = "center";
+      wrapper.style.margin = "12px 0";
+      wrapper.style.width = "100%";
+      
+      wrapper.innerHTML = `
+        <div style="background:rgba(0,0,0,0.05); color:var(--secondary-text); font-size:0.85rem; font-style:italic; padding:6px 16px; border-radius:16px; text-align:center; max-width:80%">
+          ${text}
+        </div>
+      `;
+      container.appendChild(wrapper);
+      this.scrollToBottom();
+      return wrapper;
+    }
+
+    handleUserTyping() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || !this.handoffConnection || this.handoffStatus === "ai") return;
+      
+      if (!this.isUserTypingSignalSent) {
+        this.isUserTypingSignalSent = true;
+        this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, true, this.apiKey).catch(console.error);
+      }
+      
+      if (this.userTypingTimeout) clearTimeout(this.userTypingTimeout);
+      this.userTypingTimeout = setTimeout(() => {
+        this.isUserTypingSignalSent = false;
+        if (this.handoffConnection && this.currentSessionId) {
+          this.handoffConnection.invoke("SendUserTyping", this.currentSessionId, false, this.apiKey).catch(console.error);
+        }
+      }, 2000);
+    }
+
+    startHandoffPoller() {
+      if (!this.config?.handoffEnabled || !this.currentSessionId || this.currentSessionId === "null" || this.currentSessionId === "undefined") return;
+      if (this.handoffPoller) return;
+
+      const poll = async () => {
+        try {
+          const url = new URL(`${this.apiUrl}/api/chat/${this.currentSessionId}/poll`);
+          url.searchParams.append("since", this.lastHandoffPollTime);
+          
+          const response = await fetch(url.toString(), {
+            headers: this.getHeaders()
+          });
+          
+          if (!response.ok) return;
+          const data = await this.safeJson(response);
+          
+          if (data.serverTime) {
+            this.lastHandoffPollTime = data.serverTime;
+          } else {
+            this.lastHandoffPollTime = new Date().toISOString();
+          }
+
+          if (data.handoffStatus) {
+            this.handoffStatus = data.handoffStatus;
+          }
+
+          if (data.messages && data.messages.length > 0) {
+            data.messages.forEach(msg => {
+               if (msg.role === "agent") {
+                   const existingMsg = this.shadowRoot.querySelector(`[data-message-id="${msg.id}"]`);
+                   if (!existingMsg) {
+                       const aiWrapper = this.addMessage("agent", "", null, null, msg.id);
+                       const bubble = aiWrapper.querySelector(".message-bubble");
+                       bubble.innerHTML = `<div class="message-text-content">${this.formatMarkdown(msg.content)}</div>`;
+                       this.scrollToBottom();
+                   }
+               }
+            });
+          }
+
+          if (data.handoffStatus === "ai" || data.handoffStatus === "resolved") {
+            this.handoffStatus = "ai";
+            this.stopHandoffPoller();
+          }
+
+        } catch(e) {
+          console.error("Handoff polling error:", e);
+        }
+      };
+
+      poll();
+      this.handoffPoller = setInterval(poll, 3000);
+    }
+
+    stopHandoffPoller() {
+      if (this.handoffPoller) {
+        clearInterval(this.handoffPoller);
+        this.handoffPoller = null;
+      }
+    }
+
     async loadSessionMessages(sessionId) {
+      this.stopHandoffConnection();
       this.currentSessionId = sessionId;
       localStorage.setItem("ai_chat_session_id", sessionId);
+      const projectId = this.getAttribute("project-id") || localStorage.getItem("ai_chat_project_id");
+      if (projectId) localStorage.setItem("ai_chat_project_id", projectId);
+      
       const list = this.shadowRoot.getElementById("messages-container");
       list.innerHTML = `<div class="history-loading">Loading messages...</div>`;
       try {
@@ -1328,33 +3054,102 @@
         const messages = await this.safeJson(response);
         list.innerHTML = "";
         messages.forEach((m) => {
-          const role = m.Role || m.role;
-          const content = this.formatMarkdown(m.Content || m.content);
+          const role = (m.Role || m.role || "").toLowerCase();
+          const isAi = role === "ai" || role === "assistant" || role === "model" || role === "bot";
+          const isTool = role === "tool";
+          const rawContent = m.Content || m.content || "";
+          
+          // Intercept saved rich responses (starting with or containing "[REDIRECT RESPONSE] ", etc.)
+          let isRichResponse = false;
+          let richType = null;
+          let richPayload = null;
+          let cleanContent = rawContent;
+
+          if (isAi || role === "agent") {
+            const regex = /\[([A-Z0-9_-]+)\s+RESPONSE\]/i;
+            const match = rawContent.match(regex);
+            if (match) {
+              const fullMatch = match[0];
+              const typeStr = match[1].toLowerCase();
+              const index = rawContent.indexOf(fullMatch);
+              const textBefore = rawContent.substring(0, index).trim();
+              const jsonPart = rawContent.substring(index + fullMatch.length).trim();
+              try {
+                richPayload = JSON.parse(jsonPart);
+                richType = typeStr;
+                isRichResponse = true;
+                cleanContent = textBefore;
+              } catch (e) {
+                console.error("Failed to parse historic rich response JSON:", e);
+              }
+            }
+          }
+
+          if (isRichResponse) {
+            const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
+            const formattedText = cleanContent ? this.formatMarkdown(cleanContent) : "";
+            const msgWrap = this.addMessage(displayRole, `<div class="message-text-content">${formattedText}</div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
+            this.renderRichResponse({
+              responseType: richType,
+              responsePayload: richPayload
+            }, msgWrap.querySelector(".message-bubble"), true); // isHistoric = true
+            return; // Skip remaining normal rendering
+          }
+
+          // Try to detect if the content is a JSON tool result
+          let toolData = m.ToolResult || m.toolResult;
+          let wasParsedAsTool = false;
+
+          if (!toolData && rawContent.trim().startsWith('{')) {
+            try {
+              const parsed = JSON.parse(rawContent);
+              if (parsed.toolName || parsed.ToolName) {
+                toolData = parsed;
+                wasParsedAsTool = true;
+              }
+            } catch(e) {}
+          }
+
+          if (isTool || wasParsedAsTool) {
+             const toolName = toolData?.toolName || toolData?.ToolName;
+             const isDbTool = toolName === 'query_project_database' || toolName === 'query_database' || toolName === 'query_data';
+             const hasResult = toolData?.result || toolData?.Result;
+             
+             if (isDbTool) {
+                if (!hasResult) return; // Skip empty/null database results in history
+                
+                const msgWrap = this.addMessage("ai", `<div class="message-text-content"></div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
+                const widgetContainer = msgWrap.querySelector(".message-widget-container");
+                this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
+                return; 
+             }
+             
+             if (isTool && !wasParsedAsTool) return; // Skip non-DB raw tool messages if they aren't parsed
+          }
+
+          const content = this.formatMarkdown(rawContent);
           const fileId = m.AttachedFileId || m.attachedFileId;
           const fileName = m.AttachedFileName || m.attachedFileName;
           const img = m.ImageDataUrl || m.imageDataUrl;
-          let displayHtml = content;
-          if (img) displayHtml = `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + displayHtml;
-          this.addMessage(role, displayHtml, fileId, fileName);
+          
+          const displayHtml = img ? `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + content : content;
+          const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
+          const msgWrap = this.addMessage(displayRole, isAi || displayRole === "agent" ? `<div class="message-text-content">${displayHtml}</div><div class="message-widget-container"></div>` : displayHtml, fileId, fileName, m.Id || m.id);
+          
+          if (toolData && isAi) {
+            const widgetContainer = msgWrap.querySelector(".message-widget-container");
+            this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
+          }
         });
         this.scrollToBottom();
+        this.startHandoffConnection();
       } catch (err) {
         list.innerHTML = "";
         this.addMessage("ai", "Error loading chat history.");
       }
     }
 
-    startNewChat() {
-      this.currentSessionId = null;
-      localStorage.removeItem("ai_chat_session_id");
-      this.shadowRoot.getElementById("messages-container").innerHTML = "";
-      
-      const transcriptArea = this.shadowRoot.getElementById("live-transcript");
-      if (transcriptArea) transcriptArea.innerHTML = "";
-      
-      this.renderEmptyState();
-      if (this.isHistoryOpen) this.toggleHistory();
-    }
+
 
     toggleHistory() {
       this.isHistoryOpen = !this.isHistoryOpen;
@@ -1586,7 +3381,8 @@
     async loadExternalScripts() {
       const scripts = [
         { id: 'marked-js', url: 'https://cdn.jsdelivr.net/npm/marked/marked.min.js' },
-        { id: 'hljs-js', url: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js' }
+        { id: 'hljs-js', url: 'https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js' },
+        { id: 'chart-js', url: 'https://cdn.jsdelivr.net/npm/chart.js' }
       ];
 
       const promises = scripts.map(s => {
@@ -1691,11 +3487,15 @@
     }
     scrollToBottom() {
       const m = this.shadowRoot.getElementById("messages-container");
-      if (m) {
-        m.scrollTop = m.scrollHeight;
+      const l = this.shadowRoot.getElementById("live-transcript");
+      
+      const target = (this.isLive && l) ? l : m;
+      
+      if (target) {
+        target.scrollTop = target.scrollHeight;
         
         // Attach copy listeners to new code blocks
-        m.querySelectorAll(".copy-code-btn").forEach(btn => {
+        target.querySelectorAll(".copy-code-btn").forEach(btn => {
           if (btn.dataset.listener) return;
           btn.dataset.listener = "true";
           btn.onclick = () => {
@@ -1707,6 +3507,212 @@
             setTimeout(() => btn.innerHTML = original, 2000);
           };
         });
+      }
+    }
+
+    renderDataResult(result, container) {
+      console.log("[renderDataResult] rendering to:", container, "data:", result);
+      if (!result) return;
+      
+      // Handle both formats: {columns, rows} or {data: []} or raw array
+      let rows = result.rows || result.data || (Array.isArray(result) ? result : []);
+      let columns = result.columns || [];
+      
+      if (columns.length === 0 && rows.length > 0) {
+        columns = Object.keys(rows[0]);
+      }
+
+      if (columns.length === 0) {
+        container.innerHTML = '<div class="data-empty">No data returned.</div>';
+        return;
+      }
+
+      const id = 'data-' + Math.random().toString(36).substr(2, 9);
+      container.innerHTML = `
+        <div class="data-result-widget" id="${id}">
+          <div class="data-tabs">
+            <button class="data-tab active" data-tab="table" title="View as Table">${this.icons.list} Table</button>
+            <button class="data-tab" data-tab="chart" title="View as Chart">${this.icons.chart} Chart</button>
+            <div style="flex:1"></div>
+            <div class="data-actions">
+              <button class="data-action-btn" data-action="expand" title="Expand View">${this.icons.expand}</button>
+              <button class="data-action-btn" data-action="copy" title="Copy to CSV">${this.icons.copy}</button>
+              <button class="data-action-btn" data-action="excel" title="Export Excel">${this.icons.excel}</button>
+              <button class="data-action-btn" data-action="pdf" title="Export PDF">${this.icons.pdf}</button>
+            </div>
+          </div>
+          <div class="data-content">
+            <div class="data-panel active" data-panel="table">
+              <div class="table-container">
+                <table>
+                  <thead>
+                    <tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr>
+                  </thead>
+                  <tbody>
+                    ${rows.slice(0, 15).map(row => `
+                      <tr>${columns.map(c => `<td>${row[c] !== null ? row[c] : ''}</td>`).join('')}</tr>
+                    `).join('')}
+                    ${rows.length > 15 ? `<tr><td colspan="${columns.length}" style="text-align:center; font-style:italic; padding: 12px; background: rgba(0,0,0,0.1)">Showing first 15 of ${rows.length} rows</td></tr>` : ''}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <div class="data-panel" data-panel="chart">
+              <div class="chart-controls">
+                <button class="data-action-btn" data-action="download-chart" title="Download Chart">${this.icons.download || this.icons.save || ''}</button>
+                <select class="chart-type-select">
+                  <option value="bar">Bar Chart</option>
+                  <option value="line">Line Chart</option>
+                  <option value="pie">Pie Chart</option>
+                  <option value="doughnut">Doughnut</option>
+                </select>
+              </div>
+              <div class="chart-wrapper">
+                <canvas class="data-chart-canvas"></canvas>
+              </div>
+            </div>
+          </div>
+        </div>
+      `;
+
+      const widget = container.querySelector(`#${id}`);
+      const tabs = widget.querySelectorAll('.data-tab');
+      const panels = widget.querySelectorAll('.data-panel');
+      
+      tabs.forEach(tab => {
+        tab.onclick = () => {
+          tabs.forEach(t => t.classList.remove('active'));
+          panels.forEach(p => p.classList.remove('active'));
+          tab.classList.add('active');
+          widget.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
+          if (tab.dataset.tab === 'chart') this.initChart(widget, columns, rows);
+        };
+      });
+
+      widget.querySelectorAll('.data-action-btn').forEach(btn => {
+        btn.onclick = () => {
+          const action = btn.dataset.action;
+          if (action === 'expand') {
+            container.classList.toggle('expanded');
+            btn.innerHTML = container.classList.contains('expanded') ? this.icons.collapse : this.icons.expand;
+            if (widget.querySelector('[data-panel="chart"]').classList.contains('active')) {
+              setTimeout(() => this.initChart(widget, columns, rows), 300);
+            }
+          } else if (action === 'copy') {
+            const csv = [columns.join(','), ...rows.map(r => columns.map(c => r[c]).join(','))].join('\n');
+            navigator.clipboard.writeText(csv);
+            const original = btn.innerHTML;
+            btn.innerHTML = this.icons.check;
+            setTimeout(() => btn.innerHTML = original, 2000);
+          } else if (action === 'download-chart') {
+            const canvas = widget.querySelector('.data-chart-canvas');
+            const link = document.createElement('a');
+            link.download = 'chart.png';
+            link.href = canvas.toDataURL('image/png');
+            link.click();
+          } else {
+            this.exportData(action, result);
+          }
+        };
+      });
+
+      widget.querySelector('.chart-type-select').onchange = () => this.initChart(widget, columns, rows);
+      this.scrollToBottom();
+    }
+
+    initChart(widget, columns, rows) {
+      const canvas = widget.querySelector('.data-chart-canvas');
+      const type = widget.querySelector('.chart-type-select').value;
+      if (!window.Chart) return;
+
+      if (canvas._chart) canvas._chart.destroy();
+
+      const labels = rows.map(r => r[columns[0]]?.toString() || '');
+      const datasets = columns.slice(1).filter(c => typeof rows[0][c] === 'number').map((c, i) => ({
+        label: c,
+        data: rows.map(r => r[c]),
+        backgroundColor: `hsla(${(i * 60) % 360}, 70%, 60%, 0.6)`,
+        borderColor: `hsla(${(i * 60) % 360}, 70%, 50%, 1)`,
+        borderWidth: 1
+      }));
+
+      const gridColor = 'rgba(255, 255, 255, 0.1)';
+      const textColor = '#94a3b8';
+
+      canvas._chart = new window.Chart(canvas, {
+        type: type,
+        data: { labels, datasets },
+        options: { 
+          responsive: true, 
+          maintainAspectRatio: false,
+          plugins: {
+            legend: {
+              display: type !== 'pie' && type !== 'doughnut',
+              position: 'top',
+              labels: { color: textColor, boxWidth: 12, padding: 10, font: { size: 11 } }
+            },
+            tooltip: {
+              backgroundColor: 'rgba(15, 23, 42, 0.9)',
+              titleColor: '#fff',
+              bodyColor: '#cbd5e1',
+              borderColor: 'rgba(99, 102, 241, 0.5)',
+              borderWidth: 1,
+              padding: 10,
+              displayColors: true
+            }
+          },
+          scales: (type === 'pie' || type === 'doughnut') ? {} : {
+            x: {
+              grid: { display: false },
+              ticks: { 
+                color: textColor, 
+                font: { size: 10 },
+                maxRotation: 45,
+                minRotation: 45,
+                callback: function(value) {
+                  const label = this.getLabelForValue(value);
+                  return label && label.length > 10 ? label.substr(0, 10) + '...' : label;
+                }
+              }
+            },
+            y: {
+              grid: { color: gridColor },
+              ticks: { color: textColor, font: { size: 10 } }
+            }
+          }
+        }
+      });
+    }
+
+    async exportData(format, data) {
+      try {
+        // Extract the actual rows for the backend
+        const rows = data.data || data.rows || (Array.isArray(data) ? data : []);
+        
+        const response = await fetch(`${this.apiUrl}/api/export/${format}`, {
+          method: 'POST',
+          headers: { ...this.getHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            data: rows, // Send as a real array, not a stringified array
+            title: "Data Report",
+            fileName: `report_${new Date().getTime()}`
+          })
+        });
+        if (response.ok) {
+          const blob = await response.blob();
+          const url = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = `report.${format === 'excel' ? 'xlsx' : 'pdf'}`;
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        } else {
+          const error = await response.text();
+          console.error('Export failed:', error);
+        }
+      } catch (err) {
+        console.error('Export failed:', err);
       }
     }
   }

@@ -9,8 +9,26 @@ namespace AiChatBox.Api.Services
         private readonly IHttpClientFactory _httpClientFactory = httpClientFactory;
         private readonly ILogger<WebhookService> _logger = logger;
 
-        public async Task<ToolResult> ExecuteWebhookToolAsync(Project project, string toolName, string argumentsJson)
+        public async Task<ToolResult> ExecuteWebhookToolAsync(Project project, string toolName, string argumentsJson, string? schemaJson = null)
         {
+            if (!string.IsNullOrEmpty(schemaJson))
+            {
+                try
+                {
+                    var schema = NJsonSchema.JsonSchema.FromJsonAsync(schemaJson).Result;
+                    var errors = schema.Validate(argumentsJson);
+                    if (errors.Count > 0)
+                    {
+                        var errorMsg = string.Join("; ", errors.Select(e => e.ToString()));
+                        return new ToolResult { ToolName = toolName, Error = $"Schema validation failed: {errorMsg}" };
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Schema validation skipped for tool {ToolName} due to error parsing schema.", toolName);
+                }
+            }
+
             if (string.IsNullOrEmpty(project.WebhookUrl))
             {
                 return new ToolResult { ToolName = toolName, Error = "Webhook URL not configured for this project." };

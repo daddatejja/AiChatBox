@@ -34,7 +34,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<int>("DurationMs")
                         .HasColumnType("integer");
@@ -100,7 +100,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid?>("ExperimentConfigurationId")
                         .HasColumnType("uuid");
@@ -120,7 +120,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.Property<DateTime?>("LastUsedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
@@ -147,7 +147,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Email")
                         .HasMaxLength(256)
@@ -215,7 +215,10 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<int?>("Feedback")
+                        .HasColumnType("integer");
 
                     b.Property<string>("ImageDataUrl")
                         .HasColumnType("text");
@@ -246,20 +249,49 @@ namespace AiChatBox.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<Guid?>("ActiveFlowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("AgentId")
+                        .HasMaxLength(450)
+                        .HasColumnType("character varying(450)");
+
+                    b.Property<DateTime?>("ClaimedAt")
+                        .HasColumnType("timestamp without time zone");
+
                     b.Property<Guid?>("ConfigurationId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("CurrentNodeId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("ExternalSenderId")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("FlowVariablesJson")
+                        .HasColumnType("text");
+
+                    b.Property<string>("HandoffStatus")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
 
                     b.Property<bool>("IsArchived")
                         .HasColumnType("boolean");
 
                     b.Property<DateTime>("LastMessageAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<Guid?>("ProjectId")
                         .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("QueuedAt")
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Title")
                         .HasMaxLength(200)
@@ -271,6 +303,8 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("character varying(450)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ActiveFlowId");
 
                     b.HasIndex("ConfigurationId");
 
@@ -285,13 +319,21 @@ namespace AiChatBox.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("ChangeNote")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
                     b.Property<Guid>("ConfigurationId")
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("DefaultModel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("DefaultProvider")
                         .IsRequired()
                         .HasColumnType("text");
 
@@ -306,6 +348,108 @@ namespace AiChatBox.Api.Migrations
                     b.ToTable("ConfigurationHistories");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("TriggerKeyword")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("ConversationFlows");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.ConversationRule", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("CommandDescription")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<string>("CommandName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("CommandTriggerChar")
+                        .IsRequired()
+                        .HasMaxLength(1)
+                        .HasColumnType("character varying(1)");
+
+                    b.Property<double>("ConfidenceThreshold")
+                        .HasColumnType("double precision");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("IntentLabel")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<bool>("IsActive")
+                        .HasColumnType("boolean");
+
+                    b.Property<int>("Priority")
+                        .HasColumnType("integer");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Response")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResponsePayload")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ResponseType")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<string>("Trigger")
+                        .IsRequired()
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId");
+
+                    b.ToTable("ConversationRules");
+                });
+
             modelBuilder.Entity("AiChatBox.Api.Models.CustomTool", b =>
                 {
                     b.Property<Guid>("Id")
@@ -313,7 +457,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("uuid");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("Description")
                         .IsRequired()
@@ -367,17 +511,120 @@ namespace AiChatBox.Api.Migrations
                     b.ToTable("DocumentChunks");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowEdge", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("Condition")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SourceNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("TargetNodeId")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlowId");
+
+                    b.ToTable("FlowEdges");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowExecutionLog", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime?>("CompletedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("SessionId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("StartedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("StepsJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlowId");
+
+                    b.HasIndex("SessionId");
+
+                    b.ToTable("FlowExecutionLogs");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowNode", b =>
+                {
+                    b.Property<string>("Id")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
+
+                    b.Property<string>("DataJson")
+                        .IsRequired()
+                        .HasColumnType("text");
+
+                    b.Property<Guid>("FlowId")
+                        .HasColumnType("uuid");
+
+                    b.Property<double>("PositionX")
+                        .HasColumnType("double precision");
+
+                    b.Property<double>("PositionY")
+                        .HasColumnType("double precision");
+
+                    b.Property<string>("Type")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("FlowId");
+
+                    b.ToTable("FlowNodes");
+                });
+
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<int>("ChunkOverlap")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("ChunkSize")
+                        .HasColumnType("integer");
+
+                    b.Property<string>("ChunkingStrategy")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("character varying(50)");
+
                     b.Property<string>("ContentType")
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
@@ -419,7 +666,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ModelName")
                         .IsRequired()
@@ -461,11 +708,29 @@ namespace AiChatBox.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("AnthropicApiKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("ChannelSettingsJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<decimal>("CurrentSpend")
                         .HasColumnType("numeric");
+
+                    b.Property<string>("CustomProviderApiKey")
+                        .HasColumnType("text");
+
+                    b.Property<string>("CustomProviderBaseUrl")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("CustomProviderName")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.Property<string>("DefaultModel")
                         .IsRequired()
@@ -487,6 +752,24 @@ namespace AiChatBox.Api.Migrations
 
                     b.Property<string>("GroqApiKey")
                         .HasColumnType("text");
+
+                    b.Property<double>("HandoffConfidenceThreshold")
+                        .HasColumnType("double precision");
+
+                    b.Property<bool>("HandoffEnabled")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("HandoffEscalationCriteria")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<string>("HandoffQueueMessage")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("HandoffTriggerKeywords")
+                        .HasMaxLength(1000)
+                        .HasColumnType("character varying(1000)");
 
                     b.Property<bool>("LiveVoiceEnabled")
                         .HasColumnType("boolean");
@@ -514,6 +797,14 @@ namespace AiChatBox.Api.Migrations
                     b.Property<Guid>("ProjectId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("PromptTemplateVariablesJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
+                    b.Property<string>("ProviderKeysJson")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)");
+
                     b.Property<int>("RateLimitRequests")
                         .HasColumnType("integer");
 
@@ -527,11 +818,44 @@ namespace AiChatBox.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("ThemeSettingsJson")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
                     b.HasKey("Id");
 
                     b.HasIndex("ProjectId");
 
                     b.ToTable("Configurations");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.ProjectDatabase", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("ConnectionString")
+                        .HasColumnType("text");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<Guid>("ProjectId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("SchemaDefinition")
+                        .HasColumnType("text");
+
+                    b.Property<int>("Type")
+                        .HasColumnType("integer");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique();
+
+                    b.ToTable("ProjectDatabases");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.UploadedFile", b =>
@@ -562,7 +886,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("character varying(500)");
 
                     b.Property<DateTime>("UploadedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("UserId")
                         .IsRequired()
@@ -585,7 +909,7 @@ namespace AiChatBox.Api.Migrations
                         .HasColumnType("text");
 
                     b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp with time zone");
+                        .HasColumnType("timestamp without time zone");
 
                     b.Property<string>("ErrorMessage")
                         .HasColumnType("text");
@@ -802,6 +1126,11 @@ namespace AiChatBox.Api.Migrations
 
             modelBuilder.Entity("AiChatBox.Api.Models.ChatSession", b =>
                 {
+                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "ActiveFlow")
+                        .WithMany()
+                        .HasForeignKey("ActiveFlowId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
                     b.HasOne("AiChatBox.Api.Models.ProjectConfiguration", "Configuration")
                         .WithMany("Sessions")
                         .HasForeignKey("ConfigurationId")
@@ -810,6 +1139,8 @@ namespace AiChatBox.Api.Migrations
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany("Sessions")
                         .HasForeignKey("ProjectId");
+
+                    b.Navigation("ActiveFlow");
 
                     b.Navigation("Configuration");
 
@@ -825,6 +1156,28 @@ namespace AiChatBox.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Configuration");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.ConversationRule", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
+                        .WithMany("ConversationRules")
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.CustomTool", b =>
@@ -847,6 +1200,47 @@ namespace AiChatBox.Api.Migrations
                         .IsRequired();
 
                     b.Navigation("Document");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowEdge", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "Flow")
+                        .WithMany("Edges")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Flow");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowExecutionLog", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "Flow")
+                        .WithMany()
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("AiChatBox.Api.Models.ChatSession", "Session")
+                        .WithMany()
+                        .HasForeignKey("SessionId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Flow");
+
+                    b.Navigation("Session");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.FlowNode", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.ConversationFlow", "Flow")
+                        .WithMany("Nodes")
+                        .HasForeignKey("FlowId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Flow");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
@@ -876,6 +1270,17 @@ namespace AiChatBox.Api.Migrations
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany("Configurations")
                         .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+                });
+
+            modelBuilder.Entity("AiChatBox.Api.Models.ProjectDatabase", b =>
+                {
+                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
+                        .WithOne("Database")
+                        .HasForeignKey("AiChatBox.Api.Models.ProjectDatabase", "ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
@@ -954,6 +1359,13 @@ namespace AiChatBox.Api.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("AiChatBox.Api.Models.ConversationFlow", b =>
+                {
+                    b.Navigation("Edges");
+
+                    b.Navigation("Nodes");
+                });
+
             modelBuilder.Entity("AiChatBox.Api.Models.KnowledgeDocument", b =>
                 {
                     b.Navigation("Chunks");
@@ -965,7 +1377,11 @@ namespace AiChatBox.Api.Migrations
 
                     b.Navigation("Configurations");
 
+                    b.Navigation("ConversationRules");
+
                     b.Navigation("CustomTools");
+
+                    b.Navigation("Database");
 
                     b.Navigation("KnowledgeDocuments");
 

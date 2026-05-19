@@ -1,4 +1,5 @@
 using System.Security.Claims;
+using System.Text.Json;
 using AiChatBox.Api.Data;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Models;
@@ -12,10 +13,11 @@ namespace AiChatBox.Api.Controllers
     [Authorize]
     [ApiController]
     [Route("api")]
-    public class ConfigurationController(ChatDbContext db, EncryptionService encryption) : ControllerBase
+    public class ConfigurationController(ChatDbContext db, EncryptionService encryption, LlmProviderFactory providerFactory) : ControllerBase
     {
         private readonly ChatDbContext _db = db;
         private readonly EncryptionService _encryption = encryption;
+        private readonly LlmProviderFactory _providerFactory = providerFactory;
         private string UserId => User.FindFirstValue(ClaimTypes.NameIdentifier)!;
 
         [HttpGet("project/{projectId}/configurations")]
@@ -39,6 +41,8 @@ namespace AiChatBox.Api.Controllers
                     HasGroqKey = c.GroqApiKey != null,
                     HasOpenAiKey = c.OpenAiApiKey != null,
                     HasFirecrawlKey = c.FirecrawlApiKey != null,
+                    HasAnthropicKey = c.AnthropicApiKey != null,
+                    ConfiguredProviders = c.ProviderKeysJson,
                     RateLimitRequests = c.RateLimitRequests,
                     MaxSpendLimit = c.MaxSpendLimit,
                     CurrentSpend = c.CurrentSpend,
@@ -58,6 +62,22 @@ namespace AiChatBox.Api.Controllers
 
             if (config == null) return NotFound();
 
+            // Build a map of which OpenAI-compatible providers have keys configured
+            string? configuredProviders = null;
+            if (!string.IsNullOrEmpty(config.ProviderKeysJson))
+            {
+                try
+                {
+                    var keys = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson);
+                    if (keys != null)
+                    {
+                        var providerStatus = keys.ToDictionary(k => k.Key, k => !string.IsNullOrEmpty(k.Value));
+                        configuredProviders = JsonSerializer.Serialize(providerStatus);
+                    }
+                }
+                catch { }
+            }
+
             // Return masked keys instead of raw values — frontend only needs to know if they are set
             return Ok(new ConfigurationDetailDto
             {
@@ -69,6 +89,8 @@ namespace AiChatBox.Api.Controllers
                 HasGroqKey = config.GroqApiKey != null,
                 HasOpenAiKey = config.OpenAiApiKey != null,
                 HasFirecrawlKey = config.FirecrawlApiKey != null,
+                HasAnthropicKey = config.AnthropicApiKey != null,
+                ConfiguredProviders = configuredProviders,
                 DefaultProvider = config.DefaultProvider,
                 DefaultModel = config.DefaultModel,
                 LiveVoiceEnabled = config.LiveVoiceEnabled,
@@ -80,6 +102,17 @@ namespace AiChatBox.Api.Controllers
                 LogRetentionDays = config.LogRetentionDays,
                 MaxLogsPerSession = config.MaxLogsPerSession,
                 MaxSessionsPerProject = config.MaxSessionsPerProject,
+                CustomProviderName = config.CustomProviderName,
+                CustomProviderBaseUrl = config.CustomProviderBaseUrl,
+                HasCustomProviderKey = config.CustomProviderApiKey != null,
+                PromptTemplateVariablesJson = config.PromptTemplateVariablesJson,
+                HandoffEnabled = config.HandoffEnabled,
+                HandoffTriggerKeywords = config.HandoffTriggerKeywords,
+                HandoffEscalationCriteria = config.HandoffEscalationCriteria,
+                HandoffConfidenceThreshold = config.HandoffConfidenceThreshold,
+                HandoffQueueMessage = config.HandoffQueueMessage,
+                ThemeSettingsJson = config.ThemeSettingsJson,
+                ChannelSettingsJson = config.ChannelSettingsJson,
                 CreatedAt = config.CreatedAt,
                 EnabledModels = config.EnabledModels
             });
@@ -124,6 +157,24 @@ namespace AiChatBox.Api.Controllers
 
             if (config == null) return NotFound();
 
+            // ── Auto-snapshot history before applying prompt/model changes ──
+            bool promptChanged = model.SystemPrompt != null && model.SystemPrompt != config.SystemPrompt;
+            bool modelChanged = (model.DefaultModel != null && model.DefaultModel != config.DefaultModel)
+                             || (model.DefaultProvider != null && model.DefaultProvider != config.DefaultProvider);
+
+            if (promptChanged || modelChanged)
+            {
+                _db.ConfigurationHistories.Add(new ConfigurationHistory
+                {
+                    ConfigurationId = config.Id,
+                    SystemPrompt = config.SystemPrompt,
+                    DefaultModel = config.DefaultModel,
+                    DefaultProvider = config.DefaultProvider,
+                    ChangeNote = model.ChangeNote,
+                    CreatedAt = DateTime.UtcNow
+                });
+            }
+
             if (model.Name != null) config.Name = model.Name;
             if (model.SystemPrompt != null) config.SystemPrompt = model.SystemPrompt;
 
@@ -132,6 +183,46 @@ namespace AiChatBox.Api.Controllers
             if (model.GroqApiKey != null) config.GroqApiKey = model.GroqApiKey == "" ? null : _encryption.Encrypt(model.GroqApiKey);
             if (model.OpenAiApiKey != null) config.OpenAiApiKey = model.OpenAiApiKey == "" ? null : _encryption.Encrypt(model.OpenAiApiKey);
             if (model.FirecrawlApiKey != null) config.FirecrawlApiKey = model.FirecrawlApiKey == "" ? null : _encryption.Encrypt(model.FirecrawlApiKey);
+            if (model.AnthropicApiKey != null) config.AnthropicApiKey = model.AnthropicApiKey == "" ? null : _encryption.Encrypt(model.AnthropicApiKey);
+
+            // Handle provider keys JSON (for OpenAI-compatible providers like Together, Fireworks, etc.)
+            if (model.ProviderKeys != null)
+            {
+                try
+                {
+                    var incomingKeys = JsonSerializer.Deserialize<Dictionary<string, string>>(model.ProviderKeys);
+                    if (incomingKeys != null)
+                    {
+                        // Load existing keys
+                        var existingKeys = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+                        if (!string.IsNullOrEmpty(config.ProviderKeysJson))
+                        {
+                            try 
+                            { 
+                                var parsed = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson);
+                                if (parsed != null) existingKeys = new Dictionary<string, string>(parsed, StringComparer.OrdinalIgnoreCase);
+                            }
+                            catch { }
+                        }
+
+                        foreach (var (key, value) in incomingKeys)
+                        {
+                            if (string.IsNullOrEmpty(value))
+                                existingKeys.Remove(key);
+                            else
+                                existingKeys[key] = _encryption.Encrypt(value);
+                        }
+
+                        config.ProviderKeysJson = existingKeys.Count > 0 ? JsonSerializer.Serialize(existingKeys) : null;
+                    }
+                }
+                catch { }
+            }
+
+            // Handle custom provider
+            if (model.CustomProviderName != null) config.CustomProviderName = string.IsNullOrEmpty(model.CustomProviderName) ? null : model.CustomProviderName;
+            if (model.CustomProviderBaseUrl != null) config.CustomProviderBaseUrl = string.IsNullOrEmpty(model.CustomProviderBaseUrl) ? null : model.CustomProviderBaseUrl;
+            if (model.CustomProviderApiKey != null) config.CustomProviderApiKey = model.CustomProviderApiKey == "" ? null : _encryption.Encrypt(model.CustomProviderApiKey);
 
             if (model.DefaultProvider != null) config.DefaultProvider = model.DefaultProvider;
             if (model.DefaultModel != null) config.DefaultModel = model.DefaultModel;
@@ -145,6 +236,72 @@ namespace AiChatBox.Api.Controllers
             if (model.LogRetentionDays.HasValue) config.LogRetentionDays = model.LogRetentionDays.Value;
             if (model.MaxLogsPerSession.HasValue) config.MaxLogsPerSession = model.MaxLogsPerSession.Value;
             if (model.MaxSessionsPerProject.HasValue) config.MaxSessionsPerProject = model.MaxSessionsPerProject.Value;
+            if (model.PromptTemplateVariablesJson != null) config.PromptTemplateVariablesJson = string.IsNullOrEmpty(model.PromptTemplateVariablesJson) ? null : model.PromptTemplateVariablesJson;
+            if (model.HandoffEnabled.HasValue) config.HandoffEnabled = model.HandoffEnabled.Value;
+            if (model.HandoffTriggerKeywords != null) config.HandoffTriggerKeywords = string.IsNullOrEmpty(model.HandoffTriggerKeywords) ? null : model.HandoffTriggerKeywords;
+            if (model.HandoffEscalationCriteria != null) config.HandoffEscalationCriteria = string.IsNullOrEmpty(model.HandoffEscalationCriteria) ? null : model.HandoffEscalationCriteria;
+            if (model.HandoffConfidenceThreshold.HasValue) config.HandoffConfidenceThreshold = model.HandoffConfidenceThreshold.Value;
+            if (model.HandoffQueueMessage != null) config.HandoffQueueMessage = string.IsNullOrEmpty(model.HandoffQueueMessage) ? null : model.HandoffQueueMessage;
+            if (model.ThemeSettingsJson != null) config.ThemeSettingsJson = string.IsNullOrEmpty(model.ThemeSettingsJson) ? null : model.ThemeSettingsJson;
+            if (model.ChannelSettingsJson != null) config.ChannelSettingsJson = string.IsNullOrEmpty(model.ChannelSettingsJson) ? null : model.ChannelSettingsJson;
+
+            await _db.SaveChangesAsync();
+            return NoContent();
+        }
+
+        [HttpGet("configuration/{id}/history")]
+        public async Task<ActionResult<IEnumerable<ConfigurationHistoryDto>>> GetConfigurationHistory(Guid id)
+        {
+            var config = await _db.Configurations
+                .FirstOrDefaultAsync(c => c.Id == id && c.Project!.UserId == UserId);
+
+            if (config == null) return NotFound();
+
+            var history = await _db.ConfigurationHistories
+                .Where(h => h.ConfigurationId == id)
+                .OrderByDescending(h => h.CreatedAt)
+                .Select(h => new ConfigurationHistoryDto
+                {
+                    Id = h.Id,
+                    SystemPrompt = h.SystemPrompt,
+                    DefaultProvider = h.DefaultProvider,
+                    DefaultModel = h.DefaultModel,
+                    ChangeNote = h.ChangeNote,
+                    CreatedAt = h.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(history);
+        }
+
+        [HttpPost("configuration/{id}/history/{historyId}/restore")]
+        public async Task<IActionResult> RestoreConfiguration(Guid id, Guid historyId)
+        {
+            var config = await _db.Configurations
+                .FirstOrDefaultAsync(c => c.Id == id && c.Project!.UserId == UserId);
+
+            if (config == null) return NotFound();
+
+            var history = await _db.ConfigurationHistories
+                .FirstOrDefaultAsync(h => h.Id == historyId && h.ConfigurationId == id);
+
+            if (history == null) return NotFound();
+
+            // Create a snapshot of current state before restoring
+            _db.ConfigurationHistories.Add(new ConfigurationHistory
+            {
+                ConfigurationId = config.Id,
+                SystemPrompt = config.SystemPrompt,
+                DefaultModel = config.DefaultModel,
+                DefaultProvider = config.DefaultProvider,
+                ChangeNote = $"Auto-save before restoring to {history.CreatedAt:g}",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            // Restore values
+            config.SystemPrompt = history.SystemPrompt;
+            config.DefaultProvider = history.DefaultProvider;
+            config.DefaultModel = history.DefaultModel;
 
             await _db.SaveChangesAsync();
             return NoContent();
@@ -168,22 +325,39 @@ namespace AiChatBox.Api.Controllers
                 "gemini" => config.GeminiApiKey,
                 "groq" => config.GroqApiKey,
                 "openai" => config.OpenAiApiKey,
+                "anthropic" => config.AnthropicApiKey,
                 _ => null
             };
+
+            // If not a named key, check ProviderKeysJson
+            if (string.IsNullOrEmpty(encryptedKey) && !string.IsNullOrEmpty(config.ProviderKeysJson))
+            {
+                try
+                {
+                    var keys = JsonSerializer.Deserialize<Dictionary<string, string>>(config.ProviderKeysJson);
+                    if (keys != null && keys.TryGetValue(provider.ToLowerInvariant(), out var pk))
+                        encryptedKey = pk;
+                }
+                catch { }
+            }
 
             if (string.IsNullOrEmpty(encryptedKey))
                 return BadRequest($"No API key configured for provider '{provider}'.");
 
             var apiKey = _encryption.Decrypt(encryptedKey);
 
-            // Delegate to the existing models controller logic
-            // We use HttpContext.RequestServices to call the provider APIs
             var httpClient = HttpContext.RequestServices.GetRequiredService<IHttpClientFactory>().CreateClient();
+
+            // Check if it's an OpenAI-compatible provider — they all share the same model list format
+            var providerInfo = ProviderRegistry.GetProvider(provider);
+            if (providerInfo != null && providerInfo.IsOpenAiCompatible)
+            {
+                return await FetchOpenAiCompatibleModels(httpClient, apiKey!, providerInfo.BaseUrl, providerInfo.Name);
+            }
+
             return provider.ToLowerInvariant() switch
             {
                 "gemini" => await FetchGeminiModels(httpClient, apiKey!),
-                "groq" => await FetchGroqModels(httpClient, apiKey!),
-                "openai" => await FetchOpenAiModels(httpClient, apiKey!),
                 _ => BadRequest($"Unknown provider: {provider}")
             };
         }
@@ -197,6 +371,84 @@ namespace AiChatBox.Api.Controllers
             if (config == null) return NotFound();
 
             _db.Configurations.Remove(config);
+            await _db.SaveChangesAsync();
+            return NoContent();
+        }
+
+        /// <summary>
+        /// Returns the list of all known AI providers from the registry.
+        /// </summary>
+        [HttpGet("providers")]
+        public ActionResult GetProviders()
+        {
+            var providers = ProviderRegistry.GetAllProviders().Select(p => new
+            {
+                p.Id,
+                p.Name,
+                p.DefaultModel,
+                p.IsOpenAiCompatible
+            });
+            return Ok(providers);
+        }
+
+        /// <summary>
+        /// Returns prompt version history for a configuration (newest first).
+        /// </summary>
+        [HttpGet("configuration/{id}/history")]
+        public async Task<ActionResult<IEnumerable<ConfigurationHistoryDto>>> GetHistory(Guid id, [FromQuery] int limit = 50)
+        {
+            var config = await _db.Configurations
+                .AnyAsync(c => c.Id == id && c.Project!.UserId == UserId);
+            if (!config) return NotFound();
+
+            var history = await _db.ConfigurationHistories
+                .Where(h => h.ConfigurationId == id)
+                .OrderByDescending(h => h.CreatedAt)
+                .Take(limit)
+                .Select(h => new ConfigurationHistoryDto
+                {
+                    Id = h.Id,
+                    SystemPrompt = h.SystemPrompt,
+                    DefaultModel = h.DefaultModel,
+                    DefaultProvider = h.DefaultProvider,
+                    ChangeNote = h.ChangeNote,
+                    CreatedAt = h.CreatedAt
+                })
+                .ToListAsync();
+
+            return Ok(history);
+        }
+
+        /// <summary>
+        /// Restores a previous prompt version. The current state is snapshot'd before restoring.
+        /// </summary>
+        [HttpPost("configuration/{id}/history/{historyId}/restore")]
+        public async Task<IActionResult> RestoreHistory(Guid id, Guid historyId)
+        {
+            var config = await _db.Configurations
+                .FirstOrDefaultAsync(c => c.Id == id && c.Project!.UserId == UserId);
+            if (config == null) return NotFound();
+
+            var historyEntry = await _db.ConfigurationHistories
+                .FirstOrDefaultAsync(h => h.Id == historyId && h.ConfigurationId == id);
+            if (historyEntry == null) return NotFound("History entry not found.");
+
+            // Snapshot current state before restoring
+            _db.ConfigurationHistories.Add(new ConfigurationHistory
+            {
+                ConfigurationId = config.Id,
+                SystemPrompt = config.SystemPrompt,
+                DefaultModel = config.DefaultModel,
+                DefaultProvider = config.DefaultProvider,
+                ChangeNote = "Auto-saved before restore",
+                CreatedAt = DateTime.UtcNow
+            });
+
+            // Restore
+            config.SystemPrompt = historyEntry.SystemPrompt;
+            config.DefaultModel = historyEntry.DefaultModel;
+            config.DefaultProvider = historyEntry.DefaultProvider;
+
             await _db.SaveChangesAsync();
             return NoContent();
         }
@@ -243,11 +495,15 @@ namespace AiChatBox.Api.Controllers
             }
         }
 
-        private static async Task<ActionResult> FetchGroqModels(HttpClient http, string apiKey)
+        /// <summary>
+        /// Fetches models from any OpenAI-compatible API (Groq, Together, Fireworks, Mistral, etc.)
+        /// </summary>
+        private static async Task<ActionResult> FetchOpenAiCompatibleModels(HttpClient http, string apiKey, string baseUrl, string providerName)
         {
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, "https://api.groq.com/openai/v1/models");
+                var url = $"{baseUrl.TrimEnd('/')}/models";
+                var request = new HttpRequestMessage(HttpMethod.Get, url);
                 request.Headers.Add("Authorization", $"Bearer {apiKey}");
 
                 var response = await http.SendAsync(request);
@@ -261,10 +517,11 @@ namespace AiChatBox.Api.Controllers
                 {
                     foreach (var m in arr.EnumerateArray())
                     {
+                        var id = m.GetProperty("id").GetString() ?? "";
                         models.Add(new ProviderModel
                         {
-                            Id = m.GetProperty("id").GetString() ?? "",
-                            Name = m.GetProperty("id").GetString() ?? "",
+                            Id = id,
+                            Name = id,
                             Description = m.TryGetProperty("owned_by", out var owned) ? owned.GetString() ?? "" : ""
                         });
                     }
@@ -274,42 +531,7 @@ namespace AiChatBox.Api.Controllers
             }
             catch
             {
-                return new OkObjectResult(GetGroqFallbackModels());
-            }
-        }
-
-        private static async Task<ActionResult> FetchOpenAiModels(HttpClient http, string apiKey)
-        {
-            try
-            {
-                var request = new HttpRequestMessage(HttpMethod.Get, "https://api.openai.com/v1/models");
-                request.Headers.Add("Authorization", $"Bearer {apiKey}");
-
-                var response = await http.SendAsync(request);
-                if (!response.IsSuccessStatusCode)
-                    return new BadRequestObjectResult(await response.Content.ReadAsStringAsync());
-
-                var json = await response.Content.ReadFromJsonAsync<System.Text.Json.JsonElement>();
-                var models = new List<ProviderModel>();
-
-                if (json.TryGetProperty("data", out var arr))
-                {
-                    foreach (var m in arr.EnumerateArray())
-                    {
-                        models.Add(new ProviderModel
-                        {
-                            Id = m.GetProperty("id").GetString() ?? "",
-                            Name = m.GetProperty("id").GetString() ?? "",
-                            Description = m.TryGetProperty("owned_by", out var owned) ? owned.GetString() ?? "" : ""
-                        });
-                    }
-                }
-
-                return new OkObjectResult(models.Where(m => m.Id.StartsWith("gpt") || m.Id.StartsWith("o1") || m.Id.StartsWith("o3")).OrderBy(m => m.Id).ToList());
-            }
-            catch
-            {
-                return new OkObjectResult(GetOpenAiFallbackModels());
+                return new OkObjectResult(new List<ProviderModel>());
             }
         }
 
@@ -319,22 +541,6 @@ namespace AiChatBox.Api.Controllers
             new() { Id = "gemini-1.5-pro", Name = "Gemini 1.5 Pro", Description = "Advanced reasoning capabilities" },
             new() { Id = "gemini-2.0-flash", Name = "Gemini 2.0 Flash", Description = "Next-gen speed and quality" },
             new() { Id = "gemini-2.5-flash-preview-06-17", Name = "Gemini 2.5 Flash", Description = "Latest preview with enhanced reasoning" }
-        ];
-
-        private static List<ProviderModel> GetGroqFallbackModels() =>
-        [
-            new() { Id = "llama-3.3-70b-versatile", Name = "Llama 3.3 70B Versatile", Description = "Best all-around" },
-            new() { Id = "llama-3.1-8b-instant", Name = "Llama 3.1 8B Instant", Description = "Fast and lightweight" },
-            new() { Id = "mixtral-8x7b-32768", Name = "Mixtral 8x7B", Description = "Strong reasoning" },
-            new() { Id = "deepseek-r1-distill-llama-70b", Name = "DeepSeek R1 70B", Description = "Advanced reasoning model" }
-        ];
-
-        private static List<ProviderModel> GetOpenAiFallbackModels() =>
-        [
-            new() { Id = "gpt-4o", Name = "GPT-4o", Description = "Most capable multimodal model" },
-            new() { Id = "gpt-4o-mini", Name = "GPT-4o Mini", Description = "Affordable and efficient" },
-            new() { Id = "gpt-4-turbo", Name = "GPT-4 Turbo", Description = "Powerful reasoning" },
-            new() { Id = "o3-mini", Name = "O3 Mini", Description = "Advanced reasoning, compact" }
         ];
     }
 }

@@ -2,14 +2,15 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using AiChatBox.Api.Interfaces;
 using Dapper;
+using System.Text.RegularExpressions;
 using Npgsql;
 
 namespace AiChatBox.Api.Services.Tools
 {
-    public class SqlTool(IConfiguration config) : ITool
+    public class InternalSqlTool(IConfiguration config) : ITool
     {
         public string Name => "query_database";
-        public string Description => "Executes read-only SQL queries on the application database. Available tables: Projects, ApiKeys, CustomTools, ChatSessions, ChatMessages, AspNetUsers (Identity). Use this to analyze user activity, project configurations, or chat history. Do NOT use this for personal user data unless explicitly asked.";
+        public string Description => "Executes read-only SQL queries on the application database. Available tables: Projects, ApiKeys, CustomTools, ChatSessions, ChatMessages, AspNetUsers (Identity). Use this to analyze user activity, project configurations, or chat history. NOTE: Postgres is case-sensitive for table names. Always use double quotes for table and column names if they contain uppercase letters (e.g., SELECT * FROM \"AspNetUsers\"). Do NOT use this for personal user data unless explicitly asked.";
 
         public JsonObject ParametersSchema => new JsonObject
         {
@@ -42,10 +43,10 @@ namespace AiChatBox.Api.Services.Tools
                     return new ToolResult { ToolName = Name, Error = "Only SELECT queries are permitted for security reasons." };
                 }
 
-                // Block common destructive keywords even in comments or subqueries
+                // Block common destructive keywords (whole words only)
                 string[] blocked = ["delete", "update", "insert", "drop", "truncate", "alter", "create", "grant", "revoke"];
                 foreach (var word in blocked) {
-                    if (lower.Contains(word)) {
+                    if (Regex.IsMatch(lower, $@"\b{word}\b")) {
                          return new ToolResult { ToolName = Name, Error = $"Destructive or administrative keyword '{word}' is not permitted." };
                     }
                 }

@@ -125,9 +125,13 @@ namespace AiChatBox.Api.Services
                 {
                     await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveInputTranscription", text);
                 },
-                async (id, name, args) =>
+                async (id, name, args, isBackend) =>
                 {
-                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args);
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolCall", id, name, args, isBackend);
+                },
+                async (id, name, result) =>
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveToolResult", id, name, result);
                 },
                 projectId,
                 configurationId,

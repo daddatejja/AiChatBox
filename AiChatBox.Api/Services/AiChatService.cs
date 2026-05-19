@@ -9,6 +9,7 @@ using Microsoft.EntityFrameworkCore;
 using Pgvector;
 using Pgvector.EntityFrameworkCore;
 using AiChatBox.Api.Services.Tools;
+using Microsoft.AspNetCore.SignalR;
 
 namespace AiChatBox.Api.Services
 {
@@ -21,6 +22,10 @@ namespace AiChatBox.Api.Services
                                 FileProcessingService fileProcessingService,
                                 EncryptionService encryptionService,
                                 EmbeddingService embeddingService,
+                                RuleEngine ruleEngine,
+                                HandoffService handoffService,
+                                FlowExecutionService flowService,
+                                IHubContext<LiveChatHub> chatHubContext,
                                 IHttpContextAccessor httpContextAccessor,
                                 ILogger<AiChatService> logger) : IAiChatService
     {
@@ -33,6 +38,10 @@ namespace AiChatBox.Api.Services
         private readonly FileProcessingService _fileProcessingService = fileProcessingService;
         private readonly EncryptionService _encryption = encryptionService;
         private readonly EmbeddingService _embeddingService = embeddingService;
+        private readonly RuleEngine _ruleEngine = ruleEngine;
+        private readonly HandoffService _handoffService = handoffService;
+        private readonly FlowExecutionService _flowService = flowService;
+        private readonly IHubContext<LiveChatHub> _chatHubContext = chatHubContext;
         private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
         private readonly ILogger<AiChatService> _logger = logger;
 
@@ -126,13 +135,40 @@ namespace AiChatBox.Api.Services
             var startTime = DateTime.UtcNow;
             var session = await GetOrCreateSessionAsync(userId, request.SessionId, request.ProjectId, request.ConfigurationId);
 
+            async IAsyncEnumerable<ChatStreamChunk> StreamFlowAsync(ChatSession s, string msg, Project p)
+            {
+                var flowStream = _flowService.ExecuteFlowStepAsync(s, msg, p);
+                string flowFullText = "";
+                await foreach (var chunk in flowStream)
+                {
+                    if (chunk.Text != null)
+                    {
+                        flowFullText += chunk.Text;
+                    }
+                    if (chunk.RuleResponse != null)
+                    {
+                        var rType = chunk.RuleResponse.ResponseType ?? "text";
+                        flowFullText += $" [{rType.ToUpperInvariant()} RESPONSE] {chunk.RuleResponse.Payload}";
+                    }
+                    
+                    chunk.SessionId = s.Id;
+                    yield return chunk;
+                }
+
+                var flowSavedMsg = await SaveMessageAsync(s.Id, "model", flowFullText);
+                yield return new ChatStreamChunk { Done = true, SessionId = s.Id, MessageId = flowSavedMsg.Id };
+            }
+
             // Yield initial session ID
             yield return new ChatStreamChunk { SessionId = session.Id };
 
-            if (request.ToolResult != null)
+            if (request.ToolResults != null && request.ToolResults.Count > 0)
             {
-                var content = JsonSerializer.Serialize(new { toolName = request.ToolResult.ToolName, result = request.ToolResult.Result });
-                await SaveMessageAsync(session.Id, "function", content);
+                foreach (var toolRes in request.ToolResults)
+                {
+                    var content = JsonSerializer.Serialize(new { toolCallId = toolRes.ToolCallId, toolName = toolRes.ToolName, result = toolRes.Result, thoughtSignature = toolRes.ThoughtSignature });
+                    await SaveMessageAsync(session.Id, "function", content);
+                }
             }
             else
             {
@@ -152,17 +188,24 @@ namespace AiChatBox.Api.Services
             // If we're in the Playground (authenticated via JWT), project/config won't be in HttpContext.Items
             if (project == null && request.ProjectId.HasValue)
             {
-                project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
+                project = await _db.Projects
+                    .Include(p => p.Database)
+                    .FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
             }
 
             if (config == null && project != null)
             {
                 // Find the project's default configuration if not specified
                 config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == "Default");
+                if (config == null)
+                {
+                    config = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id);
+                }
             }
 
             if (config != null)
             {
+                session.Configuration = config;
                 if (config.MaxSpendLimit > 0 && config.CurrentSpend >= config.MaxSpendLimit)
                 {
                     yield return new ChatStreamChunk { Error = "Budget limit reached for this project.", Done = true, SessionId = session.Id };
@@ -187,11 +230,33 @@ namespace AiChatBox.Api.Services
                 : (!string.IsNullOrEmpty(project?.SystemPrompt) ? project.SystemPrompt 
                 : await _contextService.BuildSystemPromptAsync(userId)));
 
+            systemPrompt += "\n\n[CITATION DIRECTIVE]\nWhen answering questions based on the knowledge base search results, you must explicitly cite the source filenames (e.g., '[filename.pdf]' or 'according to filename.pdf') provided in the search result headers to credit the original document.";
+
             if (request.Context != null)
             {
                 var contextStr = $"\n\n[USER CURRENT CONTEXT]\nURL: {request.Context.Url}\nTitle: {request.Context.Title}\nPath: {request.Context.Path}\nUse this information if the user asks questions about 'this page'.";
                 systemPrompt += contextStr;
             }
+
+            // ─── Template Variable Substitution ───
+            // Replace {{variable}} placeholders with configured values
+            if (config?.PromptTemplateVariablesJson != null)
+            {
+                try
+                {
+                    var vars = JsonSerializer.Deserialize<Dictionary<string, string>>(config.PromptTemplateVariablesJson);
+                    if (vars != null)
+                    {
+                        foreach (var (key, value) in vars)
+                            systemPrompt = systemPrompt.Replace($"{{{{{key}}}}}", value, StringComparison.OrdinalIgnoreCase);
+                    }
+                }
+                catch { }
+            }
+            // Built-in runtime variables (always available)
+            systemPrompt = systemPrompt
+                .Replace("{{date}}", DateTime.UtcNow.ToString("yyyy-MM-dd"))
+                .Replace("{{time}}", DateTime.UtcNow.ToString("HH:mm UTC"));
 
             var modelName = !string.IsNullOrEmpty(request.ModelName)
                 ? request.ModelName
@@ -211,15 +276,193 @@ namespace AiChatBox.Api.Services
                 AttachedFileId = m.AttachedFileId
             }).ToList();
 
-            var encryptedApiKey = provider.ToLowerInvariant() switch
-            {
-                "gemini" => config?.GeminiApiKey,
-                "groq" => config?.GroqApiKey,
-                "grok" => config?.GroqApiKey,
-                _ => null
-            };
+            var apiKeyOverride = _llmFactory.ResolveApiKey(provider, config);
 
-            var apiKeyOverride = _encryption.Decrypt(encryptedApiKey);
+            // ─── Human Handoff Check ───
+            // If session is currently being handled by a human agent, don't call LLM
+            if (session.HandoffStatus == "active")
+            {
+                // Message was already saved above — notify the agent via SignalR
+                if (!string.IsNullOrEmpty(request.Message))
+                {
+                    var lastMsg = session.Messages?.OrderByDescending(m => m.CreatedAt).FirstOrDefault(m => m.Role == "user") 
+                        ?? await _db.ChatMessages.OrderByDescending(m => m.CreatedAt).FirstOrDefaultAsync(m => m.SessionId == session.Id && m.Role == "user");
+
+                    if (lastMsg != null)
+                    {
+                        await _chatHubContext.Clients.Group($"session-{session.Id}").SendAsync("ReceiveUserMessage", new
+                        {
+                            id = lastMsg.Id,
+                            sessionId = session.Id,
+                            content = lastMsg.Content,
+                            createdAt = lastMsg.CreatedAt,
+                            role = "user"
+                        });
+                    }
+                }
+
+                // yield an empty chunk to satisfy the stream response without hallucinating
+                yield return new ChatStreamChunk { Text = "", Done = true, SessionId = session.Id };
+                yield break;
+            }
+
+            // ─── Flow Engine Check ───
+            // Check if we are ALREADY in a flow
+            if (session.ActiveFlowId != null)
+            {
+                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                {
+                    yield return chunk;
+                }
+                yield break;
+            }
+
+            // ─── Rule-Based Response Engine ───
+            // Check rules BEFORE any LLM call. If a rule matches and ResponseType is not "ai",
+            // we respond instantly — zero LLM cost. For "ai" type, we inject a custom prompt
+            // and continue to the LLM as normal.
+            if (project != null && request.ToolResults == null && !string.IsNullOrEmpty(request.Message))
+            {
+                var ruleResult = await _ruleEngine.TryMatchAsync(project.Id, request.Message, config,
+                    contextMessages.Where(m => m.Role == "user").Select(m => m.Content).TakeLast(3).ToList(),
+                    cancellationToken);
+                if (ruleResult != null)
+                {
+                    var rType = (ruleResult.ResponseType ?? "text").ToLowerInvariant();
+
+                    _logger.LogInformation("Rule matched ({MatchType}/{ResponseType}, confidence={Confidence:F2}) for project {ProjectId}",
+                        ruleResult.MatchType, rType, ruleResult.Confidence, project.Id);
+
+                    if (rType == "ai")
+                    {
+                        // Inject additional prompt instructions and fall through to LLM
+                        if (!string.IsNullOrWhiteSpace(ruleResult.ResponsePayload))
+                            systemPrompt = systemPrompt + "\n\n[RULE CONTEXT]\n" + ruleResult.ResponsePayload;
+                        // Do NOT yield break — fall through to LLM below
+                    }
+                    else if (rType == "flow")
+                    {
+                        if (Guid.TryParse(ruleResult.ResponsePayload, out Guid flowId))
+                        {
+                            var triggered = await _flowService.TriggerFlowByIdAsync(session, flowId);
+                            if (triggered)
+                            {
+                                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                                {
+                                    yield return chunk;
+                                }
+                                yield break;
+                            }
+                        }
+                    }
+                    else
+                    {
+                        // All other types short-circuit the LLM
+                        string savedContent = rType == "text"
+                            ? ruleResult.Response
+                            : $"[{rType.ToUpperInvariant()} RESPONSE] {ruleResult.ResponsePayload}";
+
+                        var ruleMsg = await SaveMessageAsync(session.Id, "model", savedContent);
+
+                        if (rType == "text")
+                        {
+                            yield return new ChatStreamChunk { Text = ruleResult.Response, SessionId = session.Id };
+                        }
+                        else
+                        {
+                            // Send a rich response chunk; widget handles rendering
+                            yield return new ChatStreamChunk
+                            {
+                                SessionId = session.Id,
+                                RuleResponse = new DTOs.RuleResponseChunk
+                                {
+                                    ResponseType = rType,
+                                    Payload = ruleResult.ResponsePayload
+                                }
+                            };
+
+                            // Also stream any text (e.g. card body or redirect message) for non-widget clients
+                            if (!string.IsNullOrWhiteSpace(ruleResult.Response))
+                                yield return new ChatStreamChunk { Text = ruleResult.Response, SessionId = session.Id };
+                        }
+
+                        // Log as a zero-cost request
+                        await _loggingService.LogRequestAsync(new Models.AiRequestLog
+                        {
+                            SessionId = session.Id,
+                            Provider = "rules",
+                            Model = ruleResult.MatchType == "intent" ? "intent-classifier" : "rule-engine",
+                            InputTokens = 0,
+                            OutputTokens = 0,
+                            DurationMs = 1,
+                            CreatedAt = DateTime.UtcNow
+                        });
+
+                        yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = ruleMsg.Id };
+                        yield break;
+                    }
+                }
+            }
+
+            // Check if this is the very first message/start of session and trigger onStart flow if configured
+            var msgCount = await _db.ChatMessages.CountAsync(m => m.SessionId == session.Id);
+            if (msgCount <= 1)
+            {
+                if (await _flowService.TryTriggerOnStartFlowAsync(session))
+                {
+                    await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                    {
+                        yield return chunk;
+                    }
+                    yield break;
+                }
+            }
+
+            // Check if we should TRIGGER a flow
+            if (await _flowService.TryTriggerFlowAsync(session, request.Message ?? ""))
+            {
+                await foreach (var chunk in StreamFlowAsync(session, request.Message ?? "", project))
+                {
+                    yield return chunk;
+                }
+                yield break;
+            }
+
+            // If session is queued (waiting for agent), show queue message
+            if (session.HandoffStatus == "queued")
+            {
+                var queueMsg = config?.HandoffQueueMessage ?? "You're in the queue for a live agent. Please hold on.";
+                var qMsg = await SaveMessageAsync(session.Id, "model", queueMsg);
+                yield return new ChatStreamChunk { Text = queueMsg, SessionId = session.Id };
+                yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = qMsg.Id };
+                yield break;
+            }
+
+            // Check if message triggers handoff (keyword + intent classification)
+            if (config != null && config.HandoffEnabled && request.ToolResults == null && !string.IsNullOrEmpty(request.Message))
+            {
+                var recentUserMessages = contextMessages
+                    .Where(m => m.Role == "user")
+                    .Select(m => m.Content)
+                    .TakeLast(5)
+                    .ToList();
+
+                var handoffResult = await _handoffService.ShouldTriggerHandoffAsync(
+                    request.Message, config, recentUserMessages, cancellationToken);
+
+                if (handoffResult.ShouldEscalate)
+                {
+                    _logger.LogInformation("Handoff triggered for session {SessionId} ({MatchType}, confidence={Confidence:F2})",
+                        session.Id, handoffResult.MatchType, handoffResult.Confidence);
+                    await _handoffService.QueueSessionAsync(session.Id);
+
+                    var queueMsg = config.HandoffQueueMessage ?? "I'm connecting you with a live agent. Please hold on — someone will be with you shortly.";
+                    var hMsg = await SaveMessageAsync(session.Id, "model", queueMsg);
+                    yield return new ChatStreamChunk { Text = queueMsg, SessionId = session.Id };
+                    yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = hMsg.Id };
+                    yield break;
+                }
+            }
 
             // For RAG retrieval, we always need the Gemini API Key for embeddings
             var geminiApiKeyForRag = provider.ToLowerInvariant() == "gemini" 
@@ -245,10 +488,15 @@ namespace AiChatBox.Api.Services
             {
                 await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, extraTools, session.Id, cancellationToken))
                 {
-                    if (chunk.ToolCall != null)
+                    if (chunk.ToolCalls != null && chunk.ToolCalls.Count > 0)
                     {
-                        await SaveMessageAsync(session.Id, "model", JsonSerializer.Serialize(new { toolCall = chunk.ToolCall }, _jsonOptions));
-                        yield return new ChatStreamChunk { ToolCall = chunk.ToolCall, SessionId = session.Id };
+                        await SaveMessageAsync(session.Id, "model", JsonSerializer.Serialize(new { toolCalls = chunk.ToolCalls }, _jsonOptions));
+                        yield return new ChatStreamChunk { ToolCalls = chunk.ToolCalls, SessionId = session.Id };
+                    }
+                    else if (chunk.ToolResult != null)
+                    {
+                        await SaveMessageAsync(session.Id, "function", JsonSerializer.Serialize(new { toolName = chunk.ToolResult.ToolName, result = chunk.ToolResult.Result, thoughtSignature = chunk.ToolResult.ThoughtSignature }, _jsonOptions));
+                        yield return new ChatStreamChunk { ToolResult = chunk.ToolResult, SessionId = session.Id };
                     }
                     else if (!string.IsNullOrEmpty(chunk.Text))
                     {
@@ -257,29 +505,32 @@ namespace AiChatBox.Api.Services
                     }
                 }
 
-                yield return new ChatStreamChunk { Done = true, SessionId = session.Id };
-
                 var responseText = finalResponseText.ToString();
+                Guid? savedMessageId = null;
                 if (!string.IsNullOrEmpty(responseText))
                 {
                     await using var bgDb = await _dbFactory.CreateDbContextAsync();
-                    bgDb.ChatMessages.Add(new ChatMessage
+                    var msg = new ChatMessage
                     {
                         SessionId = session.Id,
                         Role = "model",
                         Content = responseText,
                         TokenCount = GeminiServerService.StaticEstimateTokenCount(responseText),
                         CreatedAt = DateTime.UtcNow
-                    });
+                    };
+                    bgDb.ChatMessages.Add(msg);
                     var bgSession = await bgDb.ChatSessions.FindAsync(session.Id);
                     if (bgSession != null) bgSession.LastMessageAt = DateTime.UtcNow;
                     await bgDb.SaveChangesAsync();
+                    savedMessageId = msg.Id;
                 }
                 else
                 {
                     _logger.LogWarning("AI returned an empty response for session {SessionId}, project {ProjectId}, provider {Provider}, model {Model}", 
                         session.Id, project?.Id, provider, modelName);
                 }
+
+                yield return new ChatStreamChunk { Done = true, SessionId = session.Id, MessageId = savedMessageId };
             }
 
             var enumerator = StreamInternal().GetAsyncEnumerator(cancellationToken);

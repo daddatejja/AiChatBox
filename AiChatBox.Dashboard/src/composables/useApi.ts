@@ -1,6 +1,6 @@
 export function useApi() {
   const API_BASE = import.meta.env.DEV
-    ? "http://localhost:5180"
+    ? "https://localhost:44385"
     : import.meta.env.VITE_API_URL || window.location.origin;
 
   function getToken() {

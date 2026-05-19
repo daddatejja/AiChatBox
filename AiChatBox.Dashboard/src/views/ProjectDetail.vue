@@ -33,6 +33,45 @@ const newConfig = reactive({ name: '', systemPrompt: '' });
 const newKey = reactive({ label: '', configId: null as string | null });
 const newTool = reactive({ name: '', description: '', parametersJsonSchema: '{\n  "type": "object",\n  "properties": {}\n}' });
 
+const dbConfig = reactive({
+    type: 0,
+    connectionString: '',
+    schemaDefinition: '',
+    hasConnectionString: false
+});
+
+const dbTypes = [
+    { label: 'PostgreSQL', value: 0 },
+    { label: 'MySQL', value: 1 },
+    { label: 'SQL Server', value: 2 },
+    { label: 'SQLite', value: 3 }
+];
+
+const detectingSchema = ref(false);
+
+const detectSchema = async () => {
+  if (!dbConfig.connectionString && !dbConfig.hasConnectionString) {
+    toast.add({ severity: 'warn', summary: 'Missing Connection', detail: 'Please provide a connection string first.', life: 3000 });
+    return;
+  }
+  
+  detectingSchema.value = true;
+  try {
+    const res = await apiFetch(`/api/database/${projectId.value}/detect-schema`, { method: 'POST' });
+    if (res.ok) {
+        const data = await res.json();
+        dbConfig.schemaDefinition = data.schema;
+        toast.add({ severity: 'success', summary: 'Schema Detected', detail: 'Database schema successfully updated.', life: 3000 });
+    } else {
+        throw new Error('Could not connect to database.');
+    }
+  } catch (error: any) {
+    toast.add({ severity: 'error', summary: 'Detection Failed', detail: error.message || 'Could not connect to database.', life: 5000 });
+  } finally {
+    detectingSchema.value = false;
+  }
+};
+
 async function loadProject() {
     try {
         const res = await apiFetch(`/api/project/${projectId.value}`);
@@ -58,6 +97,38 @@ async function loadTools() {
     try {
         const res = await apiFetch(`/api/tool/project/${projectId.value}`);
         if (res.ok) tools.value = await res.json();
+    } catch(e) { console.error(e); }
+}
+
+async function loadDbConfig() {
+    try {
+        const res = await apiFetch(`/api/database/${projectId.value}`);
+        if (res.ok) {
+            const data = await res.json();
+            if (data) {
+                dbConfig.type = data.type;
+                dbConfig.schemaDefinition = data.schemaDefinition;
+                dbConfig.hasConnectionString = data.hasConnectionString;
+                dbConfig.connectionString = ''; // Clear for security
+            }
+        }
+    } catch(e) { console.error(e); }
+}
+
+async function saveDbConfig() {
+    try {
+        const res = await apiFetch(`/api/database/${projectId.value}`, {
+            method: 'POST',
+            body: JSON.stringify({
+                type: dbConfig.type,
+                connectionString: dbConfig.connectionString || null,
+                schemaDefinition: dbConfig.schemaDefinition
+            })
+        });
+        if (res.ok) {
+            toast.add({ severity: 'success', summary: 'Saved', detail: 'Database configuration updated.', life: 3000 });
+            loadDbConfig();
+        }
     } catch(e) { console.error(e); }
 }
 
@@ -203,9 +274,11 @@ async function saveProjectSettings() {
             provider: project.value.provider,
             modelName: project.value.modelName,
             webhookUrl: project.value.webhookUrl,
+            webhookSecret: project.value.webhookSecret || null,
             allowedDomains: project.value.allowedDomains
         })
     });
+    if (project.value.webhookSecret) project.value.webhookSecret = ''; // Clear after save
     toast.add({ severity: 'success', summary: 'Saved', detail: 'Project settings updated.', life: 3000 });
 }
 
@@ -214,6 +287,7 @@ onMounted(() => {
     loadConfigs(); 
     loadKeys(); 
     loadTools();
+    loadDbConfig();
 });
 </script>
 
@@ -252,6 +326,16 @@ onMounted(() => {
                             <InputText v-model="project.allowedDomains" placeholder="localhost:5173, example.com, *" fluid />
                             <small>Use * to allow all (not recommended for production). Use comma-separated hostnames.</small>
                         </div>
+                        <div class="form-group">
+                            <label>Webhook URL (For Custom Tools)</label>
+                            <InputText v-model="project.webhookUrl" placeholder="https://your-api.com/webhooks/aichat" fluid />
+                            <small>All custom tools defined below will send POST requests to this URL.</small>
+                        </div>
+                        <div class="form-group">
+                            <label>Webhook Secret (Optional)</label>
+                            <InputText v-model="project.webhookSecret" type="password" :placeholder="project.hasWebhookSecret ? '******** (Hidden)' : '••••••••'" fluid />
+                            <small>If set, requests will include an X-Hub-Signature HMAC-SHA256 header.</small>
+                        </div>
                     </div>
                 </template>
             </Card>
@@ -268,6 +352,66 @@ onMounted(() => {
                     <Button label="Manage Knowledge" icon="pi pi-book" severity="secondary" outlined @click="navigate" />
                 </router-link>
             </div>
+        </section>
+
+        <!-- Conversation Rules -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Conversation Rules</h2>
+                    <p class="section-subtitle">Define fast, zero-cost static responses before the LLM takes over.</p>
+                </div>
+                <router-link :to="'/project/' + projectId + '/rules'" custom v-slot="{ navigate }">
+                    <Button label="Manage Rules" icon="pi pi-bolt" severity="secondary" outlined @click="navigate" />
+                </router-link>
+            </div>
+        </section>
+
+        <!-- Conversation Flows -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>Conversation Flows</h2>
+                    <p class="section-subtitle">Visual workflow builder for deterministic conversation paths.</p>
+                </div>
+                <router-link :to="'/project/' + projectId + '/flow'" custom v-slot="{ navigate }">
+                    <Button label="Flow Builder" icon="pi pi-sitemap" severity="secondary" outlined @click="navigate" />
+                </router-link>
+            </div>
+        </section>
+
+        <!-- AI Reporting Database -->
+        <section class="section">
+            <div class="section-header">
+                <div>
+                    <h2>AI Reporting Database</h2>
+                    <p class="section-subtitle">Connect your database to enable AI-powered SQL reporting and analytics.</p>
+                </div>
+                <Button label="Save Database Settings" icon="pi pi-save" severity="secondary" outlined @click="saveDbConfig" />
+            </div>
+            <Card class="list-card settings-card">
+                <template #content>
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Database Type</label>
+                            <Select v-model="dbConfig.type" :options="dbTypes" optionLabel="label" optionValue="value" placeholder="Select Database Type" fluid />
+                        </div>
+                        <div class="form-group">
+                            <label>Connection String</label>
+                            <InputText v-model="dbConfig.connectionString" :placeholder="dbConfig.hasConnectionString ? '******** (Hidden)' : 'Server=...;Database=...;'" fluid />
+                            <small class="text-surface-500">Encrypted at rest. Use a read-only user for safety.</small>
+                        </div>
+                        <div class="form-group md:col-span-2">
+                            <div class="flex justify-between items-center mb-2">
+                                <label class="block text-sm font-medium">Schema Definition (DDL)</label>
+                                <Button icon="pi pi-refresh" label="Auto-Detect Schema" size="small" variant="text" :loading="detectingSchema" @click="detectSchema" />
+                            </div>
+                            <Textarea v-model="dbConfig.schemaDefinition" rows="6" placeholder="CREATE TABLE users (...); CREATE TABLE orders (...);" style="font-family: monospace;" fluid />
+                            <small class="text-surface-500">Provide the DDL of your tables so the AI understands your data structure. Click 'Auto-Detect Schema' if connection is saved.</small>
+                        </div>
+                    </div>
+                </template>
+            </Card>
         </section>
 
         <!-- Configurations -->

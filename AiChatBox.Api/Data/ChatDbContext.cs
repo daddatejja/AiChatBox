@@ -20,13 +20,38 @@ namespace AiChatBox.Api.Data
         public DbSet<ConfigurationHistory> ConfigurationHistories { get; set; }
         public DbSet<KnowledgeDocument> KnowledgeDocuments { get; set; }
         public DbSet<DocumentChunk> DocumentChunks { get; set; }
+        public DbSet<ProjectDatabase> ProjectDatabases { get; set; }
         public DbSet<WebsiteCrawlJob> WebsiteCrawlJobs { get; set; }
+        public DbSet<ConversationRule> ConversationRules { get; set; }
+        
+        public DbSet<ConversationFlow> ConversationFlows { get; set; }
+        public DbSet<FlowNode> FlowNodes { get; set; }
+        public DbSet<FlowEdge> FlowEdges { get; set; }
+        public DbSet<FlowExecutionLog> FlowExecutionLogs { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
             
             modelBuilder.HasPostgresExtension("vector");
+
+            modelBuilder.Entity<FlowExecutionLog>()
+                .HasOne(l => l.Flow)
+                .WithMany()
+                .HasForeignKey(l => l.FlowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<FlowExecutionLog>()
+                .HasOne(l => l.Session)
+                .WithMany()
+                .HasForeignKey(l => l.SessionId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.Database)
+                .WithOne(d => d.Project)
+                .HasForeignKey<ProjectDatabase>(d => d.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<Project>()
                 .HasMany(p => p.WebsiteCrawlJobs)
@@ -83,6 +108,25 @@ namespace AiChatBox.Api.Data
                 .HasForeignKey(s => s.ProjectId)
                 .IsRequired(false);
 
+            // Flow Relationships
+            modelBuilder.Entity<ConversationFlow>()
+                .HasMany(f => f.Nodes)
+                .WithOne(n => n.Flow)
+                .HasForeignKey(n => n.FlowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ConversationFlow>()
+                .HasMany(f => f.Edges)
+                .WithOne(e => e.Flow)
+                .HasForeignKey(e => e.FlowId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ChatSession>()
+                .HasOne(s => s.ActiveFlow)
+                .WithMany()
+                .HasForeignKey(s => s.ActiveFlowId)
+                .OnDelete(DeleteBehavior.SetNull);
+
             // Knowledge Base
             modelBuilder.Entity<KnowledgeDocument>()
                 .HasMany(d => d.Chunks)
@@ -94,6 +138,18 @@ namespace AiChatBox.Api.Data
                 .HasMany(p => p.KnowledgeDocuments)
                 .WithOne(d => d.Project)
                 .HasForeignKey(d => d.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<Project>()
+                .HasMany(p => p.ConversationRules)
+                .WithOne(r => r.Project)
+                .HasForeignKey(r => r.ProjectId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ConfigurationHistory>()
+                .HasOne(h => h.Configuration)
+                .WithMany()
+                .HasForeignKey(h => h.ConfigurationId)
                 .OnDelete(DeleteBehavior.Cascade);
 
             modelBuilder.Entity<DocumentChunk>()

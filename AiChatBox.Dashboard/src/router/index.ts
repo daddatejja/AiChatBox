@@ -23,17 +23,38 @@ const router = createRouter({
         {
           path: 'project/:id',
           name: 'project-detail',
-          component: () => import('../views/ProjectDetail.vue')
+          component: () => import('../views/ProjectDetail/ProjectDetail.vue')
         },
         {
           path: 'project/:projectId/config/:configId',
           name: 'config-detail',
-          component: () => import('../views/ConfigDetail.vue')
+          component: () => import('../views/ConfigDetail/ConfigDetail.vue')
         },
         {
           path: 'project/:projectId/knowledge',
           name: 'knowledge-base',
           component: () => import('../views/KnowledgeBase.vue')
+        },
+        {
+          path: 'project/:projectId/rules',
+          name: 'rules',
+          component: () => import('../views/Rules.vue')
+        },
+        {
+          path: 'project/:id/flow',
+          name: 'flow-list',
+          component: () => import('../views/FlowList.vue')
+        },
+        {
+          path: 'project/:projectId/flow/:flowId',
+          name: 'flow-builder',
+          component: () => import('../views/FlowBuilder/FlowBuilder.vue')
+        },
+
+        {
+          path: 'analytics',
+          name: 'analytics',
+          component: () => import('../views/Analytics.vue')
         },
         {
           path: 'logs',
@@ -49,6 +70,11 @@ const router = createRouter({
           path: 'docs',
           name: 'docs',
           component: () => import('../views/Docs.vue')
+        },
+        {
+          path: 'live-chat',
+          name: 'live-chat',
+          component: () => import('../views/LiveChat.vue')
         }
       ]
     }

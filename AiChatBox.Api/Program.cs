@@ -14,6 +14,7 @@ using Hangfire.PostgreSql;
 using Serilog;
 using System.Text;
 
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 var builder = WebApplication.CreateBuilder(args);
 
 // Configure Serilog
@@ -77,7 +78,7 @@ builder.Services.AddAuthentication(options => {
         {
             var accessToken = context.Request.Query["access_token"];
             var path = context.HttpContext.Request.Path;
-            if (!string.IsNullOrEmpty(accessToken) && path.StartsWithSegments("/liveAudioHub"))
+            if (!string.IsNullOrEmpty(accessToken) && (path.StartsWithSegments("/liveAudioHub") || path.StartsWithSegments("/liveChatHub")))
             {
                 context.Token = accessToken;
             }
@@ -109,11 +110,11 @@ builder.Services.AddAuthentication(options => {
 
 // Encryption
 builder.Services.AddSingleton<EncryptionService>();
+builder.Services.AddScoped<ExportService>();
 
 // AI Services
 builder.Services.AddHttpClient();
 builder.Services.AddScoped<GeminiServerService>();
-builder.Services.AddScoped<GrokServerService>();
 builder.Services.AddScoped<LlmProviderFactory>();
 builder.Services.AddScoped<IChatContextService, ChatContextService>();
 builder.Services.AddScoped<IAiLoggingService, AiLoggingService>();
@@ -126,15 +127,23 @@ builder.Services.AddScoped<IFileService, FileService>();
 builder.Services.AddScoped<FileProcessingService>();
 builder.Services.AddScoped<FirecrawlService>();
 builder.Services.AddHttpClient<FirecrawlService>();
+builder.Services.AddScoped<FlowExecutionService>();
 
 // Agent & Tools
-builder.Services.AddScoped<ITool, SqlTool>();
+builder.Services.AddScoped<ITool, InternalSqlTool>();
 builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
+builder.Services.AddScoped<IntentClassifierService>();
+builder.Services.AddScoped<RuleEngine>();
 
 builder.Services.AddScoped<IAiChatService, AiChatService>();
 builder.Services.AddScoped<ApiKeyService>();
 builder.Services.AddScoped<WebhookService>();
+builder.Services.AddScoped<HandoffService>();
+builder.Services.AddScoped<IChannelAdapter, WhatsAppAdapter>();
+builder.Services.AddScoped<IChannelAdapter, SlackAdapter>();
+builder.Services.AddScoped<IChannelAdapter, TelegramAdapter>();
+builder.Services.AddScoped<IChannelAdapter, TeamsAdapter>();
 
 // Hangfire configuration
 builder.Services.AddHangfire(configuration => configuration
@@ -194,6 +203,22 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine("[Startup] Running Migrations...");
         db.Database.Migrate();
         Console.WriteLine("[Startup] Migrations completed successfully.");
+
+        // Print projects and API keys for debugging/testing
+        var projects = db.Projects.ToList();
+        Console.WriteLine("[Startup] Active Projects:");
+        foreach (var p in projects)
+        {
+            var keyObj = db.ApiKeys.FirstOrDefault(k => k.ProjectId == p.Id);
+            Console.WriteLine($"[Startup] Project ID: {p.Id}, Name: {p.Name}, ApiKey Hash: {(keyObj != null ? keyObj.KeyHash : "None")}");
+        }
+
+        var apiKeys = db.ApiKeys.ToList();
+        Console.WriteLine("[Startup] Active ApiKeys:");
+        foreach (var k in apiKeys)
+        {
+            Console.WriteLine($"[Startup] Key Id: {k.Id}, ProjectId: {k.ProjectId}, Label: {k.Label}, Hash: {k.KeyHash}");
+        }
     }
     catch (Exception ex)
     {
@@ -247,6 +272,7 @@ app.UseAuthorization();
 
 app.MapControllers();
 app.MapHub<LiveAudioHub>("/liveAudioHub").DisableAntiforgery();
+app.MapHub<LiveChatHub>("/liveChatHub").DisableAntiforgery();
 
 app.UseHangfireDashboard("/hangfire", new DashboardOptions
 {

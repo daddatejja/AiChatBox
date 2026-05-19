@@ -5,7 +5,7 @@ namespace AiChatBox.Api.Interfaces
     public class LlmResponseChunk
     {
         public string? Text { get; set; }
-        public ToolCall? ToolCall { get; set; }
+        public List<ToolCall>? ToolCalls { get; set; }
     }
 
     public class ToolCall

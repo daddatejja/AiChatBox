@@ -10,6 +10,7 @@ namespace AiChatBox.Api.DTOs
         public string? WebhookUrl { get; set; }
         public string? AllowedDomains { get; set; }
         public DateTime CreatedAt { get; set; }
+        public bool HasWebhookSecret { get; set; }
         public int ApiKeyCount { get; set; }
     }
 

@@ -47,8 +47,14 @@ namespace AiChatBox.Api.Services
 
         public async Task<ProjectConfiguration?> GetDefaultConfigurationAsync(Guid projectId)
         {
-            return await _db.Configurations
+            var config = await _db.Configurations
                 .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+            if (config == null)
+            {
+                config = await _db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == projectId);
+            }
+            return config;
         }
 
         public async Task<(Project? Project, ProjectConfiguration? Configuration, ApiKey? ApiKey)> ValidateApiKeyAsync(string rawKey, string? origin = null)
@@ -57,6 +63,8 @@ namespace AiChatBox.Api.Services
             var apiKey = await _db.ApiKeys
                 .Include(k => k.Project)
                     .ThenInclude(p => p.CustomTools)
+                .Include(k => k.Project)
+                    .ThenInclude(p => p.Database)
                 .Include(k => k.Configuration)
                 .FirstOrDefaultAsync(k => k.KeyHash == keyHash && k.IsActive);
 

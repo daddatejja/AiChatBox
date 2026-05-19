@@ -12,12 +12,10 @@ import { useConfirm } from 'primevue/useconfirm';
 import Toast from 'primevue/toast';
 import ConfirmDialog from 'primevue/confirmdialog';
 import Dialog from 'primevue/dialog';
-import Fieldset from 'primevue/fieldset';
 import DataTable from 'primevue/datatable';
 import Column from 'primevue/column';
 import InputText from 'primevue/inputtext';
-import IconField from 'primevue/iconfield';
-import InputIcon from 'primevue/inputicon';
+import InputNumber from 'primevue/inputnumber';
 import { FilterMatchMode } from '@primevue/core/api';
 import { marked } from 'marked';
 import Papa from 'papaparse';
@@ -40,6 +38,11 @@ const maxPages = ref(10);
 const showCrawlStarted = ref(false);
 const crawlJobs = ref<any[]>([]);
 let pollInterval: any = null;
+
+const showAdvanced = ref(false);
+const chunkSize = ref(1000);
+const chunkOverlap = ref(200);
+const chunkingStrategy = ref('recursive');
 
 const filters = ref({
     global: { value: null, matchMode: FilterMatchMode.CONTAINS },
@@ -64,7 +67,9 @@ const hasConfigWithKey = computed(() => {
     return configurations.value.some(c => c.hasGeminiKey || c.hasOpenAiKey);
 });
 
-const uploadUrl = computed(() => `${API_BASE}/api/project/${projectId.value}/knowledge/upload`);
+const uploadUrl = computed(() => {
+    return `${API_BASE}/api/project/${projectId.value}/knowledge/upload?chunkSize=${chunkSize.value}&chunkOverlap=${chunkOverlap.value}&chunkingStrategy=${chunkingStrategy.value}`;
+});
 
 async function loadData() {
     initialLoading.value = true;
@@ -266,7 +271,7 @@ async function viewFile(doc: any) {
                 Papa.parse(data.content, {
                     header: true,
                     skipEmptyLines: true,
-                    complete: (results) => {
+                    complete: (results: any) => {
                         csvData.value = results;
                     }
                 });
@@ -369,6 +374,36 @@ onMounted(loadData);
                         </div>
                     </template>
                     <template #content>
+                        <!-- Advanced Chunking Settings Accordion -->
+                        <div class="mb-4 p-4 bg-surface-50 border rounded-lg flex flex-col gap-3">
+                            <div class="flex items-center justify-between cursor-pointer" @click="showAdvanced = !showAdvanced">
+                                <span class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                    <i class="pi pi-cog text-primary"></i>
+                                    <span>Advanced RAG Splitter Options</span>
+                                </span>
+                                <i :class="showAdvanced ? 'pi pi-chevron-up' : 'pi pi-chevron-down'" class="text-xs text-surface-500"></i>
+                            </div>
+                            
+                            <div v-show="showAdvanced" class="grid grid-cols-1 md:grid-cols-3 gap-4 pt-3 border-t">
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Strategy</label>
+                                    <select v-model="chunkingStrategy" class="p-inputtext w-full text-xs">
+                                        <option value="character">Character Splitter</option>
+                                        <option value="line">Line Splitter</option>
+                                        <option value="recursive">Recursive Paragraph Splitter</option>
+                                    </select>
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Chunk Size</label>
+                                    <InputNumber v-model="chunkSize" class="w-full text-xs" />
+                                </div>
+                                <div class="flex flex-col gap-1">
+                                    <label class="text-[10px] font-semibold text-surface-500 uppercase tracking-wider">Overlap</label>
+                                    <InputNumber v-model="chunkOverlap" class="w-full text-xs" />
+                                </div>
+                            </div>
+                        </div>
+
                         <FileUpload name="file" :url="uploadUrl" @upload="onUpload" @error="onError"
                             @before-send="onBeforeSend" :multiple="true" accept=".pdf,.txt,.json,.md,.csv"
                             :maxFileSize="10000000" :withCredentials="true" :disabled="!hasConfigWithKey"
@@ -394,10 +429,10 @@ onMounted(loadData);
                         <div class="flex flex-col gap-4">
                             <div class="flex flex-col gap-2">
                                 <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Base URL</label>
-                                <IconField>
-                                    <InputIcon class="pi pi-link" />
-                                    <InputText v-model="crawlUrl" placeholder="https://example.com" class="w-full" :disabled="!hasConfigWithKey || crawling" />
-                                </IconField>
+                                <div class="search-container">
+                                    <i class="pi pi-link search-icon"></i>
+                                    <InputText v-model="crawlUrl" placeholder="https://example.com" class="w-full search-input" :disabled="!hasConfigWithKey || crawling" />
+                                </div>
                             </div>
                             <div class="flex flex-col gap-2">
                                 <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Limit</label>
@@ -451,10 +486,10 @@ onMounted(loadData);
                         </div>
                         
                         <div class="flex items-center gap-2">
-                            <IconField iconPosition="left">
-                                <InputIcon class="pi pi-search" />
-                                <InputText v-model="filters['global'].value" placeholder="Search files..." class="w-full md:w-64" />
-                            </IconField>
+                            <div class="search-container">
+                                <i class="pi pi-search search-icon"></i>
+                                <InputText v-model="filters['global'].value" placeholder="Search files..." class="w-full md:w-64 search-input" />
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -820,5 +855,22 @@ onMounted(loadData);
     .md\:grid-cols-2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .md\:w-64 { width: 16rem; }
     .md\:flex-row { flex-direction: row; }
+}
+
+.search-container {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    width: 100%;
+}
+.search-icon {
+    position: absolute;
+    left: 12px;
+    color: var(--p-surface-400);
+    pointer-events: none;
+    font-size: 0.9rem;
+}
+.search-input {
+    padding-left: 36px !important;
 }
 </style>

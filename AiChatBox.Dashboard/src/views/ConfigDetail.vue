@@ -10,6 +10,7 @@ import Textarea from 'primevue/textarea';
 import Checkbox from 'primevue/checkbox';
 import Password from 'primevue/password';
 import InputNumber from 'primevue/inputnumber';
+import Slider from 'primevue/slider';
 
 const route = useRoute();
 const { apiFetch } = useApi();
@@ -31,6 +32,8 @@ const config = reactive({
     hasGroqKey: false,
     hasOpenAiKey: false,
     hasFirecrawlKey: false,
+    hasAnthropicKey: false,
+    configuredProviders: '' as string,
     liveVoiceEnabled: false, 
     enabledModels: '',
     rateLimitRequests: 0,
@@ -41,15 +44,76 @@ const config = reactive({
     maxLogsPerSession: 500,
     maxSessionsPerProject: 50,
     suggestionsJson: '',
-    suggestions: [] as string[]
+    suggestions: [] as string[],
+    customProviderName: '',
+    customProviderBaseUrl: '',
+    hasCustomProviderKey: false,
+    handoffEnabled: false,
+    handoffTriggerKeywords: '',
+    handoffEscalationCriteria: '',
+    handoffConfidenceThreshold: 70,
+    handoffQueueMessage: '',
+    themeSettingsJson: '',
+    channelSettingsJson: ''
 });
+
+const channels = reactive({
+    whatsApp: {
+        phoneNumberId: '',
+        accessToken: '',
+        verifyToken: ''
+    },
+    slack: {
+        botToken: '',
+        signingSecret: ''
+    },
+    telegram: {
+        botToken: ''
+    },
+    teams: {
+        appId: '',
+        appPassword: ''
+    }
+});
+
+// ─── Theme Engine ───
+const defaultTheme = {
+    primaryColor: '#39a7b9',
+    bgColor: '#ffffff',
+    fontFamily: 'Outfit',
+    position: 'bottom-right'
+};
+
+const theme = reactive({ ...defaultTheme });
+const fontOptions = [
+    { label: 'Outfit (Default)', value: 'Outfit' },
+    { label: 'Inter', value: 'Inter' },
+    { label: 'Roboto', value: 'Roboto' },
+    { label: 'System Default', value: 'system-ui' }
+];
+const positionOptions = [
+    { label: 'Bottom Right', value: 'bottom-right' },
+    { label: 'Bottom Left', value: 'bottom-left' }
+];
 
 // Separate reactive objects for key inputs — only sent on save, never pre-populated
 const keyInputs = reactive({
     geminiApiKey: '',
     groqApiKey: '',
     openAiApiKey: '',
-    firecrawlApiKey: ''
+    firecrawlApiKey: '',
+    anthropicApiKey: '',
+    customProviderApiKey: ''
+});
+
+// Dynamic provider key inputs for OpenAI-compatible providers
+const providerKeyInputs = reactive<Record<string, string>>({});
+
+// Parsed map of which extra providers have keys configured
+const configuredProvidersMap = computed(() => {
+    if (!config.configuredProviders) return {} as Record<string, boolean>;
+    try { return JSON.parse(config.configuredProviders) as Record<string, boolean>; }
+    catch { return {} as Record<string, boolean>; }
 });
 
 // Default model options derived from enabled models list
@@ -60,18 +124,52 @@ const defaultModelOptions = computed(() => {
     }));
 });
 
-const providersList = [
+// Core providers with dedicated API key fields
+const coreProviders = [
     { key: 'geminiApiKey', hasKey: 'hasGeminiKey', label: 'Google Gemini', id: 'gemini' },
     { key: 'groqApiKey', hasKey: 'hasGroqKey', label: 'Groq', id: 'groq' },
     { key: 'openAiApiKey', hasKey: 'hasOpenAiKey', label: 'OpenAI', id: 'openai' },
+    { key: 'anthropicApiKey', hasKey: 'hasAnthropicKey', label: 'Anthropic Claude', id: 'anthropic' },
     { key: 'firecrawlApiKey', hasKey: 'hasFirecrawlKey', label: 'Firecrawl (Crawling)', id: 'firecrawl' }
 ];
+
+// OpenAI-compatible providers loaded from backend registry
+interface RegistryProvider { id: string; name: string; defaultModel: string; isOpenAiCompatible: boolean; }
+const registryProviders = ref<RegistryProvider[]>([]);
+
+// Filter to only show OpenAI-compatible providers not already in coreProviders
+const extraProviders = computed(() => {
+    const coreIds = new Set(coreProviders.map(p => p.id));
+    return registryProviders.value.filter(p => p.isOpenAiCompatible && !coreIds.has(p.id));
+});
 
 const fetchingModels = ref<string | null>(null);
 const providerModels = reactive<Record<string, any[]>>({});
 const enabledModels = ref<ModelEntry[]>([]);
 const saving = ref(false);
 const saved = ref(false);
+
+// ─── Prompt Versioning ───
+interface HistoryEntry {
+    id: string;
+    systemPrompt: string;
+    defaultModel: string;
+    defaultProvider: string;
+    changeNote: string | null;
+    createdAt: string;
+}
+const historyEntries = ref<HistoryEntry[]>([]);
+const showHistory = ref(false);
+const loadingHistory = ref(false);
+const restoringId = ref<string | null>(null);
+const changeNote = ref('');
+const promptDirty = ref(false);
+const originalPrompt = ref('');
+
+// ─── Template Variables ───
+const templateVars = ref<{ key: string; value: string }[]>([]);
+const builtInVars = ['date', 'time'];
+const suggestedVars = ['company', 'user_name', 'product', 'support_email', 'website'];
 
 // Check if a model from a given provider is currently enabled
 function isModelEnabled(modelId: string, providerId: string): boolean {
@@ -107,11 +205,52 @@ function onDefaultModelChange(modelId: string) {
     }
 }
 
+async function loadProviders() {
+    try {
+        const res = await apiFetch('/api/providers');
+        if (res.ok) registryProviders.value = await res.json();
+    } catch(e) { console.error(e); }
+}
+
 async function load() {
     const res = await apiFetch(`/api/configuration/${configId.value}`);
     if (res.ok) {
         const data = await res.json();
         Object.assign(config, data);
+        // Convert confidence threshold from 0.0-1.0 (API) to 0-100 (UI slider)
+        if (data.handoffConfidenceThreshold != null) {
+            config.handoffConfidenceThreshold = Math.round(data.handoffConfidenceThreshold * 100);
+        }
+        originalPrompt.value = data.systemPrompt || '';
+        promptDirty.value = false;
+
+        // Parse template variables
+        parseTemplateVars(data.promptTemplateVariablesJson);
+        
+        // Parse theme settings
+        if (data.themeSettingsJson) {
+            try {
+                const parsedTheme = JSON.parse(data.themeSettingsJson);
+                Object.assign(theme, parsedTheme);
+            } catch {
+                Object.assign(theme, defaultTheme);
+            }
+        } else {
+            Object.assign(theme, defaultTheme);
+        }
+
+        // Parse channel settings
+        if (data.channelSettingsJson) {
+            try {
+                const parsedChannels = JSON.parse(data.channelSettingsJson);
+                if (parsedChannels.whatsApp) Object.assign(channels.whatsApp, parsedChannels.whatsApp);
+                if (parsedChannels.slack) Object.assign(channels.slack, parsedChannels.slack);
+                if (parsedChannels.telegram) Object.assign(channels.telegram, parsedChannels.telegram);
+                if (parsedChannels.teams) Object.assign(channels.teams, parsedChannels.teams);
+            } catch (e) {
+                console.error('Failed to parse channel settings JSON', e);
+            }
+        }
         
         // Handle enabled models
         if (data.enabledModels) {
@@ -174,13 +313,36 @@ async function save() {
         logRetentionDays: config.logRetentionDays,
         maxLogsPerSession: config.maxLogsPerSession,
         maxSessionsPerProject: config.maxSessionsPerProject,
-        suggestionsJson: JSON.stringify(config.suggestions.filter(s => s.trim() !== ''))
+        suggestionsJson: JSON.stringify(config.suggestions.filter(s => s.trim() !== '')),
+        promptTemplateVariablesJson: serializeTemplateVars(),
+        changeNote: changeNote.value || null,
+        handoffEnabled: config.handoffEnabled,
+        handoffTriggerKeywords: config.handoffTriggerKeywords,
+        handoffEscalationCriteria: config.handoffEscalationCriteria,
+        handoffConfidenceThreshold: config.handoffConfidenceThreshold / 100,
+        handoffQueueMessage: config.handoffQueueMessage,
+        themeSettingsJson: JSON.stringify(theme),
+        channelSettingsJson: JSON.stringify(channels)
     };
 
     if (keyInputs.geminiApiKey) body.geminiApiKey = keyInputs.geminiApiKey;
     if (keyInputs.groqApiKey) body.groqApiKey = keyInputs.groqApiKey;
     if (keyInputs.openAiApiKey) body.openAiApiKey = keyInputs.openAiApiKey;
     if (keyInputs.firecrawlApiKey) body.firecrawlApiKey = keyInputs.firecrawlApiKey;
+    if (keyInputs.anthropicApiKey) body.anthropicApiKey = keyInputs.anthropicApiKey;
+
+    // Collect OpenAI-compatible provider keys
+    const providerKeys: Record<string, string> = {};
+    let hasProviderKeys = false;
+    for (const [pid, val] of Object.entries(providerKeyInputs)) {
+        if (val) { providerKeys[pid] = val; hasProviderKeys = true; }
+    }
+    if (hasProviderKeys) body.providerKeys = JSON.stringify(providerKeys);
+
+    // Custom provider
+    if (config.customProviderName) body.customProviderName = config.customProviderName;
+    if (config.customProviderBaseUrl) body.customProviderBaseUrl = config.customProviderBaseUrl;
+    if (keyInputs.customProviderApiKey) body.customProviderApiKey = keyInputs.customProviderApiKey;
 
     await apiFetch(`/api/configuration/${configId.value}`, {
         method: 'PUT',
@@ -195,17 +357,39 @@ async function save() {
     keyInputs.groqApiKey = '';
     keyInputs.openAiApiKey = '';
     keyInputs.firecrawlApiKey = '';
+    keyInputs.anthropicApiKey = '';
+    keyInputs.customProviderApiKey = '';
+    for (const k of Object.keys(providerKeyInputs)) providerKeyInputs[k] = '';
+    changeNote.value = '';
+    promptDirty.value = false;
+
+    // Refresh history if the panel is open
+    if (showHistory.value) await loadHistory();
 
     setTimeout(() => saved.value = false, 3000);
 }
 
 async function clearKey(providerId: string) {
-    const keyField = providerId === 'gemini' ? 'geminiApiKey' : providerId === 'groq' ? 'groqApiKey' : providerId === 'openai' ? 'openAiApiKey' : 'firecrawlApiKey';
-    await apiFetch(`/api/configuration/${configId.value}`, {
-        method: 'PUT',
-        body: JSON.stringify({ [keyField]: '' })
-    });
+    const coreMap: Record<string, string> = {
+        gemini: 'geminiApiKey', groq: 'groqApiKey', openai: 'openAiApiKey',
+        firecrawl: 'firecrawlApiKey', anthropic: 'anthropicApiKey'
+    };
+    const keyField = coreMap[providerId];
+    if (keyField) {
+        await apiFetch(`/api/configuration/${configId.value}`, {
+            method: 'PUT', body: JSON.stringify({ [keyField]: '' })
+        });
+    } else {
+        // Clear from providerKeysJson
+        await apiFetch(`/api/configuration/${configId.value}`, {
+            method: 'PUT', body: JSON.stringify({ providerKeys: JSON.stringify({ [providerId]: '' }) })
+        });
+    }
     await load();
+}
+
+function isExtraProviderConfigured(pid: string): boolean {
+    return !!configuredProvidersMap.value[pid];
 }
 
 function addSuggestion() {
@@ -218,7 +402,72 @@ function removeSuggestion(index: number) {
     config.suggestions.splice(index, 1);
 }
 
-onMounted(load);
+// ─── Template Variable Helpers ───
+function insertVariable(varName: string) {
+    const placeholder = `{{${varName}}}`;
+    config.systemPrompt += placeholder;
+    promptDirty.value = true;
+}
+
+function addTemplateVar() {
+    templateVars.value.push({ key: '', value: '' });
+}
+
+function removeTemplateVar(index: number) {
+    templateVars.value.splice(index, 1);
+}
+
+function parseTemplateVars(json: string | null) {
+    if (!json) { templateVars.value = []; return; }
+    try {
+        const obj = JSON.parse(json) as Record<string, string>;
+        templateVars.value = Object.entries(obj).map(([key, value]) => ({ key, value }));
+    } catch { templateVars.value = []; }
+}
+
+function serializeTemplateVars(): string {
+    const obj: Record<string, string> = {};
+    for (const v of templateVars.value) {
+        if (v.key.trim()) obj[v.key.trim()] = v.value;
+    }
+    return JSON.stringify(obj);
+}
+
+// ─── Prompt History ───
+async function loadHistory() {
+    loadingHistory.value = true;
+    try {
+        const res = await apiFetch(`/api/configuration/${configId.value}/history`);
+        if (res.ok) historyEntries.value = await res.json();
+    } catch(e) { console.error(e); }
+    loadingHistory.value = false;
+}
+
+async function restoreVersion(historyId: string) {
+    restoringId.value = historyId;
+    try {
+        const res = await apiFetch(`/api/configuration/${configId.value}/history/${historyId}/restore`, { method: 'POST' });
+        if (res.ok) {
+            await load();
+            await loadHistory();
+        }
+    } catch(e) { console.error(e); }
+    restoringId.value = null;
+}
+
+function onPromptInput() {
+    promptDirty.value = config.systemPrompt !== originalPrompt.value;
+}
+
+function truncate(text: string, len: number): string {
+    return text.length > len ? text.substring(0, len) + '...' : text;
+}
+
+function formatDate(iso: string): string {
+    return new Date(iso).toLocaleString();
+}
+
+onMounted(() => { loadProviders(); load(); });
 </script>
 
 <template>
@@ -238,7 +487,35 @@ onMounted(load);
                 <template #content>
                     <div class="form-group">
                         <label>System Prompt</label>
-                        <Textarea v-model="config.systemPrompt" rows="5" fluid />
+                        <Textarea v-model="config.systemPrompt" rows="5" fluid @input="onPromptInput" />
+                        
+                        <!-- Template Variable Chips -->
+                        <div class="variable-chips">
+                            <span class="chips-label">Insert variable:</span>
+                            <button 
+                                v-for="v in suggestedVars" 
+                                :key="v" 
+                                class="var-chip" 
+                                @click="insertVariable(v)"
+                                type="button"
+                                v-text="'{{' + v + '}}'"
+                            ></button>
+                            <button 
+                                v-for="v in builtInVars" 
+                                :key="v" 
+                                class="var-chip var-chip-builtin" 
+                                @click="insertVariable(v)"
+                                type="button"
+                            >
+                                <span v-text="'{{' + v + '}}'"></span>
+                                <span class="var-chip-auto">auto</span>
+                            </button>
+                        </div>
+
+                        <!-- Change Note (shown when prompt is dirty) -->
+                        <div v-if="promptDirty" class="change-note-row">
+                            <InputText v-model="changeNote" placeholder="Optional: describe this change..." fluid />
+                        </div>
                     </div>
                     
                     <div class="form-group">
@@ -326,7 +603,7 @@ onMounted(load);
                             />
                         </div>
                         <div class="suggestions-list">
-                            <div v-for="(suggestion, index) in config.suggestions" :key="index" class="suggestion-item">
+                            <div v-for="(_, index) in config.suggestions" :key="index" class="suggestion-item">
                                 <InputText v-model="config.suggestions[index]" placeholder="Enter a suggested prompt..." fluid />
                                 <Button icon="pi pi-times" severity="danger" text rounded @click="removeSuggestion(index)" />
                             </div>
@@ -341,7 +618,7 @@ onMounted(load);
 
             <h2 class="section-title">Provider API Keys</h2>
             
-            <Card v-for="provider in providersList" :key="provider.key" class="provider-card">
+            <Card v-for="provider in coreProviders" :key="provider.key" class="provider-card">
                 <template #title>
                     <div class="provider-header">
                         <h3>{{ provider.label }}</h3>
@@ -359,7 +636,7 @@ onMounted(load);
                             class="flex-1" 
                         />
                         <Button 
-                            v-if="provider.id !== 'firecrawl'"
+                            v-if="provider.id !== 'firecrawl' && provider.id !== 'anthropic'"
                             :label="fetchingModels === provider.id ? 'Loading...' : 'Fetch Models'" 
                             severity="secondary" 
                             outlined 
@@ -388,6 +665,375 @@ onMounted(load);
                             />
                             <label :for="provider.id + '-' + m.id" class="model-name">{{ m.name }}</label>
                             <span class="model-desc">{{ m.description }}</span>
+                        </div>
+                    </div>
+                </template>
+            </Card>
+
+            <!-- OpenAI-Compatible Providers (Together, Fireworks, Mistral, etc.) -->
+            <h2 v-if="extraProviders.length" class="section-title mt-4">Additional Providers</h2>
+            <p v-if="extraProviders.length" class="section-subtitle">OpenAI-compatible providers — many offer free tiers. Add an API key to get started.</p>
+
+            <Card v-for="ep in extraProviders" :key="ep.id" class="provider-card">
+                <template #title>
+                    <div class="provider-header">
+                        <h3>{{ ep.name }}</h3>
+                        <span v-if="isExtraProviderConfigured(ep.id)" class="badge badge-success">Configured</span>
+                    </div>
+                </template>
+                <template #content>
+                    <div class="api-key-input">
+                        <Password 
+                            v-model="providerKeyInputs[ep.id]" 
+                            :feedback="false" 
+                            toggleMask 
+                            :placeholder="isExtraProviderConfigured(ep.id) ? '••••••••••••••••••••' : ep.name + ' API key'" 
+                            fluid 
+                            class="flex-1" 
+                        />
+                        <Button 
+                            :label="fetchingModels === ep.id ? 'Loading...' : 'Fetch Models'" 
+                            severity="secondary" 
+                            outlined 
+                            :disabled="!isExtraProviderConfigured(ep.id) || fetchingModels === ep.id" 
+                            @click="fetchModels(ep.id)" 
+                        />
+                        <Button 
+                            v-if="isExtraProviderConfigured(ep.id)"
+                            icon="pi pi-trash" 
+                            severity="danger" 
+                            text 
+                            rounded 
+                            @click="clearKey(ep.id)" 
+                            v-tooltip="'Remove key'"
+                        />
+                    </div>
+                    <small class="info-text">Default model: {{ ep.defaultModel }}</small>
+
+                    <div v-if="providerModels[ep.id] && providerModels[ep.id].length" class="models-list">
+                        <p class="models-title">Available models (check to enable):</p>
+                        <div v-for="m in providerModels[ep.id]" :key="ep.id + '-' + m.id" class="model-item">
+                            <Checkbox 
+                                :modelValue="isModelEnabled(m.id, ep.id)" 
+                                @update:modelValue="toggleModel(m.id, ep.id)" 
+                                :binary="true"
+                                :inputId="ep.id + '-' + m.id" 
+                            />
+                            <label :for="ep.id + '-' + m.id" class="model-name">{{ m.name }}</label>
+                            <span class="model-desc">{{ m.description }}</span>
+                        </div>
+                    </div>
+                </template>
+            </Card>
+
+            <!-- Custom Provider -->
+            <h2 class="section-title mt-4">Custom Provider</h2>
+            <p class="section-subtitle">Connect any OpenAI-compatible API endpoint.</p>
+            <Card class="provider-card">
+                <template #title>
+                    <div class="provider-header">
+                        <h3>Custom OpenAI-Compatible</h3>
+                        <span v-if="config.hasCustomProviderKey" class="badge badge-success">Configured</span>
+                    </div>
+                </template>
+                <template #content>
+                    <div class="grid-2 mt-2">
+                        <div class="form-group">
+                            <label>Provider Name</label>
+                            <InputText v-model="config.customProviderName" placeholder="e.g. my-local-llm" fluid />
+                        </div>
+                        <div class="form-group">
+                            <label>Base URL</label>
+                            <InputText v-model="config.customProviderBaseUrl" placeholder="https://my-api.com/v1" fluid />
+                        </div>
+                    </div>
+                    <div class="api-key-input">
+                        <Password 
+                            v-model="keyInputs.customProviderApiKey" 
+                            :feedback="false" 
+                            toggleMask 
+                            :placeholder="config.hasCustomProviderKey ? '••••••••••••••••••••' : 'API key for custom provider'" 
+                            fluid 
+                            class="flex-1" 
+                        />
+                    </div>
+                    <small class="info-text">Must support the OpenAI chat completions API format (POST /chat/completions).</small>
+                </template>
+            </Card>
+
+            <!-- Multi-Channel Integrations -->
+            <h2 class="section-title mt-4">Multi-Channel Integrations</h2>
+            <p class="section-subtitle">Expose your AI assistant and Human agents directly inside messaging applications.</p>
+            <Card class="provider-card">
+                <template #title>
+                    <div class="provider-header flex items-center gap-2">
+                        <i class="pi pi-share-alt text-primary"></i>
+                        <h3>WhatsApp, Slack & Telegram Settings</h3>
+                    </div>
+                </template>
+                <template #content>
+                    <div class="flex flex-col gap-6 mt-2">
+                        
+                        <!-- WhatsApp Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-whatsapp text-emerald-500"></i>
+                                <span>WhatsApp (Meta Graph API)</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Phone Number ID</label>
+                                    <InputText v-model="channels.whatsApp.phoneNumberId" placeholder="e.g. 1092837498172" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Verify Token</label>
+                                    <InputText v-model="channels.whatsApp.verifyToken" placeholder="e.g. my_secure_verification_token" fluid />
+                                </div>
+                            </div>
+                            <div class="form-group flex flex-col gap-1">
+                                <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Access Token</label>
+                                <Password v-model="channels.whatsApp.accessToken" :feedback="false" toggleMask placeholder="Meta Graph API Access Token" fluid />
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/whatsapp/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Slack Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-slack text-purple-500"></i>
+                                <span>Slack App Integration</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Bot User OAuth Token</label>
+                                    <Password v-model="channels.slack.botToken" :feedback="false" toggleMask placeholder="xoxb-your-bot-token" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Signing Secret</label>
+                                    <Password v-model="channels.slack.signingSecret" :feedback="false" toggleMask placeholder="Slack Signing Secret" fluid />
+                                </div>
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Request URL (Event Subscriptions):</strong> <code>/api/channel/slack/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Telegram Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-telegram text-sky-500"></i>
+                                <span>Telegram Bot</span>
+                            </h4>
+                            <div class="form-group flex flex-col gap-1">
+                                <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Bot Token API</label>
+                                <Password v-model="channels.telegram.botToken" :feedback="false" toggleMask placeholder="e.g. 123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" fluid />
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/telegram/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                        <!-- Microsoft Teams Integration -->
+                        <div class="p-4 border rounded-lg bg-surface-50 flex flex-col gap-3">
+                            <h4 class="font-semibold text-sm text-surface-700 flex items-center gap-2">
+                                <i class="pi pi-microsoft text-blue-500"></i>
+                                <span>Microsoft Teams Bot</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Microsoft App ID</label>
+                                    <InputText v-model="channels.teams.appId" placeholder="e.g. aaaa-bbbb-cccc-dddd" fluid />
+                                </div>
+                                <div class="form-group flex flex-col gap-1">
+                                    <label class="text-xs font-semibold text-surface-500 uppercase tracking-wider">Microsoft App Password</label>
+                                    <Password v-model="channels.teams.appPassword" :feedback="false" toggleMask placeholder="App Password / Client Secret" fluid />
+                                </div>
+                            </div>
+                            <div class="text-xs text-surface-500">
+                                <strong>Webhook URL:</strong> <code>/api/channel/teams/{{projectId}}</code>
+                            </div>
+                        </div>
+
+                    </div>
+                </template>
+            </Card>
+
+            <!-- Human Handoff -->
+            <h2 class="section-title mt-4">Human Handoff (Live Chat)</h2>
+            <p class="section-subtitle">Allow agents to take over conversations when the AI cannot resolve the issue.</p>
+            <Card class="provider-card">
+                <template #content>
+                    <div class="grid-2 mt-2">
+                        <div class="form-group flex items-center gap-3">
+                            <Checkbox v-model="config.handoffEnabled" :binary="true" inputId="handoffEnabled" />
+                            <label for="handoffEnabled" class="font-medium">Enable Human Handoff</label>
+                        </div>
+                    </div>
+                    <div v-if="config.handoffEnabled" class="mt-4">
+                        <!-- AI-Powered Escalation Criteria -->
+                        <div class="form-group">
+                            <label>🧠 Escalation Criteria (AI-Powered)</label>
+                            <Textarea v-model="config.handoffEscalationCriteria" rows="3" placeholder="e.g. User is frustrated, requests human help, has a billing dispute, or the AI has failed to answer their question after 2 attempts" fluid />
+                            <small class="info-text">Describe in plain English when a conversation should be escalated. The AI will detect these situations semantically — no keyword guessing needed.</small>
+                        </div>
+
+                        <div class="form-group mt-4">
+                            <label>Escalation Confidence: {{ config.handoffConfidenceThreshold }}%</label>
+                            <Slider v-model="config.handoffConfidenceThreshold" :min="30" :max="100" :step="5" />
+                            <small class="info-text">Lower = more sensitive (may escalate too often). Higher = more precise (may miss some cases).</small>
+                        </div>
+
+                        <div class="grid-2 mt-4">
+                            <div class="form-group">
+                                <label>Fallback Keywords <small class="info-text">(optional, comma-separated)</small></label>
+                                <InputText v-model="config.handoffTriggerKeywords" placeholder="e.g. human, agent, support, escalate" fluid />
+                                <small class="info-text">Instant-match keywords for explicit escalation requests. These run before AI classification at zero cost.</small>
+                            </div>
+                            <div class="form-group">
+                                <label>Queue Message</label>
+                                <InputText v-model="config.handoffQueueMessage" placeholder="I'm connecting you with a live agent. Please hold on." fluid />
+                                <small class="info-text">The message shown to the user while they wait for an agent.</small>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </Card>
+
+            <!-- Template Variables Key-Value Editor -->
+            <h2 class="section-title mt-4">Template Variables</h2>
+            <p class="section-subtitle">Define values for <code v-pre>{{variable}}</code> placeholders in your system prompt. <code v-pre>{{date}}</code> and <code v-pre>{{time}}</code> are auto-filled at runtime.</p>
+            <Card class="provider-card">
+                <template #content>
+                    <div class="template-vars-list">
+                        <div v-for="(v, index) in templateVars" :key="index" class="template-var-row">
+                            <InputText v-model="v.key" placeholder="Variable name (e.g. company)" fluid />
+                            <span class="var-equals">=</span>
+                            <InputText v-model="v.value" placeholder="Value (e.g. Acme Inc)" fluid />
+                            <Button icon="pi pi-times" severity="danger" text rounded @click="removeTemplateVar(index)" />
+                        </div>
+                        <div v-if="templateVars.length === 0" class="empty-suggestions">
+                            No template variables defined. Add variables to personalize your system prompt.
+                        </div>
+                    </div>
+                    <Button 
+                        icon="pi pi-plus" 
+                        label="Add Variable" 
+                        severity="secondary" 
+                        text 
+                        size="small" 
+                        class="mt-2" 
+                        @click="addTemplateVar" 
+                    />
+                </template>
+            </Card>
+
+            <!-- Widget Appearance -->
+            <h2 class="section-title mt-4">Widget Appearance</h2>
+            <p class="section-subtitle">Customize how the chat widget looks on your website.</p>
+            <Card class="provider-card">
+                <template #content>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Primary Color</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" v-model="theme.primaryColor" class="color-input" />
+                                <InputText v-model="theme.primaryColor" class="color-text" fluid />
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>Background Color</label>
+                            <div class="color-picker-wrapper">
+                                <input type="color" v-model="theme.bgColor" class="color-input" />
+                                <InputText v-model="theme.bgColor" class="color-text" fluid />
+                            </div>
+                        </div>
+                    </div>
+                    <div class="grid-2 mt-4">
+                        <div class="form-group">
+                            <label>Font Family</label>
+                            <Select 
+                                v-model="theme.fontFamily" 
+                                :options="fontOptions" 
+                                optionLabel="label" 
+                                optionValue="value" 
+                                fluid 
+                            />
+                        </div>
+                        <div class="form-group">
+                            <label>Widget Position</label>
+                            <Select 
+                                v-model="theme.position" 
+                                :options="positionOptions" 
+                                optionLabel="label" 
+                                optionValue="value" 
+                                fluid 
+                            />
+                        </div>
+                    </div>
+                    
+                    <div class="theme-preview mt-4" :style="{ '--preview-primary': theme.primaryColor, '--preview-bg': theme.bgColor, '--preview-font': theme.fontFamily === 'system-ui' ? 'system-ui, sans-serif' : theme.fontFamily + ', sans-serif', 'justify-content': theme.position === 'bottom-left' ? 'flex-start' : 'flex-end' }">
+                        <div class="preview-widget">
+                            <div class="preview-header">
+                                <div class="preview-title">Chat with us</div>
+                            </div>
+                            <div class="preview-body">
+                                <div class="preview-msg bot">Hi! How can I help you today?</div>
+                                <div class="preview-msg user">I have a question about pricing.</div>
+                            </div>
+                            <div class="preview-input">
+                                <span>Type your message...</span>
+                                <div class="preview-send"><i class="pi pi-send"></i></div>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </Card>
+
+            <!-- Prompt History -->
+            <h2 class="section-title mt-4">
+                <span>Prompt History</span>
+                <Button 
+                    :label="showHistory ? 'Hide' : 'View History'" 
+                    :icon="showHistory ? 'pi pi-chevron-up' : 'pi pi-history'" 
+                    severity="secondary" 
+                    text 
+                    size="small" 
+                    @click="showHistory = !showHistory; if(showHistory && historyEntries.length === 0) loadHistory()" 
+                />
+            </h2>
+
+            <Card v-if="showHistory" class="provider-card history-card">
+                <template #content>
+                    <div v-if="loadingHistory" class="history-loading">
+                        <i class="pi pi-spin pi-spinner"></i> Loading history...
+                    </div>
+                    <div v-else-if="historyEntries.length === 0" class="empty-suggestions">
+                        No prompt history yet. History is created automatically when you change the system prompt or model.
+                    </div>
+                    <div v-else class="history-timeline">
+                        <div v-for="entry in historyEntries" :key="entry.id" class="history-entry">
+                            <div class="history-dot"></div>
+                            <div class="history-content">
+                                <div class="history-header">
+                                    <span class="history-date">{{ formatDate(entry.createdAt) }}</span>
+                                    <span class="history-model">{{ entry.defaultProvider }} / {{ entry.defaultModel }}</span>
+                                </div>
+                                <p class="history-prompt">{{ truncate(entry.systemPrompt, 200) }}</p>
+                                <div v-if="entry.changeNote" class="history-note">
+                                    <i class="pi pi-comment"></i> {{ entry.changeNote }}
+                                </div>
+                                <Button 
+                                    :label="restoringId === entry.id ? 'Restoring...' : 'Restore This Version'" 
+                                    icon="pi pi-replay" 
+                                    severity="secondary" 
+                                    outlined 
+                                    size="small" 
+                                    :disabled="restoringId !== null" 
+                                    @click="restoreVersion(entry.id)" 
+                                />
+                            </div>
                         </div>
                     </div>
                 </template>
@@ -456,6 +1102,12 @@ onMounted(load);
 .section-title {
     margin-bottom: 16px;
 }
+.section-subtitle {
+    color: var(--p-surface-500);
+    font-size: 0.85rem;
+    margin: -8px 0 16px 0;
+}
+.mt-2 { margin-top: 0.75rem; }
 .provider-header {
     display: flex;
     justify-content: space-between;
@@ -620,5 +1272,288 @@ onMounted(load);
     color: var(--p-surface-500);
     font-size: 0.85rem;
     text-align: center;
+}
+
+/* ── Template Variable Chips ── */
+.variable-chips {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+    margin-top: 4px;
+}
+.chips-label {
+    font-size: 0.78rem;
+    color: var(--p-surface-500);
+    margin-right: 4px;
+}
+.var-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 2px;
+    padding: 3px 10px;
+    border-radius: 14px;
+    border: 1px solid var(--p-surface-200);
+    background: var(--p-surface-50);
+    color: var(--p-surface-700);
+    font-family: monospace;
+    font-size: 0.78rem;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+.var-chip:hover {
+    background: var(--p-primary-50);
+    border-color: var(--p-primary-300);
+    color: var(--p-primary-700);
+}
+.var-chip-braces {
+    color: var(--p-primary-400);
+    font-weight: 700;
+}
+.var-chip-builtin {
+    border-style: dashed;
+}
+.var-chip-auto {
+    font-size: 0.65rem;
+    text-transform: uppercase;
+    color: var(--p-primary-400);
+    margin-left: 4px;
+    font-weight: 600;
+    font-family: system-ui;
+}
+.change-note-row {
+    margin-top: 8px;
+}
+
+/* ── Template Variables Editor ── */
+.template-vars-list {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.template-var-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.var-equals {
+    font-weight: bold;
+    color: var(--p-text-color-secondary);
+}
+
+.color-picker-wrapper {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+.color-input {
+    appearance: none;
+    -webkit-appearance: none;
+    border: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    cursor: pointer;
+    padding: 0;
+    overflow: hidden;
+}
+.color-input::-webkit-color-swatch-wrapper {
+    padding: 0;
+}
+.color-input::-webkit-color-swatch {
+    border: none;
+    border-radius: 8px;
+}
+.color-text {
+    font-family: monospace;
+    flex: 1;
+}
+
+.theme-preview {
+    background: url('data:image/svg+xml;utf8,<svg width="20" height="20" xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10" fill="%23f1f5f9"/><rect x="10" y="10" width="10" height="10" fill="%23f1f5f9"/></svg>') repeat;
+    border: 1px solid var(--p-surface-200);
+    border-radius: 12px;
+    padding: 24px;
+    display: flex;
+    height: 350px;
+    align-items: flex-end;
+}
+
+.preview-widget {
+    width: 280px;
+    background: var(--preview-bg);
+    border-radius: 16px;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.1);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    font-family: var(--preview-font);
+    border: 1px solid var(--p-surface-200);
+}
+
+.preview-header {
+    background: var(--preview-primary);
+    color: white;
+    padding: 16px;
+    font-weight: 600;
+}
+
+.preview-body {
+    padding: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: #f8fafc;
+}
+
+.preview-msg {
+    padding: 10px 14px;
+    border-radius: 12px;
+    font-size: 0.85rem;
+    max-width: 85%;
+}
+
+.preview-msg.bot {
+    background: var(--preview-bg);
+    border: 1px solid var(--p-surface-200);
+    color: var(--p-text-color);
+    align-self: flex-start;
+    border-bottom-left-radius: 4px;
+}
+
+.preview-msg.user {
+    background: var(--preview-primary);
+    color: white;
+    align-self: flex-end;
+    border-bottom-right-radius: 4px;
+}
+
+.preview-input {
+    background: var(--preview-bg);
+    padding: 12px 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-top: 1px solid var(--p-surface-200);
+    color: var(--p-text-color-secondary);
+    font-size: 0.85rem;
+}
+
+.preview-send {
+    background: var(--preview-primary);
+    color: white;
+    width: 28px;
+    height: 28px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.preview-send i {
+    font-size: 0.75rem;
+}
+
+/* ── Prompt History Timeline ── */
+.section-title {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+}
+.history-card {
+    max-height: 600px;
+    overflow-y: auto;
+}
+.history-loading {
+    text-align: center;
+    padding: 24px;
+    color: var(--p-surface-500);
+}
+.history-timeline {
+    position: relative;
+    padding-left: 24px;
+}
+.history-timeline::before {
+    content: '';
+    position: absolute;
+    left: 7px;
+    top: 8px;
+    bottom: 8px;
+    width: 2px;
+    background: var(--p-surface-200);
+}
+.history-entry {
+    position: relative;
+    padding: 12px 0;
+    border-bottom: 1px solid var(--p-surface-100);
+}
+.history-entry:last-child {
+    border-bottom: none;
+}
+.history-dot {
+    position: absolute;
+    left: -20px;
+    top: 18px;
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--p-primary-400);
+    border: 2px solid var(--p-surface-0);
+    box-shadow: 0 0 0 2px var(--p-surface-200);
+}
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 6px;
+}
+.history-date {
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--p-surface-700);
+}
+.history-model {
+    font-size: 0.75rem;
+    color: var(--p-surface-400);
+    font-family: monospace;
+    background: var(--p-surface-50);
+    padding: 2px 8px;
+    border-radius: 10px;
+}
+.history-prompt {
+    font-size: 0.82rem;
+    color: var(--p-surface-600);
+    line-height: 1.5;
+    margin: 0 0 8px 0;
+    white-space: pre-wrap;
+    word-break: break-word;
+}
+.history-note {
+    font-size: 0.78rem;
+    color: var(--p-primary-500);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    font-style: italic;
+}
+
+@media (max-width: 768px) {
+    .template-var-row {
+        flex-direction: column;
+        align-items: stretch;
+    }
+    .var-equals {
+        display: none;
+    }
+    .variable-chips {
+        gap: 4px;
+    }
+    .history-header {
+        flex-direction: column;
+        align-items: flex-start;
+        gap: 4px;
+    }
 }
 </style>

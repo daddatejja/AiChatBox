@@ -83,10 +83,13 @@ function closeMobileMenu() {
 
 .main-content {
     flex: 1;
-    padding: 32px 40px;
     background-color: var(--p-surface-0);
     overflow-y: auto;
     box-sizing: border-box;
+}
+
+.main-content:not(:has(.flow-builder-root)){
+    padding: 32px 40px;
 }
 
 /* Mobile backdrop overlay */
