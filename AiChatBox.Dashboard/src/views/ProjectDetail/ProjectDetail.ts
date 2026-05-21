@@ -58,8 +58,8 @@ export function useProjectDetail() {
     const dbTypes = [
         { label: 'PostgreSQL', value: 0 },
         { label: 'MySQL', value: 1 },
-        { label: 'SQL Server', value: 2 },
-        { label: 'SQLite', value: 3 }
+        { label: 'SQLite', value: 2 },
+        { label: 'SQL Server', value: 3 }
     ];
 
     const detectingSchema = ref(false);
