@@ -146,11 +146,45 @@ namespace AiChatBox.Api.Services
             return (null, null, null);
         }
 
+        public async Task<string> GenerateMasterKeyAsync(Guid partnerAccountId)
+        {
+            var rawKey = GenerateSecureMasterKey();
+            var keyHash = HashKey(rawKey);
+
+            var partner = await _db.PartnerAccounts.FindAsync(partnerAccountId);
+            if (partner == null) throw new ArgumentException("Partner account not found");
+
+            partner.MasterKeyHash = keyHash;
+            partner.MasterKeyActive = true;
+            await _db.SaveChangesAsync();
+
+            return rawKey;
+        }
+
+        public async Task<PartnerAccount?> ValidateMasterKeyAsync(string rawKey)
+        {
+            var keyHash = HashKey(rawKey);
+            return await _db.PartnerAccounts
+                .Include(pa => pa.Owner)
+                .FirstOrDefaultAsync(pa => pa.MasterKeyHash == keyHash && pa.MasterKeyActive);
+        }
+
         private string GenerateSecureKey()
         {
             var buffer = new byte[32];
             RandomNumberGenerator.Fill(buffer);
             return "acb_" + Convert.ToBase64String(buffer)
+                .Replace("+", "")
+                .Replace("/", "")
+                .Replace("=", "")
+                .Substring(0, 32);
+        }
+
+        private string GenerateSecureMasterKey()
+        {
+            var buffer = new byte[32];
+            RandomNumberGenerator.Fill(buffer);
+            return "acbm_" + Convert.ToBase64String(buffer)
                 .Replace("+", "")
                 .Replace("/", "")
                 .Replace("=", "")

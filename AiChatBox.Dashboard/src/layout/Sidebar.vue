@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRoute } from 'vue-router';
 import { useApi } from '../composables/useApi';
+import { useAuth } from '../composables/useAuth';
 
 defineProps<{
     collapsed: boolean;
@@ -12,8 +13,9 @@ const emit = defineEmits<{
 
 const route = useRoute();
 const { apiFetch, API_BASE } = useApi();
+const { isAdmin, isPartner } = useAuth();
 
-const navItems = [
+const coreNavItems = [
     {
         id: 'projects',
         label: 'Projects',
@@ -53,7 +55,49 @@ const navItems = [
     }
 ];
 
-function isActive(item: typeof navItems[0]): boolean {
+const devNavItems = [
+    {
+        id: 'dev-dashboard',
+        label: 'Developer Hub',
+        icon: 'pi-code',
+        to: '/developer'
+    },
+    {
+        id: 'dev-tenants',
+        label: 'Tenants',
+        icon: 'pi-users',
+        to: '/developer/tenants'
+    },
+    {
+        id: 'dev-settings',
+        label: 'Partner Settings',
+        icon: 'pi-cog',
+        to: '/developer/settings'
+    }
+];
+
+const adminNavItems = [
+    {
+        id: 'admin-dashboard',
+        label: 'Admin Panel',
+        icon: 'pi-shield',
+        to: '/admin'
+    },
+    {
+        id: 'admin-partners',
+        label: 'Partners',
+        icon: 'pi-building',
+        to: '/admin/partners'
+    },
+    {
+        id: 'admin-users',
+        label: 'Users',
+        icon: 'pi-id-card',
+        to: '/admin/users'
+    }
+];
+
+function isActive(item: any): boolean {
     if (item.exact) {
         return route.path === item.to;
     }
@@ -104,7 +148,7 @@ const externalItems = [
         <!-- Navigation -->
         <nav class="nav-section">
             <ul class="nav-menu">
-                <li v-for="item in navItems" :key="item.id" class="nav-item">
+                <li v-for="item in coreNavItems" :key="item.id" class="nav-item">
                     <router-link
                         :to="item.to"
                         :class="['nav-link', { active: isActive(item) }]"
@@ -119,23 +163,67 @@ const externalItems = [
                 </li>
             </ul>
 
-            <div class="nav-divider" v-if="externalItems.length > 0"></div>
-            
-            <ul class="nav-menu">
-                <li v-for="item in externalItems" :key="item.id" class="nav-item">
-                    <a
-                        href="#"
-                        :class="['nav-link']"
-                        :title="collapsed ? item.label : undefined"
-                        @click.prevent="handleNavigate(item)"
-                    >
-                        <i :class="['pi', item.icon, 'nav-icon']"></i>
-                        <Transition name="label-fade">
-                            <span v-if="!collapsed" class="nav-label">{{ item.label }} <i class="pi pi-external-link ml-1" style="font-size: 0.75rem"></i></span>
-                        </Transition>
-                    </a>
-                </li>
-            </ul>
+            <!-- Developer section -->
+            <template v-if="isPartner() || isAdmin()">
+                <div class="nav-section-title" v-if="!collapsed">Developer Hub</div>
+                <div class="nav-divider" v-else></div>
+                <ul class="nav-menu">
+                    <li v-for="item in devNavItems" :key="item.id" class="nav-item">
+                        <router-link
+                            :to="item.to"
+                            :class="['nav-link', { active: isActive(item) }]"
+                            :title="collapsed ? item.label : undefined"
+                            @click="handleNavigate"
+                        >
+                            <i :class="['pi', item.icon, 'nav-icon']"></i>
+                            <Transition name="label-fade">
+                                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+                            </Transition>
+                        </router-link>
+                    </li>
+                </ul>
+            </template>
+
+            <!-- Admin section -->
+            <template v-if="isAdmin()">
+                <div class="nav-section-title" v-if="!collapsed">Administration</div>
+                <div class="nav-divider" v-else></div>
+                <ul class="nav-menu">
+                    <li v-for="item in adminNavItems" :key="item.id" class="nav-item">
+                        <router-link
+                            :to="item.to"
+                            :class="['nav-link', { active: isActive(item) }]"
+                            :title="collapsed ? item.label : undefined"
+                            @click="handleNavigate"
+                        >
+                            <i :class="['pi', item.icon, 'nav-icon']"></i>
+                            <Transition name="label-fade">
+                                <span v-if="!collapsed" class="nav-label">{{ item.label }}</span>
+                            </Transition>
+                        </router-link>
+                    </li>
+                </ul>
+            </template>
+
+            <!-- Jobs section (Admin only) -->
+            <template v-if="isAdmin()">
+                <div class="nav-divider"></div>
+                <ul class="nav-menu">
+                    <li v-for="item in externalItems" :key="item.id" class="nav-item">
+                        <a
+                            href="#"
+                            :class="['nav-link']"
+                            :title="collapsed ? item.label : undefined"
+                            @click.prevent="handleNavigate(item)"
+                        >
+                            <i :class="['pi', item.icon, 'nav-icon']"></i>
+                            <Transition name="label-fade">
+                                <span v-if="!collapsed" class="nav-label">{{ item.label }} <i class="pi pi-external-link ml-1" style="font-size: 0.75rem"></i></span>
+                            </Transition>
+                        </a>
+                    </li>
+                </ul>
+            </template>
         </nav>
 
         <!-- Bottom section -->
@@ -218,6 +306,9 @@ const externalItems = [
 /* Navigation */
 .nav-section {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
 }
 
 .nav-menu {
@@ -265,6 +356,17 @@ const externalItems = [
     height: 1px;
     background-color: var(--p-surface-200);
     margin: 12px 0;
+    flex-shrink: 0;
+}
+
+.nav-section-title {
+    font-size: 0.7rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--p-surface-400);
+    margin: 16px 12px 6px 12px;
+    font-weight: 700;
+    flex-shrink: 0;
 }
 
 .ml-1 {

@@ -28,6 +28,7 @@ namespace AiChatBox.Api.Data
         public DbSet<FlowNode> FlowNodes { get; set; }
         public DbSet<FlowEdge> FlowEdges { get; set; }
         public DbSet<FlowExecutionLog> FlowExecutionLogs { get; set; }
+        public DbSet<PartnerAccount> PartnerAccounts { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -155,6 +156,25 @@ namespace AiChatBox.Api.Data
             modelBuilder.Entity<DocumentChunk>()
                 .Property(c => c.Embedding)
                 .HasColumnType("vector(3072)");
+
+            // B2B Multi-tenancy relationships
+            modelBuilder.Entity<PartnerAccount>()
+                .HasOne(pa => pa.Owner)
+                .WithOne()
+                .HasForeignKey<PartnerAccount>(pa => pa.OwnerId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<ApplicationUser>()
+                .HasOne(u => u.PartnerAccount)
+                .WithOne(pa => pa.Owner)
+                .HasForeignKey<ApplicationUser>(u => u.PartnerAccountId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            modelBuilder.Entity<Project>()
+                .HasOne(p => p.PartnerAccount)
+                .WithMany(pa => pa.TenantProjects)
+                .HasForeignKey(p => p.PartnerAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

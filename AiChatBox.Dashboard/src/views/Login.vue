@@ -1,25 +1,73 @@
 <script setup lang="ts">
-import { onMounted } from 'vue';
+import { ref, onMounted } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { useApi } from '../composables/useApi';
 import Button from 'primevue/button';
+import InputText from 'primevue/inputtext';
+import Password from 'primevue/password';
+import Message from 'primevue/message';
 
 const router = useRouter();
 const route = useRoute();
-const { API_BASE } = useApi();
+const { API_BASE, apiFetch } = useApi();
 
-onMounted(() => {
+const email = ref('');
+const password = ref('');
+const error = ref('');
+const loading = ref(false);
+
+onMounted(async () => {
     // Check if we just returned from an OAuth callback
     const token = route.query.token as string;
     if (token) {
         localStorage.setItem('acb_token', token);
-        // OAuth login doesn't currently return username in query, default to User
-        localStorage.setItem('acb_username', 'User'); 
-        
-        // Remove token from URL and redirect
+        try {
+            const res = await apiFetch('/api/auth/me');
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem('acb_user', JSON.stringify({
+                    username: data.username,
+                    email: data.email,
+                    role: data.role,
+                    partnerAccountId: data.partnerAccountId
+                }));
+                localStorage.setItem('acb_username', data.username);
+            }
+        } catch (err) {
+            console.error('Failed to retrieve user profile after OAuth login', err);
+        }
         router.replace('/');
     }
 });
+
+const handleLogin = async () => {
+    error.value = '';
+    loading.value = true;
+    try {
+        const res = await apiFetch('/api/auth/login', {
+            method: 'POST',
+            body: JSON.stringify({ email: email.value, password: password.value })
+        });
+        if (res.ok) {
+            const data = await res.json();
+            localStorage.setItem('acb_token', data.token);
+            localStorage.setItem('acb_user', JSON.stringify({
+                username: data.username,
+                email: data.email,
+                role: data.role,
+                partnerAccountId: data.partnerAccountId
+            }));
+            localStorage.setItem('acb_username', data.username);
+            router.push('/');
+        } else {
+            error.value = 'Invalid email or password';
+        }
+    } catch (err) {
+        error.value = 'An error occurred. Please try again.';
+    } finally {
+        loading.value = false;
+    }
+};
 
 const oauthLogin = (provider: string) => {
     window.location.href = `${API_BASE}/api/auth/external-login/${provider}`;
@@ -32,6 +80,27 @@ const oauthLogin = (provider: string) => {
             <div class="logo">
                 <div class="logo-icon"></div>
                 <h2>AiChatBox</h2>
+            </div>
+            <p class="subtitle">Sign in to your account</p>
+
+            <form @submit.prevent="handleLogin" class="login-form">
+                <Message v-if="error" severity="error" variant="simple" class="mb-4">{{ error }}</Message>
+                
+                <div class="form-group">
+                    <label for="email">Email</label>
+                    <InputText id="email" v-model="email" type="email" placeholder="name@example.com" required fluid />
+                </div>
+
+                <div class="form-group">
+                    <label for="password">Password</label>
+                    <Password id="password" v-model="password" :feedback="false" toggleMask placeholder="Enter password" required fluid />
+                </div>
+
+                <Button type="submit" label="Sign In" class="submit-btn" :loading="loading" fluid />
+            </form>
+
+            <div class="divider">
+                <span>or</span>
             </div>
 
             <div class="oauth-buttons">

@@ -1,5 +1,7 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import AppLayout from '../layout/AppLayout.vue'
+import { useApi } from '../composables/useApi'
+
 
 const router = createRouter({
   history: createWebHistory(),
@@ -9,6 +11,12 @@ const router = createRouter({
       name: 'login',
       component: () => import('../views/Login.vue'),
       meta: { requiresAuth: false }
+    },
+    {
+      path: '/embed/:projectId',
+      name: 'embedded-view',
+      component: () => import('../views/EmbeddedView.vue'),
+      meta: { requiresAuth: true }
     },
     {
       path: '/',
@@ -50,7 +58,6 @@ const router = createRouter({
           name: 'flow-builder',
           component: () => import('../views/FlowBuilder/FlowBuilder.vue')
         },
-
         {
           path: 'analytics',
           name: 'analytics',
@@ -75,20 +82,99 @@ const router = createRouter({
           path: 'live-chat',
           name: 'live-chat',
           component: () => import('../views/LiveChat.vue')
+        },
+        // ─── Admin Routes ───
+        {
+          path: 'admin',
+          name: 'admin-dashboard',
+          component: () => import('../views/admin/AdminDashboard.vue'),
+          meta: { requiredRole: 'SystemAdmin' }
+        },
+        {
+          path: 'admin/partners',
+          name: 'admin-partners',
+          component: () => import('../views/admin/AdminPartners.vue'),
+          meta: { requiredRole: 'SystemAdmin' }
+        },
+        {
+          path: 'admin/users',
+          name: 'admin-users',
+          component: () => import('../views/admin/AdminUsers.vue'),
+          meta: { requiredRole: 'SystemAdmin' }
+        },
+        // ─── Developer/Partner Routes ───
+        {
+          path: 'developer',
+          name: 'dev-dashboard',
+          component: () => import('../views/developer/DevDashboard.vue'),
+          meta: { requiredRole: 'PartnerDeveloper' }
+        },
+        {
+          path: 'developer/tenants',
+          name: 'dev-tenants',
+          component: () => import('../views/developer/DevTenants.vue'),
+          meta: { requiredRole: 'PartnerDeveloper' }
+        },
+        {
+          path: 'developer/settings',
+          name: 'dev-settings',
+          component: () => import('../views/developer/DevSettings.vue'),
+          meta: { requiredRole: 'PartnerDeveloper' }
         }
       ]
     }
   ]
 })
 
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  const tokenQuery = to.query.token as string;
+  if (tokenQuery) {
+    localStorage.setItem('acb_token', tokenQuery);
+  }
+
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
   const token = localStorage.getItem('acb_token');
+  let userRaw = localStorage.getItem('acb_user');
+
+  if (token && (!userRaw || tokenQuery)) {
+    try {
+      const { apiFetch } = useApi();
+      const res = await apiFetch('/api/auth/me');
+      if (res.ok) {
+        const data = await res.json();
+        localStorage.setItem('acb_user', JSON.stringify({
+          username: data.username,
+          email: data.email,
+          role: data.role,
+          partnerAccountId: data.partnerAccountId
+        }));
+        localStorage.setItem('acb_username', data.username);
+        userRaw = localStorage.getItem('acb_user');
+      }
+    } catch (err) {
+      console.error('Failed to retrieve user profile in router guard', err);
+    }
+  }
 
   if (requiresAuth && !token) {
     return '/login';
-  } else if (to.path === '/login' && token) {
+  } else if (to.path === '/login' && token && !tokenQuery) {
     return '/';
+  }
+
+  // Handle Embed token route specifically
+  if (to.path.startsWith('/embed') && tokenQuery) {
+    return;
+  }
+
+  // Role guard check
+  const requiredRole = to.meta.requiredRole as string | undefined;
+  if (requiredRole) {
+    const user = userRaw ? JSON.parse(userRaw) : null;
+    
+    if (!user || (user.role !== requiredRole && user.role !== 'SystemAdmin')) {
+      return '/'; // Unauthorized redirect
+    }
   }
 });
 
