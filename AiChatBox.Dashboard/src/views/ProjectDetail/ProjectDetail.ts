@@ -48,7 +48,11 @@ export function useProjectDetail() {
         type: 0,
         connectionString: '',
         schemaDefinition: '',
-        hasConnectionString: false
+        hasConnectionString: false,
+        allowedTables: '',
+        maxQueryTimeoutSeconds: 5,
+        maxRecordsPerQuery: 100,
+        sessionContextFilterJson: ''
     });
 
     const dbTypes = [
@@ -62,7 +66,171 @@ export function useProjectDetail() {
     const savingProject = ref(false);
     const savedProject = ref(false);
 
-    // ─── Config options for key select ───────────────────────
+    // ─── Schema Panel Visibility ─────────────────────────────
+    // Schema DDL is hidden by default; user can toggle it open
+    const showSchemaEditor = ref(false);
+
+    // ─── Column-level selection state ────────────────────────
+    // Maps table name → Set of allowed column names (null means "all columns allowed")
+    const selectedColumnsPerTable = reactive<Record<string, Set<string>>>({});
+
+    // ─── Parse tables + columns from DDL ─────────────────────
+    const detectedTables = computed(() => {
+        if (!dbConfig.schemaDefinition) return [];
+        const matches = [...dbConfig.schemaDefinition.matchAll(/CREATE\s+TABLE\s+(?:[a-zA-Z0-9_""`\[\]]+\.)?["`\[]?([a-zA-Z0-9_]+)["`\]]?\s*\(/gi)];
+        return Array.from(new Set(matches.map(m => m[1])));
+    });
+
+    /**
+     * For each detected table, parse its column names from the DDL block.
+     * Returns a map of  tableName → string[]
+     */
+    const detectedColumns = computed<Record<string, string[]>>(() => {
+        const result: Record<string, string[]> = {};
+        if (!dbConfig.schemaDefinition) return result;
+
+        // Match each CREATE TABLE block
+        const tableBlockRegex = /CREATE\s+TABLE\s+(?:[a-zA-Z0-9_""`\[\]]+\.)?["`\[]?([a-zA-Z0-9_]+)["`\]]?\s*\(([\s\S]*?)(?=\)\s*;|\)\s*CREATE|\)\s*$)/gi;
+        let tableMatch: RegExpExecArray | null;
+
+        while ((tableMatch = tableBlockRegex.exec(dbConfig.schemaDefinition)) !== null) {
+            const tableName = tableMatch[1];
+            const body = tableMatch[2];
+
+            const columns: string[] = [];
+            // Each line in the table body that starts with a column name (not a constraint keyword)
+            const constraintKeywords = /^\s*(PRIMARY|UNIQUE|CHECK|FOREIGN|CONSTRAINT|INDEX|KEY)\b/i;
+            const lines = body.split('\n');
+            for (const line of lines) {
+                const trimmed = line.trim();
+                if (!trimmed || constraintKeywords.test(trimmed)) continue;
+
+                // Column name is the first token; strip quoting
+                const colMatch = trimmed.match(/^["`\[]?([a-zA-Z_][a-zA-Z0-9_]*)["`\]]?\s+\S/);
+                if (colMatch) {
+                    columns.push(colMatch[1]);
+                }
+            }
+
+            if (columns.length > 0) result[tableName] = columns;
+        }
+        return result;
+    });
+
+    // ─── Selected tables (derived from allowedTables string) ─
+    const selectedTablesArray = computed({
+        get() {
+            return dbConfig.allowedTables
+                ? dbConfig.allowedTables.split(',').map(t => t.trim()).filter(Boolean)
+                : [];
+        },
+        set(val: string[]) {
+            dbConfig.allowedTables = val.join(', ');
+        }
+    });
+
+    /**
+     * Toggle a table's inclusion in the whitelist.
+     * When a table is added, initialise its column selection to "all".
+     * When removed, clear its column selection.
+     */
+    function toggleTable(tableName: string) {
+        const current = new Set(selectedTablesArray.value);
+        if (current.has(tableName)) {
+            current.delete(tableName);
+            delete selectedColumnsPerTable[tableName];
+            delete sessionContextMap[tableName];
+        } else {
+            current.add(tableName);
+            // Default: all columns allowed (represented as a full set)
+            const cols = detectedColumns.value[tableName] ?? [];
+            selectedColumnsPerTable[tableName] = new Set(cols);
+        }
+        selectedTablesArray.value = Array.from(current);
+    }
+
+    /** Toggle a single column for a given table */
+    function toggleColumn(tableName: string, columnName: string) {
+        if (!selectedColumnsPerTable[tableName]) {
+            selectedColumnsPerTable[tableName] = new Set();
+        }
+        const set = selectedColumnsPerTable[tableName];
+        if (set.has(columnName)) {
+            set.delete(columnName);
+            if (sessionContextMap[tableName] === columnName) {
+                delete sessionContextMap[tableName];
+            }
+        } else {
+            set.add(columnName);
+        }
+    }
+
+    /** Select / deselect all columns for a table */
+    function toggleAllColumns(tableName: string, selectAll: boolean) {
+        const cols = detectedColumns.value[tableName] ?? [];
+        if (selectAll) {
+            selectedColumnsPerTable[tableName] = new Set(cols);
+        } else {
+            selectedColumnsPerTable[tableName] = new Set();
+            delete sessionContextMap[tableName];
+        }
+    }
+
+    /** Toggle designates/un-designates a column as the isolation column for a table */
+    function toggleColumnIsolation(tableName: string, columnName: string) {
+        if (sessionContextMap[tableName] === columnName) {
+            delete sessionContextMap[tableName];
+        } else {
+            sessionContextMap[tableName] = columnName;
+        }
+    }
+
+    /**
+     * Build the allowedColumns JSON payload for the save call.
+     * Shape: { "TableName": ["col1", "col2"] }
+     * Tables with all columns selected omit the column list (null = unrestricted).
+     */
+    const allowedColumnsPayload = computed<Record<string, string[] | null>>(() => {
+        const payload: Record<string, string[] | null> = {};
+        for (const table of selectedTablesArray.value) {
+            const allCols = detectedColumns.value[table] ?? [];
+            const selectedCols = selectedColumnsPerTable[table];
+            if (!selectedCols || selectedCols.size === allCols.length) {
+                payload[table] = null; // all columns — no restriction needed
+            } else {
+                payload[table] = Array.from(selectedCols);
+            }
+        }
+        return payload;
+    });
+
+    // ─── Session Context (Row-Level Isolation) ────────────────
+    /**
+     * Visual map: table → isolation column name.
+     * Only tables with a non-empty column value are included in the saved JSON.
+     * `undefined` key means the table has NO isolation configured.
+     */
+    const sessionContextMap = reactive<Record<string, string>>({});
+
+    /** Derived JSON string sent to / received from the backend. */
+    const sessionContextFilterJsonComputed = computed<string | null>(() => {
+        const result: Record<string, string> = {};
+        for (const [table, col] of Object.entries(sessionContextMap)) {
+            if (col && col.trim()) result[table] = col.trim();
+        }
+        return Object.keys(result).length ? JSON.stringify(result) : null;
+    });
+
+    /** Toggle isolation on/off for a table. Defaults to the first detected column. */
+    function toggleIsolation(table: string) {
+        if (sessionContextMap[table] !== undefined) {
+            delete sessionContextMap[table];
+        } else {
+            const firstCol = detectedColumns.value[table]?.[0] ?? '';
+            sessionContextMap[table] = firstCol;
+        }
+    }
+
     const configOptions = computed(() =>
         configs.value.map(c => ({ label: c.name, value: c.id }))
     );
@@ -103,9 +271,39 @@ export function useProjectDetail() {
                 const data = await res.json();
                 if (data) {
                     dbConfig.type = data.type;
-                    dbConfig.schemaDefinition = data.schemaDefinition;
+                    dbConfig.schemaDefinition = data.schemaDefinition || '';
                     dbConfig.hasConnectionString = data.hasConnectionString;
+                    dbConfig.allowedTables = data.allowedTables || '';
+                    dbConfig.maxQueryTimeoutSeconds = data.maxQueryTimeoutSeconds || 5;
+                    dbConfig.maxRecordsPerQuery = data.maxRecordsPerQuery || 100;
+                    dbConfig.sessionContextFilterJson = data.sessionContextFilterJson || '';
                     dbConfig.connectionString = '';
+
+                    // Rehydrate column selections from saved payload if present
+                    if (data.allowedColumnsJson) {
+                        try {
+                            const saved: Record<string, string[] | null> = JSON.parse(data.allowedColumnsJson);
+                            for (const [table, cols] of Object.entries(saved)) {
+                                if (cols === null) {
+                                    const allCols = detectedColumns.value[table] ?? [];
+                                    selectedColumnsPerTable[table] = new Set<string>(allCols);
+                                } else {
+                                    selectedColumnsPerTable[table] = new Set(cols);
+                                }
+                            }
+                        } catch { /* ignore parse errors */ }
+                    }
+
+                    // Rehydrate session context map for the visual isolation picker
+                    Object.keys(sessionContextMap).forEach(k => delete sessionContextMap[k]);
+                    if (data.sessionContextFilterJson) {
+                        try {
+                            const saved: Record<string, string> = JSON.parse(data.sessionContextFilterJson);
+                            for (const [table, col] of Object.entries(saved)) {
+                                if (typeof col === 'string') sessionContextMap[table] = col;
+                            }
+                        } catch { /* ignore */ }
+                    }
                 }
             }
         } catch (e) { console.error(e); }
@@ -145,6 +343,8 @@ export function useProjectDetail() {
             if (res.ok) {
                 const data = await res.json();
                 dbConfig.schemaDefinition = data.schema;
+                // Auto-reveal the schema editor after detection so the user can inspect it
+                showSchemaEditor.value = true;
                 toast.add({ severity: 'success', summary: 'Schema Detected', detail: 'Database schema successfully updated.', life: 3000 });
             } else {
                 throw new Error('Could not connect to database.');
@@ -163,14 +363,30 @@ export function useProjectDetail() {
                 body: JSON.stringify({
                     type: dbConfig.type,
                     connectionString: dbConfig.connectionString || null,
-                    schemaDefinition: dbConfig.schemaDefinition
+                    schemaDefinition: dbConfig.schemaDefinition,
+                    allowedTables: dbConfig.allowedTables || null,
+                    allowedColumnsJson: JSON.stringify(allowedColumnsPayload.value),
+                    maxQueryTimeoutSeconds: dbConfig.maxQueryTimeoutSeconds,
+                    maxRecordsPerQuery: dbConfig.maxRecordsPerQuery,
+                    sessionContextFilterJson: sessionContextFilterJsonComputed.value
                 })
             });
             if (res.ok) {
-                toast.add({ severity: 'success', summary: 'Saved', detail: 'Database configuration updated.', life: 3000 });
-                loadDbConfig();
+                dbConfig.hasConnectionString = !!dbConfig.connectionString || dbConfig.hasConnectionString;
+                dbConfig.connectionString = '';
+                toast.add({ severity: 'success', summary: 'Saved', detail: 'Database configuration saved.', life: 3000 });
+            } else {
+                const errorText = await res.text().catch(() => '');
+                toast.add({
+                    severity: 'error',
+                    summary: 'Save Failed',
+                    detail: errorText || `Server returned ${res.status}. Check the API logs.`,
+                    life: 6000
+                });
             }
-        } catch (e) { console.error(e); }
+        } catch (e: any) {
+            toast.add({ severity: 'error', summary: 'Error', detail: e.message || 'Failed to save database config.', life: 5000 });
+        }
     }
 
     async function createConfig() {
@@ -186,13 +402,13 @@ export function useProjectDetail() {
 
     async function deleteConfig(id: string) {
         confirm.require({
-            message: 'Delete this configuration?',
+            message: 'Delete this configuration? This will also remove all associated API keys.',
             header: 'Confirm Deletion',
             icon: 'pi pi-exclamation-triangle',
             rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
             acceptProps: { label: 'Delete', severity: 'danger' },
             accept: async () => {
-                await apiFetch(`/api/configuration/${id}`, { method: 'DELETE' });
+                await apiFetch(`/api/project/${projectId.value}/configurations/${id}`, { method: 'DELETE' });
                 toast.add({ severity: 'success', summary: 'Deleted', detail: 'Configuration removed.', life: 3000 });
                 loadConfigs();
             }
@@ -213,13 +429,13 @@ export function useProjectDetail() {
 
     async function revokeKey(id: string) {
         confirm.require({
-            message: 'Revoke this key?',
-            header: 'Confirm Revoke',
+            message: 'Revoke this API key? This cannot be undone.',
+            header: 'Revoke Key',
             icon: 'pi pi-exclamation-triangle',
             rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
             acceptProps: { label: 'Revoke', severity: 'danger' },
             accept: async () => {
-                await apiFetch(`/api/project/keys/${id}`, { method: 'DELETE' });
+                await apiFetch(`/api/project/${projectId.value}/keys/${id}`, { method: 'DELETE' });
                 toast.add({ severity: 'success', summary: 'Revoked', detail: 'API key revoked.', life: 3000 });
                 loadKeys();
             }
@@ -319,7 +535,7 @@ export function useProjectDetail() {
     function openTestTool(tool: any) {
         activeTestTool.value = tool;
         toolTestResult.value = null;
-        
+
         let defaultArgs: any = {};
         try {
             if (tool.parametersJsonSchema) {
@@ -327,33 +543,26 @@ export function useProjectDetail() {
                 if (schema && schema.properties) {
                     for (const key of Object.keys(schema.properties)) {
                         const prop = schema.properties[key];
-                        if (prop.type === 'string') {
-                            defaultArgs[key] = `test_${key}`;
-                        } else if (prop.type === 'number' || prop.type === 'integer') {
-                            defaultArgs[key] = 123;
-                        } else if (prop.type === 'boolean') {
-                            defaultArgs[key] = true;
-                        } else if (prop.type === 'array') {
-                            defaultArgs[key] = [];
-                        } else if (prop.type === 'object') {
-                            defaultArgs[key] = {};
-                        } else {
-                            defaultArgs[key] = '';
-                        }
+                        if (prop.type === 'string') defaultArgs[key] = `test_${key}`;
+                        else if (prop.type === 'number' || prop.type === 'integer') defaultArgs[key] = 123;
+                        else if (prop.type === 'boolean') defaultArgs[key] = true;
+                        else if (prop.type === 'array') defaultArgs[key] = [];
+                        else if (prop.type === 'object') defaultArgs[key] = {};
+                        else defaultArgs[key] = '';
                     }
                 }
             }
         } catch (e) {
             console.error('Error parsing schema for defaults', e);
         }
-        
+
         testToolArguments.value = JSON.stringify(defaultArgs, null, 2);
         showTestTool.value = true;
     }
 
     async function executeToolTest() {
         if (!activeTestTool.value) return;
-        
+
         try {
             JSON.parse(testToolArguments.value);
         } catch (e) {
@@ -366,9 +575,7 @@ export function useProjectDetail() {
         try {
             const res = await apiFetch(`/api/tool/${activeTestTool.value.id}/execute`, {
                 method: 'POST',
-                body: JSON.stringify({
-                    argumentsJson: testToolArguments.value
-                })
+                body: JSON.stringify({ argumentsJson: testToolArguments.value })
             });
             if (res.ok) {
                 toolTestResult.value = await res.json();
@@ -405,6 +612,11 @@ export function useProjectDetail() {
         isEditingTool, editingToolId, generatedKey,
         newConfig, newKey, newTool,
         dbConfig, dbTypes, detectingSchema,
+        detectedTables, detectedColumns,
+        selectedTablesArray, selectedColumnsPerTable, allowedColumnsPayload,
+        toggleTable, toggleColumn, toggleAllColumns, toggleColumnIsolation,
+        sessionContextMap, sessionContextFilterJsonComputed, toggleIsolation,
+        showSchemaEditor,
         savingProject, savedProject,
         saveProjectSettings, detectSchema, saveDbConfig,
         createConfig, deleteConfig,

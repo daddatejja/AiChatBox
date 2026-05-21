@@ -399,22 +399,6 @@
     grid-column: 1 / -1;
 }
 
-/* ─── Database Schema Block ─────────────────────────────────── */
-.schema-label-row {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: 6px;
-}
-
-.schema-label-row label {
-    font-size: 0.8rem;
-    font-weight: 600;
-    color: var(--p-text-color-secondary);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-}
-
 /* ─── Dialog Forms ──────────────────────────────────────────── */
 .form {
     display: flex;
@@ -472,6 +456,576 @@
     color: var(--p-text-color-secondary);
 }
 
+/* ══════════════════════════════════════════════════════════════ */
+/* ─── DATABASE TAB ──────────────────────────────────────────── */
+/* ══════════════════════════════════════════════════════════════ */
+
+/* Sectioned cards within the db tab */
+.db-section-card {
+    margin-bottom: 12px;
+}
+
+.db-section-body {
+    padding: 20px 22px;
+}
+
+/* Section label row at the top of each card */
+.db-section-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.db-section-icon {
+    font-size: 1.1rem;
+    color: var(--p-primary-400);
+    flex-shrink: 0;
+}
+
+.db-section-title {
+    font-size: 0.92rem;
+    font-weight: 700;
+    color: var(--p-text-color);
+    line-height: 1.2;
+}
+
+.db-section-sub {
+    font-size: 0.78rem;
+    color: var(--p-text-color-secondary);
+    margin-top: 2px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+/* ─── Schema section ────────────────────────────────────────── */
+.schema-table-count {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: var(--p-primary-50);
+    color: var(--p-primary-600);
+    font-size: 0.72rem;
+    font-weight: 700;
+    padding: 1px 8px;
+    border-radius: 20px;
+    letter-spacing: 0.03em;
+}
+
+.schema-header-actions {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-left: auto;
+    flex-shrink: 0;
+}
+
+.schema-toggle-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.8rem;
+    font-weight: 600;
+    color: var(--p-primary-500);
+    background: var(--p-primary-50);
+    border: 1px solid var(--p-primary-200);
+    border-radius: 6px;
+    padding: 5px 12px;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    white-space: nowrap;
+}
+
+.schema-toggle-btn:hover {
+    background: var(--p-primary-100);
+    color: var(--p-primary-700);
+}
+
+/* Chip row shown when schema is collapsed */
+.schema-chip-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 14px;
+}
+
+.schema-chip {
+    font-size: 0.72rem;
+    font-weight: 600;
+    font-family: 'JetBrains Mono', monospace;
+    background: var(--p-surface-100);
+    color: var(--p-surface-700);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 5px;
+    padding: 2px 8px;
+}
+
+.schema-empty-hint {
+    margin-top: 12px;
+    font-size: 0.79rem;
+    color: var(--p-text-color-secondary);
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-200);
+    border-radius: 8px;
+    padding: 12px 14px;
+}
+
+/* CodeMirror wrapper */
+.schema-editor-wrapper {
+    margin-top: 14px;
+}
+
+.schema-codemirror {
+    border-radius: 8px;
+    overflow: hidden;
+    border: 1px solid var(--p-surface-300);
+    min-height: 240px;
+    max-height: 480px;
+}
+
+/* Ensure CodeMirror scroller respects max-height */
+.schema-codemirror :deep(.cm-editor) {
+    max-height: 480px;
+}
+.schema-codemirror :deep(.cm-scroller) {
+    overflow: auto;
+    max-height: 480px;
+}
+
+/* Schema slide transition */
+.schema-slide-enter-active,
+.schema-slide-leave-active {
+    transition: opacity 0.2s ease, transform 0.2s ease;
+}
+.schema-slide-enter-from,
+.schema-slide-leave-to {
+    opacity: 0;
+    transform: translateY(-6px);
+}
+
+/* ─── Whitelisting section ──────────────────────────────────── */
+.whitelist-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.whitelist-no-schema {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--p-text-color-secondary);
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-200);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-bottom: 10px;
+}
+
+/* The table list container */
+.whitelist-table-list {
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-bottom: 12px;
+}
+
+/* Each table row */
+.whitelist-table-row {
+    border-bottom: 1px solid var(--p-surface-100);
+    transition: background 0.12s;
+}
+
+.whitelist-table-row:last-child {
+    border-bottom: none;
+}
+
+.whitelist-table-row.is-selected {
+    background: var(--p-primary-50);
+}
+
+/* Table row top bar */
+.whitelist-table-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    flex-wrap: wrap;
+}
+
+/* Checkbox + table name */
+.whitelist-table-check-label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    user-select: none;
+    flex: 1;
+    min-width: 0;
+}
+
+.whitelist-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--p-primary-500);
+    cursor: pointer;
+    flex-shrink: 0;
+}
+
+.whitelist-table-name {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: var(--p-text-color);
+    font-weight: 700;
+}
+
+.whitelist-col-count {
+    font-size: 0.7rem;
+    color: var(--p-text-color-secondary);
+    font-weight: 400;
+    font-family: sans-serif;
+    background: var(--p-surface-100);
+    border-radius: 10px;
+    padding: 1px 7px;
+}
+
+/* Right side: restriction badge + expand button */
+.whitelist-table-meta {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.col-restriction-badge {
+    font-size: 0.67rem;
+    font-weight: 700;
+    padding: 2px 8px;
+    border-radius: 20px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+}
+
+.col-restriction-badge.all {
+    background: var(--p-green-100);
+    color: var(--p-green-700);
+}
+
+.col-restriction-badge.partial {
+    background: var(--p-yellow-100);
+    color: var(--p-yellow-800);
+}
+
+.col-restriction-badge.none {
+    background: var(--p-red-100);
+    color: var(--p-red-700);
+}
+
+.whitelist-expand-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--p-primary-500);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 3px 0;
+    transition: color 0.15s;
+    white-space: nowrap;
+}
+
+.whitelist-expand-btn:hover {
+    color: var(--p-primary-700);
+}
+
+/* Column panel */
+.whitelist-cols-panel {
+    border-top: 1px solid var(--p-primary-100);
+    background: var(--p-surface-0);
+    padding: 10px 14px 14px;
+}
+
+.whitelist-cols-toolbar {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.cols-toolbar-btn {
+    font-size: 0.74rem;
+    font-weight: 600;
+    color: var(--p-primary-500);
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 0;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    transition: color 0.12s;
+}
+
+.cols-toolbar-btn:hover {
+    color: var(--p-primary-700);
+}
+
+/* Grid of column checkboxes */
+.whitelist-cols-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 4px;
+}
+
+.whitelist-col-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 5px 8px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    color: var(--p-text-color-secondary);
+    transition: background 0.1s;
+    user-select: none;
+    border: 1px solid transparent;
+}
+
+.whitelist-col-item:hover {
+    background: var(--p-surface-100);
+}
+
+.whitelist-col-item.col-selected {
+    color: var(--p-text-color);
+    background: var(--p-primary-50);
+    border-color: var(--p-primary-100);
+}
+
+.col-icon {
+    font-size: 0.65rem;
+    color: var(--p-surface-400);
+    flex-shrink: 0;
+}
+
+.whitelist-col-item.col-selected .col-icon {
+    color: var(--p-primary-400);
+}
+
+.col-name {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Column chip isolation toggle button */
+.col-isolation-btn {
+    background: transparent;
+    border: none;
+    padding: 0;
+    margin-left: auto;
+    cursor: pointer;
+    font-size: 0.72rem;
+    color: var(--p-surface-300);
+    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: color 0.15s, background-color 0.15s;
+    height: 18px;
+    width: 18px;
+    flex-shrink: 0;
+}
+
+.whitelist-col-item:hover .col-isolation-btn {
+    color: var(--p-surface-400);
+}
+
+.col-isolation-btn:hover {
+    background-color: var(--p-surface-200);
+    color: var(--p-surface-600) !important;
+}
+
+.col-isolation-btn.is-active {
+    color: var(--p-primary-500) !important;
+    background-color: var(--p-primary-100);
+}
+
+.col-isolation-btn.is-active:hover {
+    background-color: var(--p-primary-200);
+    color: var(--p-primary-600) !important;
+}
+
+
+/* Column panel slide transition */
+.cols-slide-enter-active,
+.cols-slide-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.cols-slide-enter-from,
+.cols-slide-leave-to {
+    opacity: 0;
+    transform: translateY(-4px);
+}
+
+/* Manual override row */
+.whitelist-manual {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+}
+
+.whitelist-manual label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--p-text-color-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+}
+
+/* ─── CodeMirror host div ───────────────────────────────────────
+   Generic wrapper for all useCodeMirror() mount points. Provides
+   consistent border + rounding so editors blend with form UI.
+──────────────────────────────────────────────────────────────── */
+.cm-host {
+    border: 1px solid var(--p-surface-300);
+    border-radius: 8px;
+    overflow: hidden;
+    min-height: 80px;
+}
+
+.cm-host :deep(.cm-editor) {
+    width: 100%;
+}
+
+/* ─── Row-Level Isolation Picker ────────────────────────────────
+   Mirrors the whitelist UI pattern but with a column-select
+   dropdown instead of checkboxes.
+──────────────────────────────────────────────────────────────── */
+.isolation-no-schema {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8rem;
+    color: var(--p-text-color-secondary);
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-200);
+    border-radius: 8px;
+    padding: 12px 14px;
+    margin-top: 6px;
+}
+
+.isolation-table-list {
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    overflow: hidden;
+    margin-top: 8px;
+    margin-bottom: 6px;
+}
+
+.isolation-row {
+    border-bottom: 1px solid var(--p-surface-100);
+    transition: background 0.12s;
+    padding: 10px 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.isolation-row:last-child {
+    border-bottom: none;
+}
+
+.isolation-row.isolation-active {
+    background: color-mix(in srgb, var(--p-primary-50) 60%, transparent);
+}
+
+/* Checkbox + icon + table name */
+.isolation-check-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    user-select: none;
+}
+
+.isolation-table-icon {
+    font-size: 0.75rem;
+    color: var(--p-primary-400);
+}
+
+.isolation-table-name {
+    font-family: 'JetBrains Mono', 'Fira Code', monospace;
+    font-size: 0.82rem;
+    color: var(--p-text-color);
+    font-weight: 700;
+}
+
+/* Column selector row */
+.isolation-col-area {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 26px;
+    flex-wrap: wrap;
+}
+
+.isolation-arrow {
+    font-size: 0.7rem;
+    color: var(--p-primary-400);
+    flex-shrink: 0;
+}
+
+.isolation-col-select {
+    min-width: 180px;
+    font-size: 0.82rem;
+}
+
+/* WHERE clause preview pill */
+.isolation-preview {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.72rem;
+    color: var(--p-text-color-secondary);
+    background: var(--p-surface-100);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 20px;
+    padding: 2px 10px;
+    font-family: 'JetBrains Mono', monospace;
+    white-space: nowrap;
+}
+
+.isolation-preview code {
+    color: var(--p-primary-500);
+    font-size: inherit;
+    font-weight: 700;
+}
+
+/* Slide transition for the column selector */
+.isolation-col-slide-enter-active,
+.isolation-col-slide-leave-active {
+    transition: opacity 0.18s ease, transform 0.18s ease, max-height 0.18s ease;
+    max-height: 60px;
+    overflow: hidden;
+}
+.isolation-col-slide-enter-from,
+.isolation-col-slide-leave-to {
+    opacity: 0;
+    transform: translateY(-4px);
+    max-height: 0;
+}
+
 /* ─── Responsive ────────────────────────────────────────────── */
 @media (max-width: 640px) {
     .page-header { padding: 0 12px; }
@@ -482,4 +1036,9 @@
     .tab-btn { padding: 7px 12px; font-size: 0.78rem; }
     .list-card-content { flex-direction: column; align-items: stretch; }
     .card-actions { flex-wrap: wrap; }
+
+    .whitelist-table-header { flex-direction: column; align-items: flex-start; }
+    .schema-header-actions { flex-wrap: wrap; }
+    .whitelist-cols-grid { grid-template-columns: 1fr 1fr; }
+    .db-section-label { flex-wrap: wrap; }
 }

@@ -8,6 +8,7 @@ namespace AiChatBox.Api.Services
         private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
         private readonly ILogger<LiveSessionManager> _logger = logger;
         private readonly ConcurrentDictionary<string, LiveSessionState> _sessions = new();
+        private readonly ConcurrentDictionary<string, string> _userConnections = new();
 
         public async Task<IGeminiLiveService> StartSessionAsync(
             string connectionId, 
@@ -24,6 +25,13 @@ namespace AiChatBox.Api.Services
             string? apiKeyOverride = null,
             Guid? sessionId = null)
         {
+            // Enforce 1 live session per user
+            if (_userConnections.TryGetValue(userId, out var existingConnectionId))
+            {
+                _logger.LogInformation("User {UserId} started a new live session. Stopping previous session {ConnectionId}.", userId, existingConnectionId);
+                await StopSessionAsync(existingConnectionId);
+            }
+
             var scope = _scopeFactory.CreateAsyncScope();
             try
             {
@@ -37,10 +45,12 @@ namespace AiChatBox.Api.Services
                 geminiService.ConfigurationId = configurationId;
                 geminiService.SessionId = sessionId;
                 geminiService.ApiKeyOverride = apiKeyOverride;
+                geminiService.UserId = userId; // Ensure UserId is set on the service
 
                 await geminiService.ConnectAsync(userId, voiceName, systemPrompt);
 
                 _sessions[connectionId] = new LiveSessionState(geminiService, scope);
+                _userConnections[userId] = connectionId;
                 return geminiService;
             }
             catch (Exception ex)
@@ -72,6 +82,12 @@ namespace AiChatBox.Api.Services
                 {
                     await state.Scope.DisposeAsync();
                 }
+
+                if (state.Service.UserId != null && _userConnections.TryGetValue(state.Service.UserId, out var currentConn) && currentConn == connectionId)
+                {
+                    _userConnections.TryRemove(state.Service.UserId, out _);
+                }
+
                 _logger.LogInformation("Stopped session for {ConnectionId}", connectionId);
             }
         }

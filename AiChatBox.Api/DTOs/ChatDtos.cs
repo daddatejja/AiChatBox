@@ -17,6 +17,7 @@ namespace AiChatBox.Api.DTOs
         public string? SystemPrompt { get; set; }
         public List<ToolResultDto>? ToolResults { get; set; }
         public PageContext? Context { get; set; }
+        public string? SessionContext { get; set; }
     }
 
     public class PageContext

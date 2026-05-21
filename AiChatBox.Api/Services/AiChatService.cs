@@ -486,7 +486,7 @@ namespace AiChatBox.Api.Services
 
             async IAsyncEnumerable<ChatStreamChunk> StreamInternal()
             {
-                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, extraTools, session.Id, cancellationToken))
+                await foreach (var chunk in _agentService.ExecuteAgentAsync(provider, modelName, genericMessages, systemPrompt, userId, project, apiKeyOverride, extraTools, session.Id, request.SessionContext, cancellationToken))
                 {
                     if (chunk.ToolCalls != null && chunk.ToolCalls.Count > 0)
                     {

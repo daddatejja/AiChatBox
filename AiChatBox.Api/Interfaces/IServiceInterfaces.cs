@@ -45,6 +45,7 @@ namespace AiChatBox.Api.Interfaces
         event Func<string, string, Dictionary<string, object>, bool, Task>? OnToolCall;
         event Func<string, string, object, Task>? OnToolResult;
         event Action<string>? OnError;
+        event Action<string>? OnDisconnected;
 
         Task ConnectAsync(string userId, string? voiceName = null, string? systemPrompt = null, CancellationToken cancellationToken = default);
         Task SendAudioChunkAsync(string base64Data, CancellationToken cancellationToken = default);

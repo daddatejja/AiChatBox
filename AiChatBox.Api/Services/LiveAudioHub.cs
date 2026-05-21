@@ -7,13 +7,21 @@ namespace AiChatBox.Api.Services
                             LiveSessionManager sessionManager, 
                             IHubContext<LiveAudioHub> hubContext,
                             ApiKeyService apiKeyService,
-                            EncryptionService encryptionService) : Hub
+                            EncryptionService encryptionService,
+                            AiChatBox.Api.Data.ChatDbContext db,
+                            RuleEngine ruleEngine,
+                            HandoffService handoffService,
+                            FlowExecutionService flowExecutionService) : Hub
     {
         private readonly ILogger<LiveAudioHub> _logger = logger;
         private readonly LiveSessionManager _sessionManager = sessionManager;
         private readonly IHubContext<LiveAudioHub> _hubContext = hubContext;
         private readonly ApiKeyService _apiKeyService = apiKeyService;
         private readonly EncryptionService _encryption = encryptionService;
+        private readonly AiChatBox.Api.Data.ChatDbContext _db = db;
+        private readonly RuleEngine _ruleEngine = ruleEngine;
+        private readonly HandoffService _handoffService = handoffService;
+        private readonly FlowExecutionService _flowExecutionService = flowExecutionService;
 
         /// <summary>
         /// Start a live session using an API Key (widget / end-user integration).
@@ -38,6 +46,13 @@ namespace AiChatBox.Api.Services
                 {
                     _logger.LogWarning("Unauthorized live session attempt with API Key from origin: {Origin}", origin);
                     await Clients.Caller.SendAsync("ReceiveError", "Unauthorized: Invalid API Key or Origin.");
+                    return;
+                }
+
+                var isLiveVoiceEnabled = config?.LiveVoiceEnabled ?? false;
+                if (!isLiveVoiceEnabled)
+                {
+                    await Clients.Caller.SendAsync("ReceiveError", "Live voice is not enabled for this configuration.");
                     return;
                 }
 
@@ -94,6 +109,13 @@ namespace AiChatBox.Api.Services
                 
                 config ??= await _apiKeyService.GetDefaultConfigurationAsync(parsedProjectId);
 
+                var isLiveVoiceEnabled = config?.LiveVoiceEnabled ?? false;
+                if (!isLiveVoiceEnabled)
+                {
+                    await Clients.Caller.SendAsync("ReceiveError", "Live voice is not enabled for this configuration.");
+                    return;
+                }
+
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
                 var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
@@ -144,6 +166,13 @@ namespace AiChatBox.Api.Services
                 {
                     await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveError", error);
                 };
+            if (session != null)
+            {
+                session.OnDisconnected += async (reason) =>
+                {
+                    await _hubContext.Clients.Client(connectionId).SendAsync("ReceiveDisconnected", reason);
+                };
+            }
         }
 
         public async Task SendAudio(string data)
@@ -167,7 +196,55 @@ namespace AiChatBox.Api.Services
             try
             {
                 var session = _sessionManager.GetSession(Context.ConnectionId);
-                if (session != null)
+                if (session != null && session.SessionId.HasValue && session.ProjectId.HasValue)
+                {
+                    var chatSession = await _db.ChatSessions.FindAsync(session.SessionId.Value);
+                    var config = session.ConfigurationId.HasValue 
+                        ? await _db.Configurations.FindAsync(session.ConfigurationId.Value) 
+                        : null;
+
+                    if (chatSession != null)
+                    {
+                        // 1. Check Handoff
+                        var handoffCheck = await _handoffService.ShouldTriggerHandoffAsync(text, config);
+                        if (handoffCheck.ShouldEscalate || chatSession.HandoffStatus is "queued" or "active")
+                        {
+                            if (chatSession.HandoffStatus == "ai")
+                            {
+                                await _handoffService.QueueSessionAsync(chatSession.Id);
+                            }
+                            await Clients.Caller.SendAsync("ReceiveTextChunk", "Support agent has been requested. Please switch to text chat.", false);
+                            return;
+                        }
+
+                        // 2. Check Flow
+                        if (await _flowExecutionService.TryTriggerFlowAsync(chatSession, text))
+                        {
+                            await Clients.Caller.SendAsync("ReceiveTextChunk", "A conversational flow was triggered. Please switch to text chat to continue.", false);
+                            return;
+                        }
+
+                        // 3. Check Rule
+                        var ruleMatch = await _ruleEngine.TryMatchAsync(session.ProjectId.Value, text, config);
+                        if (ruleMatch != null)
+                        {
+                            if (ruleMatch.ResponseType == "text")
+                            {
+                                await Clients.Caller.SendAsync("ReceiveTextChunk", ruleMatch.Response, false);
+                            }
+                            else
+                            {
+                                // Option 1: Fallback for rich responses
+                                await Clients.Caller.SendAsync("ReceiveTextChunk", "Please switch to text chat to view this content.", false);
+                            }
+                            return;
+                        }
+                    }
+
+                    // Forward to Gemini if no rules/flows/handoff triggered
+                    await session.SendTextMessageAsync(text);
+                }
+                else if (session != null)
                 {
                     await session.SendTextMessageAsync(text);
                 }

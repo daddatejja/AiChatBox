@@ -1,11 +1,17 @@
 <script setup lang="ts">
 import { useProjectDetail } from './ProjectDetail';
+import { ref, watch, nextTick } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Dialog from 'primevue/dialog';
 import InputText from 'primevue/inputtext';
 import Select from 'primevue/select';
-import Textarea from 'primevue/textarea';
+
+// ── CodeMirror 6 imports ──────────────────────────────────────────────────────
+import { sql } from '@codemirror/lang-sql';
+import { json } from '@codemirror/lang-json';
+import { useCodeMirror } from '../../composables/useCodeMirror';
+// ─────────────────────────────────────────────────────────────────────────────
 
 import './ProjectDetail.css';
 
@@ -17,6 +23,11 @@ const {
     isEditingTool, generatedKey,
     newConfig, newKey, newTool,
     dbConfig, dbTypes, detectingSchema,
+    detectedTables, detectedColumns,
+    selectedTablesArray, selectedColumnsPerTable,
+    toggleTable, toggleColumn, toggleAllColumns, toggleColumnIsolation,
+    sessionContextMap,
+    showSchemaEditor,
     savingProject, savedProject,
     saveProjectSettings, detectSchema, saveDbConfig,
     createConfig, deleteConfig,
@@ -25,6 +36,140 @@ const {
     testingWebhook, webhookTestResult, testWebhookConnection,
     showTestTool, testingTool, activeTestTool, toolTestResult, testToolArguments, openTestTool, executeToolTest
 } = useProjectDetail();
+
+// ── Schema DDL editor ────────────────────────────────────────────────────────
+const schemaEditorEl = ref<HTMLElement | null>(null);
+const schemaModelRef = ref(dbConfig.schemaDefinition);
+// Keep schemaModelRef in sync with reactive dbConfig
+watch(() => dbConfig.schemaDefinition, v => { schemaModelRef.value = v; });
+watch(schemaModelRef, v => { dbConfig.schemaDefinition = v; });
+
+const { mount: mountSchema, destroy: destroySchema } = useCodeMirror(
+    schemaEditorEl, schemaModelRef, [sql()], { maxHeight: '400px' }
+);
+
+watch(showSchemaEditor, async (visible) => {
+    if (visible) {
+        await nextTick();
+        mountSchema();
+    } else {
+        destroySchema();
+    }
+});
+
+// ── Session Context Filter JSON editor ───────────────────────────────────────
+
+// ── Tool Parameters JSON Schema editor (new / edit dialog) ───────────────────
+const toolParamsEditorEl = ref<HTMLElement | null>(null);
+// newTool.parametersJsonSchema is a reactive string — wrap in a ref bridge
+const toolParamsRef = ref(newTool.parametersJsonSchema);
+watch(() => newTool.parametersJsonSchema, v => { toolParamsRef.value = v; });
+watch(toolParamsRef, v => { newTool.parametersJsonSchema = v; });
+const toolParamsCm = useCodeMirror(toolParamsEditorEl, toolParamsRef, [json()], { maxHeight: '280px' });
+
+watch(showNewTool, async (visible) => {
+    if (visible) {
+        await nextTick();
+        toolParamsCm.mount();
+    } else {
+        toolParamsCm.destroy();
+    }
+});
+
+// ── Tool Parameters (read-only preview in Test dialog) ───────────────────────
+const toolSchemaPreviewEl = ref<HTMLElement | null>(null);
+const toolSchemaPreviewRef = ref('');
+const toolSchemaPreviewCm = useCodeMirror(
+    toolSchemaPreviewEl, toolSchemaPreviewRef, [json()], { readonly: true, maxHeight: '140px' }
+);
+
+// ── Test Arguments JSON editor ────────────────────────────────────────────────
+const testArgsEditorEl = ref<HTMLElement | null>(null);
+const testArgsRef = ref(testToolArguments.value);
+watch(testToolArguments, v => { testArgsRef.value = v; });
+watch(testArgsRef, v => { testToolArguments.value = v; });
+const testArgsCm = useCodeMirror(testArgsEditorEl, testArgsRef, [json()], { maxHeight: '220px' });
+
+watch(showTestTool, async (visible) => {
+    if (visible) {
+        await nextTick();
+        // Sync latest value before mount
+        toolSchemaPreviewRef.value = activeTestTool.value?.parametersJsonSchema ?? '';
+        toolSchemaPreviewCm.mount();
+        testArgsCm.mount();
+    } else {
+        toolSchemaPreviewCm.destroy();
+        testArgsCm.destroy();
+    }
+});
+
+// ── System Prompt editor (Settings dialog) ────────────────────────────────────
+const settingsPromptEl = ref<HTMLElement | null>(null);
+const settingsPromptRef = ref(project.value?.systemPrompt ?? '');
+watch(() => project.value?.systemPrompt, v => { if (v !== undefined) settingsPromptRef.value = v; });
+watch(settingsPromptRef, v => { if (project.value) project.value.systemPrompt = v; });
+const settingsPromptCm = useCodeMirror(settingsPromptEl, settingsPromptRef, [], { maxHeight: '160px' });
+
+watch(showSettingsDialog, async (visible) => {
+    if (visible) {
+        await nextTick();
+        settingsPromptRef.value = project.value?.systemPrompt ?? '';
+        settingsPromptCm.mount();
+    } else {
+        settingsPromptCm.destroy();
+    }
+});
+
+// ── New Config — System Prompt editor ────────────────────────────────────────
+const newConfigPromptEl = ref<HTMLElement | null>(null);
+const newConfigPromptRef = ref(newConfig.systemPrompt);
+watch(() => newConfig.systemPrompt, v => { newConfigPromptRef.value = v; });
+watch(newConfigPromptRef, v => { newConfig.systemPrompt = v; });
+const newConfigPromptCm = useCodeMirror(newConfigPromptEl, newConfigPromptRef, [], { maxHeight: '160px' });
+
+watch(showNewConfig, async (visible) => {
+    if (visible) {
+        await nextTick();
+        newConfigPromptRef.value = newConfig.systemPrompt;
+        newConfigPromptCm.mount();
+    } else {
+        newConfigPromptCm.destroy();
+    }
+});
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ── Expand / collapse state for each table's column panel ─────────────────────
+const expandedTables = ref<Set<string>>(new Set());
+function toggleTableExpand(table: string) {
+    if (expandedTables.value.has(table)) {
+        expandedTables.value.delete(table);
+    } else {
+        expandedTables.value.add(table);
+    }
+    // Force reactivity on Set
+    expandedTables.value = new Set(expandedTables.value);
+}
+
+// ── Helper: is every column for a table selected ─────────────────────────────
+function allColumnsSelected(table: string): boolean {
+    const cols = detectedColumns.value[table] ?? [];
+    if (!cols.length) return true;
+    const sel = selectedColumnsPerTable[table];
+    if (!sel) return false;
+    return cols.every(c => sel.has(c));
+}
+
+function someColumnsSelected(table: string): boolean {
+    const cols = detectedColumns.value[table] ?? [];
+    const sel = selectedColumnsPerTable[table];
+    if (!sel || !cols.length) return false;
+    return cols.some(c => sel.has(c)) && !allColumnsSelected(table);
+}
+
+
+// \u2500\u2500 Session Context Filter JSON editor \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
+// Replaced with a visual table→column picker \u2014 no CodeMirror needed here.
+// \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 </script>
 
 <template>
@@ -88,8 +233,8 @@ const {
                 </button>
             </nav>
 
+            <!-- ── Overview tab (unchanged) ─────────────────────────────── -->
             <div v-if="activeTab === 'overview'">
-
                 <div class="overview-grid">
                     <div class="overview-card" @click="activeTab = 'configs'">
                         <i class="pi pi-sliders-h overview-card-icon"></i>
@@ -135,7 +280,6 @@ const {
                             <p>Upload documents for private AI context</p>
                         </div>
                     </router-link>
-
                     <router-link :to="'/project/' + projectId + '/rules'" class="quick-link-card">
                         <div class="quick-link-icon"><i class="pi pi-bolt"></i></div>
                         <div class="quick-link-text">
@@ -143,7 +287,6 @@ const {
                             <p>Zero-cost static responses before the LLM</p>
                         </div>
                     </router-link>
-
                     <router-link :to="'/project/' + projectId + '/flow'" class="quick-link-card">
                         <div class="quick-link-icon"><i class="pi pi-sitemap"></i></div>
                         <div class="quick-link-text">
@@ -154,6 +297,7 @@ const {
                 </div>
             </div>
 
+            <!-- ── Configs tab (unchanged) ──────────────────────────────── -->
             <div v-if="activeTab === 'configs'">
                 <div class="section-header">
                     <div>
@@ -162,7 +306,6 @@ const {
                     </div>
                     <Button label="New Config" icon="pi pi-plus" severity="secondary" outlined @click="showNewConfig = true" />
                 </div>
-
                 <div v-if="configs.length">
                     <Card v-for="c in configs" :key="c.id" class="list-card">
                         <template #content>
@@ -184,7 +327,6 @@ const {
                         </template>
                     </Card>
                 </div>
-
                 <div v-else class="empty-state">
                     <div class="empty-state-icon"><i class="pi pi-sliders-h"></i></div>
                     <p>No configurations yet. Create one to define a persona and connect providers.</p>
@@ -192,6 +334,7 @@ const {
                 </div>
             </div>
 
+            <!-- ── Tools tab (unchanged) ───────────────────────────────── -->
             <div v-if="activeTab === 'tools'">
                 <div class="section-header">
                     <div>
@@ -200,7 +343,6 @@ const {
                     </div>
                     <Button label="New Tool" icon="pi pi-plus" severity="secondary" outlined @click="openNewTool" />
                 </div>
-
                 <div v-if="tools.length">
                     <Card v-for="t in tools" :key="t.id" class="list-card">
                         <template #content>
@@ -218,7 +360,6 @@ const {
                         </template>
                     </Card>
                 </div>
-
                 <div v-else class="empty-state">
                     <div class="empty-state-icon"><i class="pi pi-wrench"></i></div>
                     <p>No custom tools yet. Define tools that the AI can invoke during conversations.</p>
@@ -226,21 +367,15 @@ const {
                 </div>
             </div>
 
+            <!-- ── Keys tab (unchanged) ────────────────────────────────── -->
             <div v-if="activeTab === 'keys'">
                 <div class="section-header">
                     <div>
                         <h2 class="section-heading">API Access Keys</h2>
                         <p class="section-sub">Keys grant access to a specific configuration via the chat API.</p>
                     </div>
-                    <Button
-                        label="Generate Key"
-                        icon="pi pi-plus"
-                        severity="secondary"
-                        outlined
-                        @click="showNewKey = true; generatedKey = '';"
-                    />
+                    <Button label="Generate Key" icon="pi pi-plus" severity="secondary" outlined @click="showNewKey = true; generatedKey = '';" />
                 </div>
-
                 <div v-if="keys.length">
                     <Card v-for="k in keys" :key="k.id" class="list-card">
                         <template #content>
@@ -265,7 +400,6 @@ const {
                         </template>
                     </Card>
                 </div>
-
                 <div v-else class="empty-state">
                     <div class="empty-state-icon"><i class="pi pi-key"></i></div>
                     <p>No API keys yet. Generate a key to allow external access to a configuration.</p>
@@ -273,19 +407,31 @@ const {
                 </div>
             </div>
 
+            <!-- ══════════════════════════════════════════════════════════ -->
+            <!-- ── DATABASE TAB ──────────────────────────────────────── -->
+            <!-- ══════════════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'database'">
                 <div class="section-header">
                     <div>
                         <h2 class="section-heading">AI Reporting Database</h2>
                         <p class="section-sub">Connect your database to enable AI-powered SQL reporting and analytics.</p>
                     </div>
-                    <Button label="Save Database Settings" icon="pi pi-save" severity="secondary" outlined @click="saveDbConfig" />
+                    <Button label="Save Database Settings" icon="pi pi-save" @click="saveDbConfig" />
                 </div>
 
-                <Card class="list-card">
+                <!-- ── 1. Connection ──────────────────────────────────── -->
+                <Card class="list-card db-section-card">
                     <template #content>
-                        <div style="padding: 20px;">
-                            <div class="form-grid">
+                        <div class="db-section-body">
+                            <div class="db-section-label">
+                                <i class="pi pi-link db-section-icon"></i>
+                                <div>
+                                    <div class="db-section-title">Connection</div>
+                                    <div class="db-section-sub">Database type and credentials</div>
+                                </div>
+                                <span v-if="dbConfig.hasConnectionString" class="badge badge-success" style="margin-left: auto;">Connected</span>
+                            </div>
+                            <div class="form-grid" style="margin-top: 16px;">
                                 <div class="form-group">
                                     <label>Database Type</label>
                                     <Select
@@ -301,52 +447,242 @@ const {
                                     <label>Connection String</label>
                                     <InputText
                                         v-model="dbConfig.connectionString"
-                                        :placeholder="dbConfig.hasConnectionString ? '******** (Hidden)' : 'Server=...;Database=...;'"
+                                        :placeholder="dbConfig.hasConnectionString ? '******** (Hidden — enter a new value to update)' : 'Server=...;Database=...;'"
                                         fluid
                                     />
                                     <small>Encrypted at rest. Use a read-only user for safety.</small>
-                                </div>
-                                <div class="form-group col-span-2">
-                                    <div class="schema-label-row">
-                                        <label>Schema Definition (DDL)</label>
-                                        <Button
-                                            icon="pi pi-refresh"
-                                            label="Auto-Detect Schema"
-                                            size="small"
-                                            text
-                                            :loading="detectingSchema"
-                                            @click="detectSchema"
-                                        />
-                                    </div>
-                                    <Textarea
-                                        v-model="dbConfig.schemaDefinition"
-                                        rows="8"
-                                        placeholder="CREATE TABLE users (...); CREATE TABLE orders (...);"
-                                        style="font-family: monospace; font-size: 0.82rem;"
-                                        fluid
-                                    />
-                                    <small>Provide the DDL of your tables so the AI understands your data structure. Click "Auto-Detect Schema" after saving the connection string.</small>
                                 </div>
                             </div>
                         </div>
                     </template>
                 </Card>
+
+                <!-- ── 2. Schema Definition (collapsible, CodeMirror) ─── -->
+                <Card class="list-card db-section-card">
+                    <template #content>
+                        <div class="db-section-body">
+                            <div class="db-section-label">
+                                <i class="pi pi-code db-section-icon"></i>
+                                <div>
+                                    <div class="db-section-title">Schema Definition (DDL)</div>
+                                    <div class="db-section-sub">
+                                        The AI uses this to understand your data structure.
+                                        <span v-if="detectedTables.length" class="schema-table-count">
+                                            {{ detectedTables.length }} table{{ detectedTables.length !== 1 ? 's' : '' }} detected
+                                        </span>
+                                    </div>
+                                </div>
+                                <div class="schema-header-actions">
+                                    <Button
+                                        icon="pi pi-refresh"
+                                        label="Auto-Detect"
+                                        size="small"
+                                        severity="secondary"
+                                        outlined
+                                        :loading="detectingSchema"
+                                        @click="detectSchema"
+                                    />
+                                    <button class="schema-toggle-btn" @click="showSchemaEditor = !showSchemaEditor">
+                                        <i :class="showSchemaEditor ? 'pi pi-eye-slash' : 'pi pi-eye'"></i>
+                                        {{ showSchemaEditor ? 'Hide' : 'View & Edit' }}
+                                    </button>
+                                </div>
+                            </div>
+
+                            <!-- Collapsed summary chips -->
+                            <div v-if="!showSchemaEditor && detectedTables.length" class="schema-chip-row">
+                                <span v-for="t in detectedTables" :key="t" class="schema-chip">{{ t }}</span>
+                            </div>
+                            <div v-if="!showSchemaEditor && !detectedTables.length" class="schema-empty-hint">
+                                No schema loaded. Click <strong>Auto-Detect</strong> after saving your connection string, or click <strong>View &amp; Edit</strong> to paste DDL manually.
+                            </div>
+
+                            <!-- CodeMirror editor (mounted when visible) -->
+                            <Transition name="schema-slide">
+                                <div v-if="showSchemaEditor" class="schema-editor-wrapper">
+                                    <div ref="schemaEditorEl" class="schema-codemirror"></div>
+                                    <p class="info-text" style="margin-top: 8px;">
+                                        Full SQL syntax highlighting. Changes are saved with <strong>Save Database Settings</strong> above.
+                                    </p>
+                                </div>
+                            </Transition>
+                        </div>
+                    </template>
+                </Card>
+
+                <!-- ── 3. Security & Safeguards ───────────────────────── -->
+                <Card class="list-card db-section-card">
+                    <template #content>
+                        <div class="db-section-body">
+                            <div class="db-section-label">
+                                <i class="pi pi-shield db-section-icon"></i>
+                                <div>
+                                    <div class="db-section-title">Security &amp; Safeguards</div>
+                                    <div class="db-section-sub">Query limits, table whitelisting, and row-level isolation</div>
+                                </div>
+                            </div>
+
+                            <div class="form-grid" style="margin-top: 16px;">
+
+                                <!-- Timeout & row limit -->
+                                <div class="form-group">
+                                    <label>Max Query Timeout (Seconds)</label>
+                                    <input type="number" v-model.number="dbConfig.maxQueryTimeoutSeconds" min="1" max="30" class="p-inputtext w-full" />
+                                    <small>Abort long-running queries (1–30 s).</small>
+                                </div>
+                                <div class="form-group">
+                                    <label>Max Records Per Query</label>
+                                    <input type="number" v-model.number="dbConfig.maxRecordsPerQuery" min="1" max="1000" class="p-inputtext w-full" />
+                                    <small>Maximum row limit to prevent memory strain (1–1000).</small>
+                                </div>
+
+                                <!-- ── Allowed Tables (Whitelisting) ──── -->
+                                <div class="form-group col-span-2">
+                                    <div class="whitelist-header">
+                                        <div>
+                                            <label>Allowed Tables &amp; Columns (Whitelisting &amp; Isolation)</label>
+                                            <small style="display: block; margin-top: 2px;">
+                                                Only AI queries that access whitelisted tables (and columns) will be permitted.
+                                                Expand a table to restrict which columns the AI can read and to configure Row-Level Data Isolation.
+                                            </small>
+                                        </div>
+                                        <span v-if="selectedTablesArray.length" class="badge">
+                                            {{ selectedTablesArray.length }} / {{ detectedTables.length }} tables
+                                        </span>
+                                    </div>
+
+                                    <!-- No schema loaded yet -->
+                                    <div v-if="!detectedTables.length" class="whitelist-no-schema">
+                                        <i class="pi pi-info-circle"></i>
+                                        Load a schema first — detected tables will appear here as selectable checkboxes.
+                                        You can also type table names manually below.
+                                    </div>
+
+                                    <!-- Table + column picker -->
+                                    <div v-else class="whitelist-table-list">
+                                        <div
+                                            v-for="table in detectedTables"
+                                            :key="table"
+                                            :class="['whitelist-table-row', { 'is-selected': selectedTablesArray.includes(table) }]"
+                                        >
+                                            <!-- Table row header -->
+                                            <div class="whitelist-table-header">
+                                                <label class="whitelist-table-check-label">
+                                                    <input
+                                                        type="checkbox"
+                                                        class="whitelist-checkbox"
+                                                        :checked="selectedTablesArray.includes(table)"
+                                                        @change="toggleTable(table)"
+                                                    />
+                                                    <span class="whitelist-table-name">{{ table }}</span>
+                                                    <span v-if="detectedColumns[table]?.length" class="whitelist-col-count">
+                                                        {{ detectedColumns[table].length }} cols
+                                                    </span>
+                                                </label>
+
+                                                <!-- Column restriction summary & expand toggle -->
+                                                <div v-if="selectedTablesArray.includes(table)" class="whitelist-table-meta">
+                                                    <span
+                                                        v-if="allColumnsSelected(table)"
+                                                        class="col-restriction-badge all"
+                                                    >All columns</span>
+                                                    <span
+                                                        v-else-if="someColumnsSelected(table)"
+                                                        class="col-restriction-badge partial"
+                                                    >{{ selectedColumnsPerTable[table]?.size ?? 0 }} / {{ detectedColumns[table]?.length }} cols</span>
+                                                    <span
+                                                        v-else
+                                                        class="col-restriction-badge none"
+                                                    >No columns</span>
+
+                                                    <button
+                                                        v-if="detectedColumns[table]?.length"
+                                                        class="whitelist-expand-btn"
+                                                        @click="toggleTableExpand(table)"
+                                                    >
+                                                        <i :class="expandedTables.has(table) ? 'pi pi-chevron-up' : 'pi pi-chevron-down'"></i>
+                                                        {{ expandedTables.has(table) ? 'Hide options' : 'Configure options' }}
+                                                    </button>
+                                                </div>
+                                            </div>
+
+                                            <!-- Columns panel (expanded) -->
+                                            <Transition name="cols-slide">
+                                                <div
+                                                    v-if="selectedTablesArray.includes(table) && expandedTables.has(table) && detectedColumns[table]?.length"
+                                                    class="whitelist-cols-panel"
+                                                >
+                                                    <div class="whitelist-cols-toolbar" style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;">
+                                                        <span style="font-size: 0.8rem; font-weight: 600; color: var(--p-text-color);">Allowed Columns &amp; Isolation</span>
+                                                        <div style="display: flex; gap: 10px;">
+                                                            <button class="cols-toolbar-btn" @click="toggleAllColumns(table, true)">Select all</button>
+                                                            <button class="cols-toolbar-btn" @click="toggleAllColumns(table, false)">Deselect all</button>
+                                                        </div>
+                                                    </div>
+                                                    <div class="whitelist-cols-grid">
+                                                        <label
+                                                            v-for="col in detectedColumns[table]"
+                                                            :key="col"
+                                                            class="whitelist-col-item"
+                                                            :class="{ 'col-selected': selectedColumnsPerTable[table]?.has(col) }"
+                                                        >
+                                                            <input
+                                                                type="checkbox"
+                                                                class="whitelist-checkbox"
+                                                                :checked="selectedColumnsPerTable[table]?.has(col)"
+                                                                @change="toggleColumn(table, col)"
+                                                            />
+                                                            <i class="pi pi-table col-icon"></i>
+                                                            <span class="col-name">{{ col }}</span>
+                                                            <button
+                                                                v-if="selectedColumnsPerTable[table]?.has(col)"
+                                                                type="button"
+                                                                class="col-isolation-btn"
+                                                                :class="{ 'is-active': sessionContextMap[table] === col }"
+                                                                @click.stop.prevent="toggleColumnIsolation(table, col)"
+                                                                :title="sessionContextMap[table] === col ? 'Row-level isolation active (click to disable)' : 'Set as row-level isolation column'"
+                                                            >
+                                                                <i class="pi pi-shield"></i>
+                                                            </button>
+                                                        </label>
+                                                    </div>
+
+                                                    <!-- Isolation Preview Banner -->
+                                                    <div v-if="sessionContextMap[table]" class="isolation-preview-banner" style="margin-top: 14px; display: flex; align-items: center; gap: 8px; font-size: 0.76rem; color: var(--p-text-color-secondary); background: var(--p-surface-50); border: 1px dashed var(--p-surface-200); border-radius: 6px; padding: 10px 12px;">
+                                                        <i class="pi pi-shield" style="color: var(--p-primary-500); font-size: 0.85rem;"></i>
+                                                        <span>
+                                                            Row-level isolation enabled on <strong>{{ sessionContextMap[table] }}</strong>. Queries auto-inject <code>WHERE {{ sessionContextMap[table] }} = @sessionValue</code>.
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            </Transition>
+                                        </div>
+                                    </div>
+
+                                    <!-- Manual override input -->
+                                    <div class="whitelist-manual">
+                                        <label>Manual override (comma-separated)</label>
+                                        <InputText v-model="dbConfig.allowedTables" placeholder="users, orders, products" fluid />
+                                        <small>This field stays in sync with the checkboxes above and can be edited directly.</small>
+                                    </div>
+                                </div>
+
+                            </div>
+                        </div>
+                    </template>
+                </Card>
             </div>
+            <!-- ── / DATABASE TAB ────────────────────────────────────── -->
 
         </main>
 
-        <Dialog
-            v-model:visible="showSettingsDialog"
-            header="Project Settings"
-            :modal="true"
-            :style="{ width: '640px' }"
-            :draggable="false"
-        >
+        <!-- ─── Dialogs (unchanged) ──────────────────────────────────────── -->
+        <Dialog v-model:visible="showSettingsDialog" header="Project Settings" :modal="true" :style="{ width: '640px' }" :draggable="false">
             <p class="info-text" style="margin-bottom: 20px;">Core settings for your project integration and security.</p>
             <div class="form-grid">
                 <div class="form-group col-span-2">
                     <label>System Prompt (Base)</label>
-                    <Textarea v-model="project.systemPrompt" rows="3" fluid />
+                    <div ref="settingsPromptEl" class="cm-host"></div>
                 </div>
                 <div class="form-group">
                     <label>Allowed Domains</label>
@@ -360,31 +696,16 @@ const {
                 </div>
                 <div class="form-group col-span-2">
                     <label>Webhook Secret (Optional)</label>
-                    <InputText
-                        v-model="project.webhookSecret"
-                        type="password"
-                        :placeholder="project.hasWebhookSecret ? '******** (Hidden)' : 'Leave blank to disable'"
-                        fluid
-                    />
+                    <InputText v-model="project.webhookSecret" type="password" :placeholder="project.hasWebhookSecret ? '******** (Hidden)' : 'Leave blank to disable'" fluid />
                     <small>If set, requests will include an X-Hub-Signature HMAC-SHA256 header.</small>
                 </div>
                 <div class="form-group col-span-2" style="margin-top: 10px;">
-                    <Button 
-                        label="Test Webhook Connection" 
-                        icon="pi pi-play" 
-                        severity="warn" 
-                        outlined 
-                        :loading="testingWebhook" 
-                        @click="testWebhookConnection"
-                        style="width: 100%;"
-                    />
+                    <Button label="Test Webhook Connection" icon="pi pi-play" severity="warn" outlined :loading="testingWebhook" @click="testWebhookConnection" style="width: 100%;" />
                 </div>
                 <div v-if="webhookTestResult" class="form-group col-span-2" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 8px; padding: 14px; margin-top: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <span style="font-weight: 600; font-size: 0.9rem;">Test Connection Results:</span>
-                        <span :class="webhookTestResult.success ? 'badge badge-success' : 'badge badge-danger'">
-                            {{ webhookTestResult.success ? 'Success' : 'Failed' }}
-                        </span>
+                        <span :class="webhookTestResult.success ? 'badge badge-success' : 'badge badge-danger'">{{ webhookTestResult.success ? 'Success' : 'Failed' }}</span>
                     </div>
                     <div style="font-size: 0.82rem; color: var(--p-text-color-secondary); margin-bottom: 8px; display: flex; gap: 16px;">
                         <span>Status: <strong>{{ webhookTestResult.statusCode }}</strong></span>
@@ -393,25 +714,13 @@ const {
                     <pre style="background: var(--p-surface-100); color: var(--p-text-color); padding: 10px; border: 1px solid var(--p-surface-200); border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 150px; overflow-y: auto; margin: 0; white-space: pre-wrap; word-break: break-all;">{{ webhookTestResult.responseBody || '(Empty response)' }}</pre>
                 </div>
             </div>
-
             <template #footer>
                 <Button label="Cancel" severity="secondary" outlined @click="showSettingsDialog = false" />
-                <Button
-                    label="Save Settings"
-                    icon="pi pi-save"
-                    :loading="savingProject"
-                    @click="saveProjectSettings(); showSettingsDialog = false;"
-                />
+                <Button label="Save Settings" icon="pi pi-save" :loading="savingProject" @click="saveProjectSettings(); showSettingsDialog = false;" />
             </template>
         </Dialog>
 
-        <Dialog
-            v-model:visible="showNewConfig"
-            modal
-            header="New Configuration"
-            :style="{ width: '480px' }"
-            :draggable="false"
-        >
+        <Dialog v-model:visible="showNewConfig" modal header="New Configuration" :style="{ width: '480px' }" :draggable="false">
             <div class="form">
                 <div class="dialog-form-group">
                     <label>Name</label>
@@ -419,24 +728,17 @@ const {
                 </div>
                 <div class="dialog-form-group">
                     <label>System Prompt</label>
-                    <Textarea v-model="newConfig.systemPrompt" rows="4" fluid />
+                    <div ref="newConfigPromptEl" class="cm-host"></div>
                 </div>
                 <span class="info-text">You can configure API keys, models, and voice mode after creation.</span>
             </div>
-
             <template #footer>
                 <Button label="Cancel" severity="secondary" outlined @click="showNewConfig = false" />
                 <Button label="Create" icon="pi pi-plus" :disabled="!newConfig.name" @click="createConfig" />
             </template>
         </Dialog>
 
-        <Dialog
-            v-model:visible="showNewKey"
-            modal
-            header="Generate API Key"
-            :style="{ width: '420px' }"
-            :draggable="false"
-        >
+        <Dialog v-model:visible="showNewKey" modal header="Generate API Key" :style="{ width: '420px' }" :draggable="false">
             <div class="form">
                 <div class="dialog-form-group">
                     <label>Label</label>
@@ -444,40 +746,20 @@ const {
                 </div>
                 <div class="dialog-form-group">
                     <label>Configuration</label>
-                    <Select
-                        v-model="newKey.configId"
-                        :options="configs"
-                        optionLabel="name"
-                        optionValue="id"
-                        placeholder="Select a configuration (required)"
-                        fluid
-                    />
+                    <Select v-model="newKey.configId" :options="configs" optionLabel="name" optionValue="id" placeholder="Select a configuration (required)" fluid />
                 </div>
-
                 <div v-if="generatedKey" class="generated-key-container">
                     <div class="code-block">{{ generatedKey }}</div>
                     <p class="warning-text"><i class="pi pi-exclamation-triangle"></i> Copy this now — you won't see it again.</p>
                 </div>
             </div>
-
             <template #footer>
                 <Button label="Close" severity="secondary" outlined @click="showNewKey = false" />
-                <Button
-                    label="Generate"
-                    icon="pi pi-key"
-                    :disabled="!!generatedKey || !newKey.configId"
-                    @click="generateKey"
-                />
+                <Button label="Generate" icon="pi pi-key" :disabled="!!generatedKey || !newKey.configId" @click="generateKey" />
             </template>
         </Dialog>
 
-        <Dialog
-            v-model:visible="showNewTool"
-            modal
-            :header="isEditingTool ? 'Edit Custom Tool' : 'New Custom Tool'"
-            :style="{ width: '600px' }"
-            :draggable="false"
-        >
+        <Dialog v-model:visible="showNewTool" modal :header="isEditingTool ? 'Edit Custom Tool' : 'New Custom Tool'" :style="{ width: '600px' }" :draggable="false">
             <div class="form">
                 <div class="dialog-form-group">
                     <label>Tool Name</label>
@@ -491,90 +773,49 @@ const {
                 </div>
                 <div class="dialog-form-group">
                     <label>Parameters JSON Schema</label>
-                    <Textarea
-                        v-model="newTool.parametersJsonSchema"
-                        rows="9"
-                        style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;"
-                        fluid
-                    />
+                    <div ref="toolParamsEditorEl" class="cm-host"></div>
                     <small>Standard JSON Schema defining the tool's input parameters.</small>
                 </div>
             </div>
-
             <template #footer>
                 <Button label="Cancel" severity="secondary" outlined @click="showNewTool = false" />
-                <Button
-                    :label="isEditingTool ? 'Save Changes' : 'Create Tool'"
-                    icon="pi pi-check"
-                    :disabled="!newTool.name || !newTool.description"
-                    @click="saveTool"
-                />
+                <Button :label="isEditingTool ? 'Save Changes' : 'Create Tool'" icon="pi pi-check" :disabled="!newTool.name || !newTool.description" @click="saveTool" />
             </template>
         </Dialog>
 
-        <Dialog
-            v-model:visible="showTestTool"
-            modal
-            :header="'Test Custom Tool: ' + (activeTestTool?.name || '')"
-            :style="{ width: '640px' }"
-            :draggable="false"
-        >
+        <Dialog v-model:visible="showTestTool" modal :header="'Test Custom Tool: ' + (activeTestTool?.name || '')" :style="{ width: '640px' }" :draggable="false">
             <div class="form" v-if="activeTestTool">
                 <div class="dialog-form-group">
                     <label>Description</label>
-                    <div style="font-size: 0.85rem; color: var(--p-text-color-secondary);">
-                        {{ activeTestTool.description }}
-                    </div>
+                    <div style="font-size: 0.85rem; color: var(--p-text-color-secondary);">{{ activeTestTool.description }}</div>
                 </div>
-
                 <div class="dialog-form-group">
                     <label>Parameters Schema (Read-only)</label>
-                    <pre style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 6px; padding: 10px; font-family: monospace; font-size: 0.8rem; margin: 0; max-height: 120px; overflow-y: auto; color: var(--p-text-color-secondary);">{{ activeTestTool.parametersJsonSchema }}</pre>
+                    <div ref="toolSchemaPreviewEl" class="cm-host"></div>
                 </div>
-
                 <div class="dialog-form-group">
                     <label>Test Arguments (JSON)</label>
-                    <Textarea
-                        v-model="testToolArguments"
-                        rows="6"
-                        style="font-family: 'JetBrains Mono', monospace; font-size: 0.82rem;"
-                        placeholder="{}"
-                        fluid
-                    />
+                    <div ref="testArgsEditorEl" class="cm-host"></div>
                     <small>Provide arguments matching the schema in valid JSON.</small>
                 </div>
-
                 <div v-if="toolTestResult" style="background: var(--p-surface-50); border: 1px solid var(--p-surface-200); border-radius: 8px; padding: 14px; margin-top: 10px;">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
                         <span style="font-weight: 600; font-size: 0.9rem;">Execution Results:</span>
-                        <span :class="toolTestResult.success ? 'badge badge-success' : 'badge badge-danger'">
-                            {{ toolTestResult.success ? 'Success' : 'Failed' }}
-                        </span>
+                        <span :class="toolTestResult.success ? 'badge badge-success' : 'badge badge-danger'">{{ toolTestResult.success ? 'Success' : 'Failed' }}</span>
                     </div>
-                    
                     <div v-if="toolTestResult.success" style="font-size: 0.85rem;">
                         <div style="font-weight: 600; margin-bottom: 4px;">Content:</div>
                         <pre style="background: var(--p-surface-100); color: var(--p-text-color); padding: 10px; border: 1px solid var(--p-surface-200); border-radius: 6px; font-family: monospace; font-size: 0.8rem; max-height: 150px; overflow-y: auto; margin: 0; white-space: pre-wrap; word-break: break-all;">{{ toolTestResult.content }}</pre>
                     </div>
-                    
                     <div v-else style="font-size: 0.85rem; color: var(--p-red-600);">
                         <div style="font-weight: 600; margin-bottom: 4px;">Error:</div>
-                        <div style="background: var(--p-red-50); border: 1px solid var(--p-red-200); color: var(--p-red-700); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all;">
-                            {{ toolTestResult.error }}
-                        </div>
+                        <div style="background: var(--p-red-50); border: 1px solid var(--p-red-200); color: var(--p-red-700); padding: 10px; border-radius: 6px; font-family: monospace; font-size: 0.8rem; white-space: pre-wrap; word-break: break-all;">{{ toolTestResult.error }}</div>
                     </div>
                 </div>
             </div>
-
             <template #footer>
                 <Button label="Close" severity="secondary" outlined @click="showTestTool = false" />
-                <Button
-                    label="Run Execution Test"
-                    icon="pi pi-play"
-                    severity="warn"
-                    :loading="testingTool"
-                    @click="executeToolTest"
-                />
+                <Button label="Run Execution Test" icon="pi pi-play" severity="warn" :loading="testingTool" @click="executeToolTest" />
             </template>
         </Dialog>
 

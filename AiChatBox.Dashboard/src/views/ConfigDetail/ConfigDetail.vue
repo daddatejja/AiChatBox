@@ -37,9 +37,6 @@ const {
 
 <template>
     <div>
-        <!-- ═══════════════════════════════════════════════════
-             FIXED HEADER
-        ═══════════════════════════════════════════════════ -->
         <header class="page-header">
             <div class="header-left">
                 <router-link :to="'/project/' + projectId" class="back-link">
@@ -69,12 +66,8 @@ const {
             </div>
         </header>
 
-        <!-- ═══════════════════════════════════════════════════
-             PAGE BODY
-        ═══════════════════════════════════════════════════ -->
         <main class="page-body">
 
-            <!-- ── Tab Navigation ── -->
             <nav class="tab-nav">
                 <button class="tab-btn" :class="{ active: activeTab === 'general' }" @click="activeTab = 'general'">
                     <i class="pi pi-sliders-h"></i> General
@@ -93,12 +86,8 @@ const {
                 </button>
             </nav>
 
-            <!-- ════════════════════════════════════════════════
-                 TAB: GENERAL
-            ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'general'">
 
-                <!-- System Prompt -->
                 <Card class="config-card">
                     <template #title>
                         <div class="flex-between">
@@ -144,7 +133,6 @@ const {
                     </template>
                 </Card>
 
-                <!-- Default Model + Voice -->
                 <Card class="config-card">
                     <template #title>Model Settings</template>
                     <template #content>
@@ -171,7 +159,6 @@ const {
                     </template>
                 </Card>
 
-                <!-- Quick-access buttons for dialogs -->
                 <div style="display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px;">
                     <Button
                         icon="pi pi-cog"
@@ -190,12 +177,8 @@ const {
                 </div>
             </div>
 
-            <!-- ════════════════════════════════════════════════
-                 TAB: PROVIDERS
-            ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'providers'">
 
-                <!-- Core Providers (collapsible) -->
                 <div
                     class="collapsible-header"
                     @click="toggleSection('coreProviders')"
@@ -262,7 +245,6 @@ const {
                     </Card>
                 </div>
 
-                <!-- Extra Providers (collapsible) -->
                 <div
                     v-if="extraProviders.length"
                     class="collapsible-header mt-4"
@@ -330,7 +312,6 @@ const {
                     </Card>
                 </div>
 
-                <!-- Custom Provider (collapsible) -->
                 <div
                     class="collapsible-header mt-4"
                     @click="toggleSection('customProvider')"
@@ -372,13 +353,9 @@ const {
                 </div>
             </div>
 
-            <!-- ════════════════════════════════════════════════
-                 TAB: CHANNELS
-            ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'channels'">
                 <p class="section-sub">Expose your AI assistant directly inside messaging apps. Each channel posts to its webhook URL below.</p>
 
-                <!-- WhatsApp -->
                 <div class="channel-block">
                     <h4 class="channel-title">
                         <i class="pi pi-whatsapp" style="color:#25D366;"></i>
@@ -403,7 +380,6 @@ const {
                     </div>
                 </div>
 
-                <!-- Slack -->
                 <div class="channel-block">
                     <h4 class="channel-title">
                         <i class="pi pi-slack" style="color:#611f69;"></i>
@@ -424,7 +400,6 @@ const {
                     </div>
                 </div>
 
-                <!-- Telegram -->
                 <div class="channel-block">
                     <h4 class="channel-title">
                         <i class="pi pi-telegram" style="color:#0088cc;"></i>
@@ -439,7 +414,6 @@ const {
                     </div>
                 </div>
 
-                <!-- Microsoft Teams -->
                 <div class="channel-block">
                     <h4 class="channel-title">
                         <i class="pi pi-microsoft" style="color:#0078d4;"></i>
@@ -461,9 +435,6 @@ const {
                 </div>
             </div>
 
-            <!-- ════════════════════════════════════════════════
-                 TAB: HANDOFF
-            ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'handoff'">
                 <p class="section-sub">Allow human agents to take over conversations when the AI cannot resolve the issue.</p>
                 <Card class="provider-card">
@@ -508,16 +479,11 @@ const {
                 </Card>
             </div>
 
-            <!-- ════════════════════════════════════════════════
-                 TAB: APPEARANCE
-            ════════════════════════════════════════════════ -->
             <div v-if="activeTab === 'appearance'">
                 <p class="section-sub">Customize how the chat widget looks on your website. All changes reflect in real-time in the preview below.</p>
                 
                 <div class="grid-2">
-                    <!-- Left Side: Styling Controls -->
                     <div style="display: flex; flex-direction: column; gap: 16px;">
-                        <!-- Core Layout -->
                         <Card class="config-card">
                             <template #content>
                                 <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
@@ -550,7 +516,6 @@ const {
                             </template>
                         </Card>
 
-                        <!-- Header Customization -->
                         <Card class="config-card">
                             <template #content>
                                 <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
@@ -585,7 +550,6 @@ const {
                             </template>
                         </Card>
 
-                        <!-- Message Bubbles & Radii -->
                         <Card class="config-card">
                             <template #content>
                                 <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
@@ -639,7 +603,6 @@ const {
                             </template>
                         </Card>
 
-                        <!-- Launcher & Shapes -->
                         <Card class="config-card">
                             <template #content>
                                 <h3 class="section-heading" style="margin-bottom: 12px; font-size: 0.95rem; display: flex; align-items: center; gap: 8px;">
@@ -679,7 +642,6 @@ const {
                         </Card>
                     </div>
 
-                    <!-- Right Side: Real-Time Preview Panel -->
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         <h3 class="section-heading" style="margin-left: 8px; margin-bottom: 0;">Interactive Live Preview</h3>
                         <div
@@ -707,7 +669,6 @@ const {
                             }"
                         >
                             <div :style="{ display: 'flex', 'flex-direction': 'column', 'align-items': theme.position === 'bottom-left' ? 'flex-start' : 'flex-end', gap: '16px', width: '100%', 'justify-content': 'flex-end' }">
-                                <!-- Mock Chatbox -->
                                 <div class="preview-widget" :style="{ 'border-radius': 'var(--preview-chat-radius)', width: '100%', 'max-width': '340px' }">
                                     <div class="preview-header" :style="{ background: 'var(--preview-header-bg)', color: 'var(--preview-header-text)', display: 'flex', 'flex-direction': 'column', gap: '2px', padding: '12px 16px' }">
                                         <span style="font-weight: 600; font-size: 0.95rem; line-height: 1.2;">{{ theme.title || config.name || 'AI Assistant' }}</span>
@@ -729,7 +690,6 @@ const {
                                     </div>
                                 </div>
                                 
-                                <!-- Floating Mock Toggle FAB -->
                                 <div class="preview-launcher" :style="{ background: 'var(--preview-launcher-bg)', color: 'var(--preview-launcher-icon)', 'border-radius': 'var(--preview-launcher-radius)', display: 'flex', 'align-items': 'center', 'justify-content': 'center', width: '52px', height: '52px', 'box-shadow': '0 4px 12px rgba(0,0,0,0.15)', cursor: 'pointer' }">
                                     <i class="pi pi-comments" style="font-size: 1.4rem;"></i>
                                 </div>
@@ -741,9 +701,6 @@ const {
 
         </main>
 
-        <!-- ═══════════════════════════════════════════════════
-             DIALOG: ADMINISTRATIVE CONTROLS
-        ═══════════════════════════════════════════════════ -->
         <Dialog
             v-model:visible="showAdminDialog"
             header="Administrative Controls"
@@ -819,9 +776,6 @@ const {
             </template>
         </Dialog>
 
-        <!-- ═══════════════════════════════════════════════════
-             DIALOG: TEMPLATE VARIABLES
-        ═══════════════════════════════════════════════════ -->
         <Dialog
             v-model:visible="showTemplateVarsDialog"
             header="Template Variables"
@@ -851,9 +805,6 @@ const {
             </template>
         </Dialog>
 
-        <!-- ═══════════════════════════════════════════════════
-             DIALOG: PROMPT HISTORY
-        ═══════════════════════════════════════════════════ -->
         <Dialog
             v-model:visible="showHistoryDialog"
             header="Prompt History"

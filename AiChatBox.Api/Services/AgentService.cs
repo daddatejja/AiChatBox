@@ -33,6 +33,7 @@ namespace AiChatBox.Api.Services
             string? apiKeyOverride = null,
             IEnumerable<ITool>? extraTools = null,
             Guid? sessionId = null,
+            string? sessionContext = null,
             [EnumeratorCancellation] CancellationToken ct = default)
         {
             var providerService = _llmFactory.GetProvider(provider);
@@ -57,7 +58,7 @@ namespace AiChatBox.Api.Services
                     var decryptedConn = _encryption.Decrypt(project.Database.ConnectionString);
                     if (!string.IsNullOrEmpty(decryptedConn))
                     {
-                        allTools.Add(new UserSqlTool(project.Database, decryptedConn));
+                        allTools.Add(new UserSqlTool(project.Database, decryptedConn, sessionContext));
                         
                         var schema = GetCompactSchema(project.Database.SchemaDefinition);
                         if (!string.IsNullOrEmpty(schema))

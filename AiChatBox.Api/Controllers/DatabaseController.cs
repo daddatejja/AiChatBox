@@ -34,6 +34,11 @@ namespace AiChatBox.Api.Controllers
                 project.Database.Id,
                 project.Database.Type,
                 project.Database.SchemaDefinition,
+                project.Database.AllowedTables,
+                project.Database.AllowedColumnsJson,
+                project.Database.MaxQueryTimeoutSeconds,
+                project.Database.MaxRecordsPerQuery,
+                project.Database.SessionContextFilterJson,
                 HasConnectionString = !string.IsNullOrEmpty(project.Database.ConnectionString)
             });
         }
@@ -56,6 +61,15 @@ namespace AiChatBox.Api.Controllers
 
             project.Database.Type = request.Type;
             project.Database.SchemaDefinition = request.SchemaDefinition;
+            project.Database.AllowedTables = request.AllowedTables;
+            project.Database.AllowedColumnsJson = request.AllowedColumnsJson;
+            project.Database.MaxQueryTimeoutSeconds = request.MaxQueryTimeoutSeconds > 0 && request.MaxQueryTimeoutSeconds <= 30
+                ? request.MaxQueryTimeoutSeconds
+                : 5;
+            project.Database.MaxRecordsPerQuery = request.MaxRecordsPerQuery > 0 && request.MaxRecordsPerQuery <= 1000
+                ? request.MaxRecordsPerQuery
+                : 100;
+            project.Database.SessionContextFilterJson = request.SessionContextFilterJson;
 
             if (!string.IsNullOrEmpty(request.ConnectionString))
             {
@@ -69,6 +83,11 @@ namespace AiChatBox.Api.Controllers
                 project.Database.Id,
                 project.Database.Type,
                 project.Database.SchemaDefinition,
+                project.Database.AllowedTables,
+                project.Database.AllowedColumnsJson,
+                project.Database.MaxQueryTimeoutSeconds,
+                project.Database.MaxRecordsPerQuery,
+                project.Database.SessionContextFilterJson,
                 HasConnectionString = !string.IsNullOrEmpty(project.Database.ConnectionString)
             });
         }
@@ -206,5 +225,11 @@ namespace AiChatBox.Api.Controllers
         public DatabaseType Type { get; set; }
         public string? ConnectionString { get; set; }
         public string? SchemaDefinition { get; set; }
+        public string? AllowedTables { get; set; }
+        /// <summary>JSON map: { "TableName": ["col1", "col2"] | null }</summary>
+        public string? AllowedColumnsJson { get; set; }
+        public int MaxQueryTimeoutSeconds { get; set; }
+        public int MaxRecordsPerQuery { get; set; }
+        public string? SessionContextFilterJson { get; set; }
     }
 }

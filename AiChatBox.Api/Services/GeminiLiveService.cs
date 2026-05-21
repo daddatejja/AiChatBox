@@ -50,6 +50,7 @@ namespace AiChatBox.Api.Services
         public event Func<string, string, Dictionary<string, object>, bool, Task>? OnToolCall;
         public event Func<string, string, object, Task>? OnToolResult;
         public event Action<string>? OnError;
+        public event Action<string>? OnDisconnected;
 
         private readonly List<TimelineEvent> _timelineEvents = new();
         private readonly MemoryStream _userAudioBuffer = new();
@@ -254,6 +255,7 @@ namespace AiChatBox.Api.Services
                     {
                         await _webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);
                         _logger.LogInformation("Gemini closed the connection: {Status}", result.CloseStatus);
+                        OnDisconnected?.Invoke($"Gemini closed the connection: {result.CloseStatus}");
                         break;
                     }
 
@@ -274,6 +276,7 @@ namespace AiChatBox.Api.Services
             {
                 _logger.LogError(ex, "Error in Gemini WebSocket receive loop");
                 OnError?.Invoke($"Gemini connection error: {ex.Message}");
+                OnDisconnected?.Invoke("Connection to Gemini was lost.");
             }
         }
 

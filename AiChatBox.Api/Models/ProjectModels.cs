@@ -218,6 +218,19 @@ namespace AiChatBox.Api.Models
         
         public string? SchemaDefinition { get; set; } // DDL text
 
+        public string? AllowedTables { get; set; }
+
+        /// <summary>
+        /// JSON map of table → allowed column list (null = all columns allowed).
+        /// Shape: { "orders": ["id", "total"], "users": null }
+        /// Enforced at query time in UserSqlTool (Strategy A: rejects SELECT * for restricted tables).
+        /// </summary>
+        public string? AllowedColumnsJson { get; set; }
+
+        public int MaxQueryTimeoutSeconds { get; set; } = 5;
+        public int MaxRecordsPerQuery { get; set; } = 100;
+        public string? SessionContextFilterJson { get; set; }
+
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     }
 

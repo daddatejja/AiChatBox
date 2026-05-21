@@ -130,7 +130,6 @@ builder.Services.AddHttpClient<FirecrawlService>();
 builder.Services.AddScoped<FlowExecutionService>();
 
 // Agent & Tools
-builder.Services.AddScoped<ITool, InternalSqlTool>();
 builder.Services.AddScoped<ToolRegistry>();
 builder.Services.AddScoped<AgentService>();
 builder.Services.AddScoped<IntentClassifierService>();

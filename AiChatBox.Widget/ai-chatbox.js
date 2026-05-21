@@ -1000,6 +1000,8 @@
                   }
                   .agent-side .message-bubble { background: var(--bot-msg-bg, var(--primary-color, #6366f1)); color: var(--bot-msg-text, white); border-radius: var(--bubble-border-radius, 20px); border-bottom-left-radius: 4px; }
                   .agent-avatar { background: var(--header-bg, var(--primary-color, #6366f1)); color: var(--header-text, white); }
+                  .message-image-container { margin-bottom: 8px; border-radius: 8px; overflow: hidden; display: flex; justify-content: flex-start; background: rgba(0,0,0,0.02); }
+                  .message-image { max-width: 100%; max-height: 400px; height: auto; display: block; border-radius: 8px; object-fit: contain; }
                 </style>
                 
                 <button class="chatbox-toggle-btn" id="fab-toggle" title="Open AI Assistant">
@@ -1109,7 +1111,7 @@
                             
                             <div class="input-row">
                                 <button class="modern-action-btn" id="btn-attach" title="Attach file">${this.icons.attach}</button>
-                                <input type="file" id="file-input" style="display:none" multiple>
+                                <input type="file" id="file-input" style="display:none">
                                 
                                 <textarea class="modern-chat-input" id="chat-input" placeholder="${this.config?.theme?.placeholder || "Message AI Assistant..."}" rows="1"></textarea>
                                 
@@ -1222,6 +1224,29 @@
           }
         }
       };
+
+      chatInput.addEventListener('paste', (e) => {
+        const items = (e.clipboardData || e.originalEvent.clipboardData).items;
+        for (let index in items) {
+          const item = items[index];
+          if (item.kind === 'file' && item.type.startsWith('image/')) {
+            const blob = item.getAsFile();
+            const reader = new FileReader();
+            reader.onload = (event) => {
+              // Clear any existing attachment when pasting an image
+              this.attachments = [];
+              this.pastedImage = {
+                data: event.target.result,
+                type: item.type
+              };
+              this.renderAttachments();
+            };
+            reader.readAsDataURL(blob);
+            e.preventDefault();
+            break;
+          }
+        }
+      });
 
       chatInput.oninput = (e) => {
         this.adjustTextAreaHeight(e.target);
@@ -1762,7 +1787,8 @@
             modelName: selectedModel,
             attachedFileId: null,
             imageDataUrl: null,
-            context: this.getPageContext()
+            context: this.getPageContext(),
+            sessionContext: this.getAttribute("session-context") || null
           }),
         });
 
@@ -1945,7 +1971,7 @@
     // ---- Messaging Logic ----
     async sendMessage() {
       const input = this.shadowRoot.getElementById("chat-input");
-      const text = input.value.trim();
+      let text = input.value.trim();
       if (!text && !this.attachments.length && !this.pastedImage) return;
 
       const emptyState = this.shadowRoot.querySelector(".chatbox-empty-state");
@@ -2015,7 +2041,8 @@
             modelName: selectedModel,
             attachedFileId,
             imageDataUrl,
-            context: this.getPageContext()
+            context: this.getPageContext(),
+            sessionContext: this.getAttribute("session-context") || null
           }),
         });
 
@@ -2131,7 +2158,8 @@
             modelName: selectedModel,
             attachedFileId,
             imageDataUrl,
-            context: this.getPageContext()
+            context: this.getPageContext(),
+            sessionContext: this.getAttribute("session-context") || null
           }),
         });
         
@@ -2238,7 +2266,8 @@
           provider: toolProvider,
           modelName: toolModel,
           toolResults: results,
-          context: this.getPageContext()
+          context: this.getPageContext(),
+          sessionContext: this.getAttribute("session-context") || null
         }),
       });
 
@@ -2338,10 +2367,10 @@
         }
       } else {
         // Support external handling via submitToolResult
-        const callId = id || `live-${name}-${Date.now()}`;
+        const effectiveCallId = callId || `live-${name}-${Date.now()}`;
         const resultPromise = new Promise((resolve) => {
           const onResult = (e) => {
-            if (e.detail.callId === callId || e.detail.callId === name) {
+            if (e.detail.callId === effectiveCallId || e.detail.callId === name) {
               this.removeEventListener('tool-result-submitted', onResult);
               resolve(e.detail.result);
             }
@@ -2357,7 +2386,7 @@
 
         // Dispatch event for external handling
         const event = new CustomEvent("tool-call", {
-          detail: { name, args, live: true, callId },
+          detail: { name, args, live: true, callId: effectiveCallId },
           bubbles: true,
           composed: true
         });
@@ -2576,6 +2605,9 @@
       if (this.abortController) {
         this.abortController.abort();
       }
+      if (this.isLive) {
+        this.stopLiveSession();
+      }
       this.stopGeneration();
       this.stopHandoffConnection();
       this.handoffStatus = "ai";
@@ -2596,6 +2628,10 @@
 
     // ---- Live Mode Logic ----
     async toggleLiveMode() {
+      if (this.handoffStatus === "active" || this.handoffStatus === "queued") {
+        alert("Live voice is not available during an active support session.");
+        return;
+      }
       if (this.isLive) {
         this.stopLiveSession();
       } else {
@@ -2646,6 +2682,11 @@
         this.liveConnection.on("ReceiveInputTranscription", text => this.addLiveMessage("user", text));
         this.liveConnection.on("ReceiveToolCall", (id, name, args, isBackend) => this.handleLiveToolCall(name, args, id, isBackend));
         this.liveConnection.on("ReceiveToolResult", (id, name, result) => this.handleLiveToolResult(id, name, result));
+        this.liveConnection.on("ReceiveError", (msg) => this.showLiveError(msg));
+        this.liveConnection.on("ReceiveDisconnected", (reason) => {
+          this.updateLiveStatus("error", "Disconnected");
+          this.showLiveError("Connection lost: " + reason);
+        });
         
         await this.liveConnection.start();
         const voice = this.shadowRoot.getElementById("voice-select").value;
@@ -2684,6 +2725,23 @@
         processor.connect(this.audioContext.destination);
         this.updateLiveStatus("listening", "Listening");
         this.shadowRoot.getElementById("live-error-bar").style.display = "none";
+        
+        this.visibilityHandler = async () => {
+          if (document.visibilityState === 'visible' && this.isLive) {
+            if (this.audioContext && this.audioContext.state === 'suspended') {
+              await this.audioContext.resume();
+            }
+            if (this.playbackContext && this.playbackContext.state === 'suspended') {
+              await this.playbackContext.resume();
+            }
+            this.updateLiveStatus("listening", "Listening");
+            this.shadowRoot.getElementById("live-error-bar").style.display = "none";
+          } else if (document.visibilityState === 'hidden' && this.isLive) {
+            this.updateLiveStatus("warning", "Backgrounded");
+            this.showLiveError("Tab is backgrounded. Audio may be delayed.");
+          }
+        };
+        document.addEventListener('visibilitychange', this.visibilityHandler);
       } catch (err) {
         console.error("Live session startup failed:", err);
         this.updateLiveStatus("error", "Error Occurred");
@@ -2716,8 +2774,19 @@
       if (this.liveConnection) this.liveConnection.stop();
       if (this.micStream) this.micStream.getTracks().forEach(t => t.stop());
       if (this.audioContext) this.audioContext.close();
+      if (this.playbackContext) {
+        this.playbackContext.close();
+        this.playbackContext = null;
+      }
+      this.playbackAnalyser = null;
+      this.nextPlayTime = 0;
       this.audioContext = null;
       this.liveConnection = null;
+
+      if (this.visibilityHandler) {
+        document.removeEventListener('visibilitychange', this.visibilityHandler);
+        this.visibilityHandler = null;
+      }
     }
 
     async playAudioChunk(data) {
@@ -3190,7 +3259,10 @@
           const fileName = m.AttachedFileName || m.attachedFileName;
           const img = m.ImageDataUrl || m.imageDataUrl;
           
-          const displayHtml = img ? `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + content : content;
+          let displayHtml = img ? `<div class="message-image-container"><img src="${img}" class="message-image"></div>` + content : content;
+          if (fileId && fileName) {
+            displayHtml += `<div class="message-attachment-pill">${this.icons.attach} <span>${fileName}</span></div>`;
+          }
           const displayRole = role === "agent" ? "agent" : (isAi ? "ai" : "user");
           const msgWrap = this.addMessage(displayRole, isAi || displayRole === "agent" ? `<div class="message-text-content">${displayHtml}</div><div class="message-widget-container"></div>` : displayHtml, fileId, fileName, m.Id || m.id);
           
@@ -3234,18 +3306,39 @@
 
     handleFileSelection(e) {
       const files = Array.from(e.target.files);
-      files.forEach(async (file) => {
-        const attachment = { name: file.name, isUploading: true, id: null };
-        this.attachments.push(attachment);
+      if (files.length === 0) return;
+      
+      // We only support one file at a time
+      const file = files[0];
+      
+      // Clear existing attachments
+      this.attachments = [];
+      this.pastedImage = null;
+
+      if (file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (event) => {
+          this.pastedImage = {
+            data: event.target.result,
+            type: file.type
+          };
+          this.renderAttachments();
+        };
+        reader.readAsDataURL(file);
+        return;
+      }
+
+      const attachment = { name: file.name, isUploading: true, id: null };
+      this.attachments.push(attachment);
+      this.renderAttachments();
+      
+      this.uploadFile(file).then(uploaded => {
+        attachment.id = uploaded.id;
+        attachment.isUploading = false;
         this.renderAttachments();
-        try {
-          const uploaded = await this.uploadFile(file);
-          attachment.id = uploaded.id;
-          attachment.isUploading = false;
-        } catch (err) {
-          attachment.error = true;
-          attachment.isUploading = false;
-        }
+      }).catch(err => {
+        attachment.error = true;
+        attachment.isUploading = false;
         this.renderAttachments();
       });
     }
@@ -3271,12 +3364,20 @@
       container.style.display = "flex";
       container.innerHTML = "";
       this.attachments.forEach((att, i) => {
+        let icon = this.icons.attach;
+        if (att.name) {
+          const ext = att.name.split('.').pop().toLowerCase();
+          if (['pdf'].includes(ext)) icon = this.icons.pdf || this.icons.attach;
+          else if (['xls', 'xlsx', 'csv'].includes(ext)) icon = this.icons.excel || this.icons.attach;
+          else if (['doc', 'docx', 'txt', 'rtf', 'md'].includes(ext)) icon = this.icons.list || this.icons.attach;
+        }
+
         const pill = document.createElement("div");
         pill.className = `attached-file-pill ${att.error ? "error" : ""}`;
         pill.innerHTML = `
-          ${this.icons.attach}
-          <span>${att.name}</span>
-          <button class="remove-attachment" data-idx="${i}">${this.icons.close}</button>
+          ${icon}
+          <span class="attached-file-name">${att.name}</span>
+          <button class="remove-attachment-btn" data-idx="${i}">${this.icons.close}</button>
         `;
         pill.querySelector("button").onclick = () => {
           this.attachments.splice(i, 1);
@@ -3284,6 +3385,22 @@
         };
         container.appendChild(pill);
       });
+
+      if (this.pastedImage) {
+        const pill = document.createElement("div");
+        pill.className = "attached-file-pill";
+        pill.innerHTML = `
+          <img src="${this.pastedImage.data}" class="pasted-image-thumb" alt="Pasted Image">
+          <span class="attached-file-name">Pasted Image</span>
+          <button class="remove-attachment-btn">${this.icons.close}</button>
+        `;
+        pill.querySelector("button").onclick = () => {
+          this.pastedImage = null;
+          this.renderAttachments();
+        };
+        container.appendChild(pill);
+      }
+
       this.updateSendButtonState();
     }
 
