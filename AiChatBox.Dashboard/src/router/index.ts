@@ -128,13 +128,20 @@ const router = createRouter({
 
 router.beforeEach(async (to) => {
   const tokenQuery = to.query.token as string;
+  const isImpersonating = to.query.impersonate === 'true' || sessionStorage.getItem('acb_is_impersonating') === 'true';
+
   if (tokenQuery) {
-    localStorage.setItem('acb_token', tokenQuery);
+    if (isImpersonating) {
+      sessionStorage.setItem('acb_token', tokenQuery);
+      sessionStorage.setItem('acb_is_impersonating', 'true');
+    } else {
+      localStorage.setItem('acb_token', tokenQuery);
+    }
   }
 
   const requiresAuth = to.matched.some(record => record.meta.requiresAuth);
-  const token = localStorage.getItem('acb_token');
-  let userRaw = localStorage.getItem('acb_user');
+  const token = sessionStorage.getItem('acb_token') || localStorage.getItem('acb_token');
+  let userRaw = sessionStorage.getItem('acb_user') || localStorage.getItem('acb_user');
 
   if (token && (!userRaw || tokenQuery)) {
     try {
@@ -142,14 +149,23 @@ router.beforeEach(async (to) => {
       const res = await apiFetch('/api/auth/me');
       if (res.ok) {
         const data = await res.json();
-        localStorage.setItem('acb_user', JSON.stringify({
+        const userData = {
           username: data.username,
           email: data.email,
           role: data.role,
-          partnerAccountId: data.partnerAccountId
-        }));
-        localStorage.setItem('acb_username', data.username);
-        userRaw = localStorage.getItem('acb_user');
+          partnerAccountId: data.partnerAccountId,
+          impersonatedBy: data.impersonatedBy
+        };
+
+        if (isImpersonating || data.impersonatedBy) {
+          sessionStorage.setItem('acb_user', JSON.stringify(userData));
+          sessionStorage.setItem('acb_username', data.username);
+          sessionStorage.setItem('acb_is_impersonating', 'true');
+        } else {
+          localStorage.setItem('acb_user', JSON.stringify(userData));
+          localStorage.setItem('acb_username', data.username);
+        }
+        userRaw = sessionStorage.getItem('acb_user') || localStorage.getItem('acb_user');
       }
     } catch (err) {
       console.error('Failed to retrieve user profile in router guard', err);
@@ -165,6 +181,14 @@ router.beforeEach(async (to) => {
   // Handle Embed token route specifically
   if (to.path.startsWith('/embed') && tokenQuery) {
     return;
+  }
+
+  if (tokenQuery) {
+    // Strip token and impersonate parameters to keep URL clean
+    const query = { ...to.query };
+    delete query.token;
+    delete query.impersonate;
+    return { path: to.path, query };
   }
 
   // Role guard check

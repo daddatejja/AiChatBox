@@ -19,6 +19,8 @@ import { useConfirm } from 'primevue/useconfirm';
 import ColorPicker from 'primevue/colorpicker';
 import InputNumber from 'primevue/inputnumber';
 import Checkbox from 'primevue/checkbox';
+import Password from 'primevue/password';
+import Slider from 'primevue/slider';
 
 const route = useRoute();
 const { apiFetch, getToken, API_BASE } = useApi();
@@ -36,7 +38,12 @@ const embedSettings = ref({
     showPrompt: true,
     showKnowledgeBase: true,
     showRules: true,
-    showWidgetCustomization: true
+    showWidgetCustomization: true,
+    showWebhooks: true,
+    showChannels: true,
+    showConfigSelect: true,
+    showHandoff: true,
+    showLimits: true
 });
 
 const activeTab = ref('');
@@ -48,7 +55,60 @@ const allowedTabs = computed(() => {
     if (embedSettings.value.showKnowledgeBase) list.push({ id: 'knowledge', label: 'Knowledge Base', icon: 'pi pi-database' });
     if (embedSettings.value.showRules) list.push({ id: 'rules', label: 'Conversation Rules', icon: 'pi pi-book' });
     if (embedSettings.value.showWidgetCustomization) list.push({ id: 'widget', label: 'Widget Styling', icon: 'pi pi-palette' });
+    if (embedSettings.value.showWebhooks) list.push({ id: 'webhooks', label: 'Webhooks', icon: 'pi pi-link' });
+    if (embedSettings.value.showChannels) list.push({ id: 'channels', label: 'Integrations', icon: 'pi pi-share-alt' });
+    if (embedSettings.value.showHandoff) list.push({ id: 'handoff', label: 'Human Handoff', icon: 'pi pi-user-plus' });
+    if (embedSettings.value.showLimits) list.push({ id: 'limits', label: 'Limits & Logs', icon: 'pi pi-sliders-h' });
     return list;
+});
+
+// Configurations List & Dialogs State
+const configurations = ref<any[]>([]);
+const showCreateConfigDialog = ref(false);
+const newConfigName = ref('');
+const creatingConfig = ref(false);
+
+// Webhook & Domains State
+const webhookForm = reactive({
+    webhookUrl: '',
+    webhookSecret: '',
+    allowedDomains: ''
+});
+const testingWebhook = ref(false);
+const webhookTestResult = ref<any>(null);
+
+// Channels Setup State
+const channelsForm = reactive({
+    whatsApp: { phoneNumberId: '', accessToken: '', verifyToken: '' },
+    slack: { botToken: '', signingSecret: '' },
+    telegram: { botToken: '' },
+    teams: { appId: '', appPassword: '' }
+});
+
+function resetChannelsForm() {
+    channelsForm.whatsApp = { phoneNumberId: '', accessToken: '', verifyToken: '' };
+    channelsForm.slack = { botToken: '', signingSecret: '' };
+    channelsForm.telegram = { botToken: '' };
+    channelsForm.teams = { appId: '', appPassword: '' };
+}
+
+// Live Handoff State
+const handoffForm = reactive({
+    handoffEnabled: false,
+    handoffTriggerKeywords: '',
+    handoffEscalationCriteria: '',
+    handoffConfidenceThreshold: 70,
+    handoffQueueMessage: ''
+});
+
+// Limits State
+const limitsForm = reactive({
+    rateLimitRequests: 0,
+    rateLimitWindowMinutes: 60,
+    maxSpendLimit: 0,
+    logRetentionDays: 30,
+    maxLogsPerSession: 500,
+    maxSessionsPerProject: 50
 });
 
 // Height adjustment postMessage
@@ -385,6 +445,314 @@ async function saveThemeSettings() {
 }
 
 // ──────────────────────────────────────────
+// Configurations & Tab Settings Save Handlers
+// ──────────────────────────────────────────
+async function loadConfigurations() {
+    try {
+        const configsRes = await apiFetch(`/api/project/${projectId.value}/configurations`);
+        if (configsRes.ok) {
+            configurations.value = await configsRes.json();
+            if (configurations.value.length > 0) {
+                const found = configurations.value.find(c => c.id === configId.value);
+                if (!found) {
+                    configId.value = configurations.value[0].id;
+                }
+            } else {
+                configId.value = null;
+            }
+        }
+    } catch (e) {
+        console.error(e);
+    }
+}
+
+async function loadConfigDetails() {
+    if (!configId.value) return;
+    try {
+        const detailRes = await apiFetch(`/api/configuration/${configId.value}`);
+        if (detailRes.ok) {
+            const configDetail = await detailRes.json();
+            
+            // Populate prompt settings
+            promptForm.systemPrompt = configDetail.systemPrompt || '';
+            promptForm.defaultProvider = configDetail.defaultProvider || 'gemini';
+            promptForm.defaultModel = configDetail.defaultModel || 'gemini-3.1-flash-lite-preview';
+
+            // Populate theme settings
+            if (configDetail.themeSettingsJson) {
+                try {
+                    const parsedTheme = JSON.parse(configDetail.themeSettingsJson);
+                    Object.assign(theme, { ...defaultTheme, ...parsedTheme });
+                } catch {
+                    Object.assign(theme, defaultTheme);
+                }
+            } else {
+                Object.assign(theme, defaultTheme);
+            }
+
+            // Populate channels
+            if (configDetail.channelSettingsJson) {
+                try {
+                    const parsedChannels = JSON.parse(configDetail.channelSettingsJson);
+                    resetChannelsForm();
+                    if (parsedChannels.whatsApp) Object.assign(channelsForm.whatsApp, parsedChannels.whatsApp);
+                    if (parsedChannels.slack) Object.assign(channelsForm.slack, parsedChannels.slack);
+                    if (parsedChannels.telegram) Object.assign(channelsForm.telegram, parsedChannels.telegram);
+                    if (parsedChannels.teams) Object.assign(channelsForm.teams, parsedChannels.teams);
+                } catch {
+                    resetChannelsForm();
+                }
+            } else {
+                resetChannelsForm();
+            }
+
+            // Populate handoff
+            handoffForm.handoffEnabled = configDetail.handoffEnabled || false;
+            handoffForm.handoffTriggerKeywords = configDetail.handoffTriggerKeywords || '';
+            handoffForm.handoffEscalationCriteria = configDetail.handoffEscalationCriteria || '';
+            handoffForm.handoffConfidenceThreshold = configDetail.handoffConfidenceThreshold != null 
+                ? Math.round(configDetail.handoffConfidenceThreshold * 100) 
+                : 70;
+            handoffForm.handoffQueueMessage = configDetail.handoffQueueMessage || '';
+
+            // Populate limits
+            limitsForm.rateLimitRequests = configDetail.rateLimitRequests || 0;
+            limitsForm.rateLimitWindowMinutes = configDetail.rateLimitWindowMinutes || 60;
+            limitsForm.maxSpendLimit = configDetail.maxSpendLimit || 0;
+            limitsForm.logRetentionDays = configDetail.logRetentionDays || 30;
+            limitsForm.maxLogsPerSession = configDetail.maxLogsPerSession || 500;
+            limitsForm.maxSessionsPerProject = configDetail.maxSessionsPerProject || 50;
+        }
+    } catch (e) {
+        console.error(e);
+    } finally {
+        notifyParentHeight();
+    }
+}
+
+watch(configId, (newVal) => {
+    if (newVal) {
+        loadConfigDetails();
+    }
+});
+
+async function saveWebhookSettings() {
+    saving.value = true;
+    try {
+        const payload: any = {
+            name: project.value.name,
+            systemPrompt: project.value.systemPrompt || '',
+            provider: project.value.provider || '',
+            modelName: project.value.modelName || '',
+            webhookUrl: webhookForm.webhookUrl,
+            allowedDomains: webhookForm.allowedDomains
+        };
+        if (webhookForm.webhookSecret) {
+            payload.webhookSecret = webhookForm.webhookSecret;
+        }
+
+        const res = await apiFetch(`/api/project/${projectId.value}`, {
+            method: 'PUT',
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            toast.add({ severity: 'success', summary: 'Saved', detail: 'Webhook and domain settings updated.', life: 3000 });
+            webhookForm.webhookSecret = ''; // Clear secret input after save
+            // Refresh project settings
+            const projectRes = await apiFetch(`/api/project/${projectId.value}`);
+            if (projectRes.ok) {
+                project.value = await projectRes.json();
+            }
+        } else {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to update webhook settings.', life: 3000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'An unexpected error occurred.', life: 3000 });
+    } finally {
+        saving.value = false;
+    }
+}
+
+async function testWebhookConnection() {
+    testingWebhook.value = true;
+    webhookTestResult.value = null;
+    try {
+        const payload: any = {
+            webhookUrl: webhookForm.webhookUrl
+        };
+        if (webhookForm.webhookSecret) {
+            payload.webhookSecret = webhookForm.webhookSecret;
+        }
+        
+        const res = await apiFetch(`/api/tool/project/${projectId.value}/test-webhook-connection`, {
+            method: 'POST',
+            body: JSON.stringify(payload)
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            webhookTestResult.value = data;
+            if (data.success) {
+                toast.add({ severity: 'success', summary: 'Ping Success', detail: `Webhook responded with status ${data.statusCode}.`, life: 3000 });
+            } else {
+                toast.add({ severity: 'warn', summary: 'Ping Failed', detail: `Webhook test failed: ${data.responseBody || 'Status ' + data.statusCode}`, life: 5000 });
+            }
+        } else {
+            const errText = await res.text();
+            toast.add({ severity: 'error', summary: 'Error', detail: errText || 'Failed to trigger webhook test.', life: 5000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to test webhook connection.', life: 3000 });
+    } finally {
+        testingWebhook.value = false;
+    }
+}
+
+async function saveChannelSettings() {
+    if (!configId.value) return;
+    saving.value = true;
+    try {
+        const res = await apiFetch(`/api/configuration/${configId.value}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                channelSettingsJson: JSON.stringify(channelsForm)
+            })
+        });
+        if (res.ok) {
+            toast.add({ severity: 'success', summary: 'Saved', detail: 'Integration channel settings saved.', life: 3000 });
+        } else {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to save integration channels.', life: 3000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'An error occurred.', life: 3000 });
+    } finally {
+        saving.value = false;
+    }
+}
+
+async function saveHandoffSettings() {
+    if (!configId.value) return;
+    saving.value = true;
+    try {
+        const res = await apiFetch(`/api/configuration/${configId.value}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                handoffEnabled: handoffForm.handoffEnabled,
+                handoffTriggerKeywords: handoffForm.handoffTriggerKeywords,
+                handoffEscalationCriteria: handoffForm.handoffEscalationCriteria,
+                handoffConfidenceThreshold: handoffForm.handoffConfidenceThreshold / 100,
+                handoffQueueMessage: handoffForm.handoffQueueMessage
+            })
+        });
+        if (res.ok) {
+            toast.add({ severity: 'success', summary: 'Saved', detail: 'Live handoff settings saved.', life: 3000 });
+        } else {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to save live handoff settings.', life: 3000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'An error occurred.', life: 3000 });
+    } finally {
+        saving.value = false;
+    }
+}
+
+async function saveLimitsSettings() {
+    if (!configId.value) return;
+    saving.value = true;
+    try {
+        const res = await apiFetch(`/api/configuration/${configId.value}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                rateLimitRequests: limitsForm.rateLimitRequests,
+                rateLimitWindowMinutes: limitsForm.rateLimitWindowMinutes,
+                maxSpendLimit: limitsForm.maxSpendLimit,
+                logRetentionDays: limitsForm.logRetentionDays,
+                maxLogsPerSession: limitsForm.maxLogsPerSession,
+                maxSessionsPerProject: limitsForm.maxSessionsPerProject
+            })
+        });
+        if (res.ok) {
+            toast.add({ severity: 'success', summary: 'Saved', detail: 'Rate and spend limits saved.', life: 3000 });
+        } else {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to save limits.', life: 3000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'An error occurred.', life: 3000 });
+    } finally {
+        saving.value = false;
+    }
+}
+
+async function createConfiguration() {
+    if (!newConfigName.value.trim()) return;
+    creatingConfig.value = true;
+    try {
+        const res = await apiFetch(`/api/project/${projectId.value}/configurations`, {
+            method: 'POST',
+            body: JSON.stringify({
+                name: newConfigName.value.trim(),
+                systemPrompt: 'You are a helpful AI assistant.',
+                defaultProvider: 'gemini',
+                defaultModel: 'gemini-3.1-flash-lite-preview'
+            })
+        });
+        if (res.ok) {
+            const newConfig = await res.json();
+            toast.add({ severity: 'success', summary: 'Created', detail: `Configuration "${newConfig.name}" created.`, life: 3000 });
+            showCreateConfigDialog.value = false;
+            newConfigName.value = '';
+            
+            await loadConfigurations();
+            configId.value = newConfig.id;
+        } else {
+            toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to create configuration.', life: 3000 });
+        }
+    } catch (e) {
+        console.error(e);
+        toast.add({ severity: 'error', summary: 'Error', detail: 'An error occurred.', life: 3000 });
+    } finally {
+        creatingConfig.value = false;
+    }
+}
+
+async function deleteConfiguration() {
+    if (!configId.value) return;
+    const currentConfig = configurations.value.find(c => c.id === configId.value);
+    const configName = currentConfig ? currentConfig.name : 'this configuration';
+    
+    confirm.require({
+        message: `Are you sure you want to delete "${configName}"? This action cannot be undone.`,
+        header: 'Confirm Deletion',
+        icon: 'pi pi-exclamation-triangle',
+        acceptProps: { label: 'Delete', severity: 'danger' },
+        rejectProps: { label: 'Cancel', severity: 'secondary', outlined: true },
+        accept: async () => {
+            try {
+                const res = await apiFetch(`/api/configuration/${configId.value}`, {
+                    method: 'DELETE'
+                });
+                if (res.ok) {
+                    toast.add({ severity: 'success', summary: 'Deleted', detail: 'Configuration removed.', life: 3000 });
+                    configId.value = null;
+                    await loadConfigurations();
+                } else {
+                    toast.add({ severity: 'error', summary: 'Error', detail: 'Failed to delete configuration.', life: 3000 });
+                }
+            } catch (e) {
+                console.error(e);
+                toast.add({ severity: 'error', summary: 'Error', detail: 'An error occurred.', life: 3000 });
+            }
+        }
+    });
+}
+
+// ──────────────────────────────────────────
 // Initialization
 // ──────────────────────────────────────────
 async function init() {
@@ -398,6 +766,11 @@ async function init() {
         }
         project.value = await projectRes.json();
         
+        // Populate webhook settings
+        webhookForm.webhookUrl = project.value.webhookUrl || '';
+        webhookForm.allowedDomains = project.value.allowedDomains || '';
+        webhookForm.webhookSecret = '';
+
         // Parse Embed settings
         try {
             const parsed = JSON.parse(project.value.embedSettingsJson || '{}');
@@ -405,7 +778,12 @@ async function init() {
                 showPrompt: parsed.showPrompt !== false,
                 showKnowledgeBase: parsed.showKnowledgeBase !== false,
                 showRules: parsed.showRules !== false,
-                showWidgetCustomization: parsed.showWidgetCustomization !== false
+                showWidgetCustomization: parsed.showWidgetCustomization !== false,
+                showWebhooks: parsed.showWebhooks !== false,
+                showChannels: parsed.showChannels !== false,
+                showConfigSelect: parsed.showConfigSelect !== false,
+                showHandoff: parsed.showHandoff !== false,
+                showLimits: parsed.showLimits !== false
             };
         } catch {
             // Default to all true on failure
@@ -416,34 +794,12 @@ async function init() {
             activeTab.value = allowedTabs.value[0].id;
         }
 
-        // 2. Fetch Configurations for Project to get configId
-        const configsRes = await apiFetch(`/api/project/${projectId.value}/configurations`);
-        if (configsRes.ok) {
-            const configs = await configsRes.json();
-            if (configs.length > 0) {
-                configId.value = configs[0].id;
-                
-                // Fetch the Configuration details
-                const detailRes = await apiFetch(`/api/configuration/${configId.value}`);
-                if (detailRes.ok) {
-                    const configDetail = await detailRes.json();
-                    
-                    // Populate prompt settings
-                    promptForm.systemPrompt = configDetail.systemPrompt || '';
-                    promptForm.defaultProvider = configDetail.defaultProvider || 'gemini';
-                    promptForm.defaultModel = configDetail.defaultModel || 'gemini-3.1-flash-lite-preview';
+        // 2. Fetch Configurations for Project to populate list
+        await loadConfigurations();
 
-                    // Populate theme settings
-                    if (configDetail.themeSettingsJson) {
-                        try {
-                            const parsedTheme = JSON.parse(configDetail.themeSettingsJson);
-                            Object.assign(theme, { ...defaultTheme, ...parsedTheme });
-                        } catch {
-                            // keep default
-                        }
-                    }
-                }
-            }
+        // 3. Load active configuration details
+        if (configId.value) {
+            await loadConfigDetails();
         }
 
         // Trigger load for specific sub-tabs initially
@@ -497,6 +853,26 @@ onMounted(() => {
         </div>
 
         <div v-else class="settings-layout">
+            <!-- Configuration Selector Bar -->
+            <div v-if="embedSettings.showConfigSelect" class="config-selector-bar mb-2">
+                <div class="flex items-center gap-3 flex-wrap">
+                    <label for="config-select" class="text-sm font-semibold">Active Configuration:</label>
+                    <Select 
+                        id="config-select"
+                        v-model="configId"
+                        :options="configurations"
+                        optionLabel="name"
+                        optionValue="id"
+                        placeholder="Select Configuration"
+                        class="w-[200px]"
+                    />
+                    <div class="flex items-center gap-2">
+                        <Button label="Create" icon="pi pi-plus" size="small" severity="secondary" outlined @click="showCreateConfigDialog = true" />
+                        <Button label="Delete" icon="pi pi-trash" size="small" severity="danger" outlined :disabled="configurations.length <= 1" @click="deleteConfiguration" />
+                    </div>
+                </div>
+            </div>
+
             <!-- Tabs Navigation -->
             <nav class="embedded-tab-nav">
                 <button 
@@ -834,7 +1210,359 @@ onMounted(() => {
                     </div>
                 </div>
 
+                <!-- Webhook Settings Tab -->
+                <div v-if="activeTab === 'webhooks'" class="panel-card animate-fade-in">
+                    <div class="panel-header">
+                        <h2>Webhook Integration</h2>
+                        <p>Configure a webhook endpoint to receive real-time notifications when chatbot events occur (e.g. human handoff triggered, message received).</p>
+                    </div>
+
+                    <div class="form-content">
+                        <div class="field-item">
+                            <label for="webhook-url">Webhook URL</label>
+                            <InputText 
+                                id="webhook-url" 
+                                v-model="webhookForm.webhookUrl" 
+                                placeholder="https://api.yourdomain.com/webhooks/aichatbox" 
+                                class="w-full" 
+                            />
+                        </div>
+
+                        <div class="field-item">
+                            <label for="webhook-secret">Webhook Signing Secret</label>
+                            <Password 
+                                id="webhook-secret" 
+                                v-model="webhookForm.webhookSecret" 
+                                placeholder="Leave empty to keep existing secret" 
+                                :feedback="false" 
+                                toggleMask 
+                                class="w-full" 
+                            />
+                            <span class="info-text">This secret is used to sign payloads so you can verify they came from AIChatBox.</span>
+                        </div>
+
+                        <div class="field-item">
+                            <label for="allowed-domains">Whitelisted Domains (CORS / Embed allowed domains)</label>
+                            <Textarea 
+                                id="allowed-domains" 
+                                v-model="webhookForm.allowedDomains" 
+                                placeholder="example.com, another-domain.com" 
+                                rows="3" 
+                                class="w-full" 
+                            />
+                            <span class="info-text">Comma-separated list of domains permitted to embed the chat widget and make requests.</span>
+                        </div>
+
+                        <div class="flex justify-between items-center mt-4">
+                            <div class="flex gap-2">
+                                <Button 
+                                    label="Test Connection" 
+                                    icon="pi pi-bolt" 
+                                    severity="secondary" 
+                                    outlined 
+                                    @click="testWebhookConnection" 
+                                    :loading="testingWebhook" 
+                                    :disabled="!webhookForm.webhookUrl" 
+                                />
+                            </div>
+                            <Button 
+                                label="Save Webhook Settings" 
+                                icon="pi pi-save" 
+                                @click="saveWebhookSettings" 
+                                :loading="saving" 
+                            />
+                        </div>
+
+                        <!-- Webhook Test Result Display -->
+                        <div v-if="webhookTestResult" class="webhook-test-result mt-4 p-4 rounded-lg border" :class="webhookTestResult.success ? 'bg-green-50/50 border-green-200 text-green-800' : 'bg-red-50/50 border-red-200 text-red-800'">
+                            <div class="flex items-center gap-2 font-semibold text-sm mb-2">
+                                <i :class="webhookTestResult.success ? 'pi pi-check-circle text-green-600' : 'pi pi-exclamation-triangle text-red-600'"></i>
+                                <span>{{ webhookTestResult.success ? 'Connection Successful' : 'Connection Failed' }}</span>
+                            </div>
+                            <p class="text-xs mb-1"><strong>Status Code:</strong> {{ webhookTestResult.statusCode }}</p>
+                            <p v-if="webhookTestResult.responseBody" class="text-xs font-mono max-h-[150px] overflow-y-auto bg-surface-0/80 p-2 rounded border mt-1">
+                                <strong>Response:</strong> {{ webhookTestResult.responseBody }}
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Channels Tab -->
+                <div v-if="activeTab === 'channels'" class="panel-card animate-fade-in">
+                    <div class="panel-header">
+                        <h2>Integration Channels</h2>
+                        <p>Publish your chatbot to messaging platforms. Each channel sends events to your webhook and responds to user inquiries.</p>
+                    </div>
+
+                    <div class="form-content flex flex-col gap-6">
+                        <!-- WhatsApp -->
+                        <div class="channel-block">
+                            <h4 class="channel-title">
+                                <i class="pi pi-whatsapp text-green-500 text-lg"></i>
+                                <span>WhatsApp (Meta Graph API)</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="field-item">
+                                    <label for="wa-phone-id">Phone Number ID</label>
+                                    <InputText id="wa-phone-id" v-model="channelsForm.whatsApp.phoneNumberId" placeholder="e.g. 1092837498172" class="w-full" />
+                                </div>
+                                <div class="field-item">
+                                    <label for="wa-verify-token">Verify Token</label>
+                                    <InputText id="wa-verify-token" v-model="channelsForm.whatsApp.verifyToken" placeholder="e.g. my_secure_verification_token" class="w-full" />
+                                </div>
+                            </div>
+                            <div class="field-item">
+                                <label for="wa-access-token">Access Token</label>
+                                <Password id="wa-access-token" v-model="channelsForm.whatsApp.accessToken" :feedback="false" toggleMask placeholder="Meta Graph API Access Token" class="w-full" />
+                            </div>
+                            <div class="webhook-info">
+                                <strong>Callback Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/whatsapp/{{ projectId }}</code>
+                            </div>
+                        </div>
+
+                        <!-- Slack -->
+                        <div class="channel-block">
+                            <h4 class="channel-title">
+                                <i class="pi pi-slack text-purple-600 text-lg"></i>
+                                <span>Slack App Integration</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="field-item">
+                                    <label for="slack-bot-token">Bot User OAuth Token</label>
+                                    <Password id="slack-bot-token" v-model="channelsForm.slack.botToken" :feedback="false" toggleMask placeholder="xoxb-your-bot-token" class="w-full" />
+                                </div>
+                                <div class="field-item">
+                                    <label for="slack-secret">Signing Secret</label>
+                                    <Password id="slack-secret" v-model="channelsForm.slack.signingSecret" :feedback="false" toggleMask placeholder="Slack Signing Secret" class="w-full" />
+                                </div>
+                            </div>
+                            <div class="webhook-info">
+                                <strong>Request URL (Event Subscriptions):</strong> <code>{{ API_BASE }}/api/channel/slack/{{ projectId }}</code>
+                            </div>
+                        </div>
+
+                        <!-- Telegram -->
+                        <div class="channel-block">
+                            <h4 class="channel-title">
+                                <i class="pi pi-telegram text-blue-500 text-lg"></i>
+                                <span>Telegram Bot</span>
+                            </h4>
+                            <div class="field-item">
+                                <label for="tg-bot-token">Bot Token</label>
+                                <Password id="tg-bot-token" v-model="channelsForm.telegram.botToken" :feedback="false" toggleMask placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" class="w-full" />
+                            </div>
+                            <div class="webhook-info">
+                                <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/telegram/{{ projectId }}</code>
+                            </div>
+                        </div>
+
+                        <!-- Microsoft Teams -->
+                        <div class="channel-block">
+                            <h4 class="channel-title">
+                                <i class="pi pi-microsoft text-indigo-600 text-lg"></i>
+                                <span>Microsoft Teams Bot</span>
+                            </h4>
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="field-item">
+                                    <label for="teams-app-id">Microsoft App ID</label>
+                                    <InputText id="teams-app-id" v-model="channelsForm.teams.appId" placeholder="e.g. aaaa-bbbb-cccc-dddd" class="w-full" />
+                                </div>
+                                <div class="field-item">
+                                    <label for="teams-password">Microsoft App Password</label>
+                                    <Password id="teams-password" v-model="channelsForm.teams.appPassword" :feedback="false" toggleMask placeholder="App Password / Client Secret" class="w-full" />
+                                </div>
+                            </div>
+                            <div class="webhook-info">
+                                <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/teams/{{ projectId }}</code>
+                            </div>
+                        </div>
+
+                        <div class="action-footer mt-4">
+                            <Button 
+                                label="Save Channels" 
+                                icon="pi pi-save" 
+                                @click="saveChannelSettings" 
+                                :loading="saving" 
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Live Handoff Tab -->
+                <div v-if="activeTab === 'handoff'" class="panel-card animate-fade-in">
+                    <div class="panel-header">
+                        <h2>Human Agent Handoff</h2>
+                        <p>Allow human operators to intervene and take over conversations when user inquiries require personal assistance.</p>
+                    </div>
+
+                    <div class="form-content">
+                        <div class="flex items-center gap-2 mb-4 p-3 bg-surface-50 rounded-lg border border-surface-200">
+                            <Checkbox id="handoff-enabled" v-model="handoffForm.handoffEnabled" :binary="true" />
+                            <label for="handoff-enabled" class="font-semibold text-sm cursor-pointer select-none">Enable Human Handoff takeover</label>
+                        </div>
+
+                        <div v-if="handoffForm.handoffEnabled" class="flex flex-col gap-4">
+                            <div class="field-item">
+                                <label for="escalation-criteria">🧠 Escalation Criteria (AI-Powered)</label>
+                                <Textarea 
+                                    id="escalation-criteria" 
+                                    v-model="handoffForm.handoffEscalationCriteria" 
+                                    rows="3" 
+                                    placeholder="e.g. User is frustrated, requests human help, has a billing dispute..." 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Describe in plain English when the AI should hand off to a human. The AI detects these situations semantically.</span>
+                            </div>
+
+                            <div class="field-item">
+                                <label class="flex justify-between items-center mb-1">
+                                    <span>Escalation Confidence Threshold</span>
+                                    <span class="font-mono text-xs font-semibold">{{ handoffForm.handoffConfidenceThreshold }}%</span>
+                                </label>
+                                <div class="px-2 py-3 bg-surface-50 rounded-lg border border-surface-200">
+                                    <Slider v-model="handoffForm.handoffConfidenceThreshold" :min="30" :max="100" :step="5" class="w-full" />
+                                </div>
+                                <span class="info-text">Lower threshold makes escalation more sensitive. Higher makes it more precise.</span>
+                            </div>
+
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div class="field-item">
+                                    <label for="trigger-keywords">Fallback Trigger Keywords</label>
+                                    <InputText 
+                                        id="trigger-keywords" 
+                                        v-model="handoffForm.handoffTriggerKeywords" 
+                                        placeholder="e.g. human, agent, representative" 
+                                        class="w-full" 
+                                    />
+                                    <span class="info-text">Comma-separated keywords. If user types any of these, instantly trigger handoff at zero AI cost.</span>
+                                </div>
+
+                                <div class="field-item">
+                                    <label for="queue-message">Queue Waiting Message</label>
+                                    <InputText 
+                                        id="queue-message" 
+                                        v-model="handoffForm.handoffQueueMessage" 
+                                        placeholder="Connecting you to a support agent. Please wait..." 
+                                        class="w-full" 
+                                    />
+                                    <span class="info-text">Message displayed to the customer when the handoff process is initiated.</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="action-footer mt-4">
+                            <Button 
+                                label="Save Handoff Settings" 
+                                icon="pi pi-save" 
+                                @click="saveHandoffSettings" 
+                                :loading="saving" 
+                            />
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Limits & Logs Tab -->
+                <div v-if="activeTab === 'limits'" class="panel-card animate-fade-in">
+                    <div class="panel-header">
+                        <h2>Rate Limits & Spend Controls</h2>
+                        <p>Configure consumption boundaries, rate limit policies, and log retention for cost control and abuse prevention.</p>
+                    </div>
+
+                    <div class="form-content">
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div class="field-item">
+                                <label for="rate-requests">Rate Limit (Requests)</label>
+                                <InputNumber 
+                                    id="rate-requests" 
+                                    v-model="limitsForm.rateLimitRequests" 
+                                    placeholder="0 = Unlimited" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Max requests allowed per user session within the window.</span>
+                            </div>
+
+                            <div class="field-item">
+                                <label for="rate-window">Rate Limit Window (Minutes)</label>
+                                <InputNumber 
+                                    id="rate-window" 
+                                    v-model="limitsForm.rateLimitWindowMinutes" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Time window in minutes for the rate limit tracking.</span>
+                            </div>
+
+                            <div class="field-item">
+                                <label for="max-spend">Max Spend Limit (USD)</label>
+                                <InputNumber 
+                                    id="max-spend" 
+                                    v-model="limitsForm.maxSpendLimit" 
+                                    mode="currency" 
+                                    currency="USD" 
+                                    locale="en-US" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Maximum dollar budget spend allowed. System halts when reached.</span>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                            <div class="field-item">
+                                <label for="log-retention">Log Retention Days</label>
+                                <InputNumber 
+                                    id="log-retention" 
+                                    v-model="limitsForm.logRetentionDays" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Number of days to keep conversation and telemetry logs.</span>
+                            </div>
+
+                            <div class="field-item">
+                                <label for="max-logs-session">Max Logs Per Session</label>
+                                <InputNumber 
+                                    id="max-logs-session" 
+                                    v-model="limitsForm.maxLogsPerSession" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Maximum number of log events stored per chat session.</span>
+                            </div>
+
+                            <div class="field-item">
+                                <label for="max-sessions">Max Sessions Per Project</label>
+                                <InputNumber 
+                                    id="max-sessions" 
+                                    v-model="limitsForm.maxSessionsPerProject" 
+                                    class="w-full" 
+                                />
+                                <span class="info-text">Concurrency limit: Max active chat sessions.</span>
+                            </div>
+                        </div>
+
+                        <div class="action-footer mt-4">
+                            <Button 
+                                label="Save Limits" 
+                                icon="pi pi-save" 
+                                @click="saveLimitsSettings" 
+                                :loading="saving" 
+                            />
+                        </div>
+                    </div>
+                </div>
+
             </div>
+
+            <!-- Config Create Dialog -->
+            <Dialog v-model:visible="showCreateConfigDialog" header="Create Configuration" modal :style="{ width: '400px' }">
+                <div class="flex flex-col gap-4 pt-2">
+                    <div class="flex flex-col gap-1">
+                        <label for="new-config-name">Configuration Name</label>
+                        <InputText id="new-config-name" v-model="newConfigName" placeholder="e.g. Sales Bot, Support Config" class="w-full" />
+                    </div>
+                </div>
+                <template #footer>
+                    <Button label="Cancel" severity="secondary" text @click="showCreateConfigDialog = false" />
+                    <Button label="Create" @click="createConfiguration" :loading="creatingConfig" :disabled="!newConfigName.trim()" />
+                </template>
+            </Dialog>
         </div>
     </div>
 </template>
@@ -1103,5 +1831,59 @@ onMounted(() => {
         opacity: 1;
         transform: translateY(0);
     }
+}
+
+/* Channels & Webhooks styling */
+.channel-block {
+    padding: 16px;
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    background: var(--p-surface-50);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+
+.channel-title {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: var(--p-surface-800);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin: 0 0 4px 0;
+}
+
+.webhook-info {
+    font-size: 0.75rem;
+    color: var(--p-surface-500);
+    background: var(--p-surface-100);
+    padding: 8px 12px;
+    border-radius: 6px;
+    border: 1px solid var(--p-surface-200);
+    word-break: break-all;
+}
+
+.webhook-info code {
+    font-family: monospace;
+    font-weight: 600;
+    color: var(--p-primary-600);
+}
+
+.config-selector-bar {
+    background: var(--p-surface-50);
+    border: 1px solid var(--p-surface-200);
+    border-radius: 8px;
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 12px;
+}
+
+.webhook-test-result {
+    font-size: 0.8rem;
+    line-height: 1.4;
 }
 </style>

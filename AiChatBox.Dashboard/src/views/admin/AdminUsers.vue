@@ -69,7 +69,7 @@ const handleImpersonate = async (user: any) => {
             const data = await res.json();
             success.value = `Impersonation token generated for ${user.email}. Opening session...`;
             // Open homepage in a new tab with the token query parameter to log in
-            window.open(`/?token=${data.token}`, '_blank');
+            window.open(`/?token=${data.token}&impersonate=true`, '_blank');
         } else {
             error.value = 'Failed to generate impersonation session.';
         }

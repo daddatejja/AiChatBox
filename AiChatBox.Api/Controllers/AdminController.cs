@@ -77,17 +77,23 @@ namespace AiChatBox.Api.Controllers
             _db.PartnerAccounts.Add(partner);
             await _db.SaveChangesAsync();
 
-            user.AccountType = UserRole.PartnerDeveloper;
+            if (user.AccountType != UserRole.SystemAdmin)
+            {
+                user.AccountType = UserRole.PartnerDeveloper;
+            }
             user.PartnerAccountId = partner.Id;
             await _userManager.UpdateAsync(user);
 
-            if (!await _userManager.IsInRoleAsync(user, "PartnerDeveloper"))
+            if (user.AccountType != UserRole.SystemAdmin)
             {
-                await _userManager.AddToRoleAsync(user, "PartnerDeveloper");
-            }
-            if (await _userManager.IsInRoleAsync(user, "StandardUser"))
-            {
-                await _userManager.RemoveFromRoleAsync(user, "StandardUser");
+                if (!await _userManager.IsInRoleAsync(user, "PartnerDeveloper"))
+                {
+                    await _userManager.AddToRoleAsync(user, "PartnerDeveloper");
+                }
+                if (await _userManager.IsInRoleAsync(user, "StandardUser"))
+                {
+                    await _userManager.RemoveFromRoleAsync(user, "StandardUser");
+                }
             }
 
             var rawKey = await _apiKeyService.GenerateMasterKeyAsync(partner.Id);
@@ -138,17 +144,25 @@ namespace AiChatBox.Api.Controllers
             var user = await _userManager.FindByIdAsync(partner.OwnerId);
             if (user != null)
             {
-                user.AccountType = UserRole.StandardUser;
-                user.PartnerAccountId = null;
-                await _userManager.UpdateAsync(user);
-
-                if (await _userManager.IsInRoleAsync(user, "PartnerDeveloper"))
+                if (user.AccountType == UserRole.SystemAdmin)
                 {
-                    await _userManager.RemoveFromRoleAsync(user, "PartnerDeveloper");
+                    user.PartnerAccountId = null;
+                    await _userManager.UpdateAsync(user);
                 }
-                if (!await _userManager.IsInRoleAsync(user, "StandardUser"))
+                else
                 {
-                    await _userManager.AddToRoleAsync(user, "StandardUser");
+                    user.AccountType = UserRole.StandardUser;
+                    user.PartnerAccountId = null;
+                    await _userManager.UpdateAsync(user);
+
+                    if (await _userManager.IsInRoleAsync(user, "PartnerDeveloper"))
+                    {
+                        await _userManager.RemoveFromRoleAsync(user, "PartnerDeveloper");
+                    }
+                    if (!await _userManager.IsInRoleAsync(user, "StandardUser"))
+                    {
+                        await _userManager.AddToRoleAsync(user, "StandardUser");
+                    }
                 }
             }
 

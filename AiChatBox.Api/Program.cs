@@ -240,10 +240,20 @@ using (var scope = app.Services.CreateScope())
                     await userManager.AddToRoleAsync(admin, "SystemAdmin");
                     isUpdated = true;
                 }
+                if (await userManager.IsInRoleAsync(admin, "StandardUser"))
+                {
+                    await userManager.RemoveFromRoleAsync(admin, "StandardUser");
+                    isUpdated = true;
+                }
+                if (await userManager.IsInRoleAsync(admin, "PartnerDeveloper"))
+                {
+                    await userManager.RemoveFromRoleAsync(admin, "PartnerDeveloper");
+                    isUpdated = true;
+                }
                 if (isUpdated)
                 {
                     await userManager.UpdateAsync(admin);
-                    Console.WriteLine($"[Startup] Seeded user {adminEmail} as SystemAdmin.");
+                    Console.WriteLine($"[Startup] Seeded user {adminEmail} as SystemAdmin and cleaned up other roles.");
                 }
             }
         }
