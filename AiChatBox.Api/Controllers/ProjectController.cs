@@ -35,6 +35,8 @@ namespace AiChatBox.Api.Controllers
                     ModelName = p.ModelName,
                     WebhookUrl = p.WebhookUrl,
                     AllowedDomains = p.AllowedDomains,
+                    EmbedSettingsJson = p.EmbedSettingsJson,
+                    TenantIdentifier = p.TenantIdentifier,
                     HasWebhookSecret = !string.IsNullOrEmpty(p.WebhookSecret),
                     CreatedAt = p.CreatedAt,
                     ApiKeyCount = p.ApiKeys.Count
@@ -88,6 +90,8 @@ namespace AiChatBox.Api.Controllers
                 ModelName = project.ModelName,
                 WebhookUrl = project.WebhookUrl,
                 AllowedDomains = project.AllowedDomains,
+                EmbedSettingsJson = project.EmbedSettingsJson,
+                TenantIdentifier = project.TenantIdentifier,
                 HasWebhookSecret = !string.IsNullOrEmpty(project.WebhookSecret),
                 CreatedAt = project.CreatedAt,
                 ApiKeyCount = project.ApiKeys.Count

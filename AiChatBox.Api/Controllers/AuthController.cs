@@ -54,7 +54,9 @@ namespace AiChatBox.Api.Controllers
                 {
                     Token = token,
                     Username = user.UserName ?? user.Email!,
-                    Email = user.Email!
+                    Email = user.Email!,
+                    Role = user.AccountType.ToString(),
+                    PartnerAccountId = user.PartnerAccountId
                 });
             }
             return Unauthorized();
@@ -67,7 +69,12 @@ namespace AiChatBox.Api.Controllers
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var user = await _userManager.FindByIdAsync(userId!);
             if (user == null) return NotFound();
-            return Ok(new { email = user.Email, username = user.UserName });
+            return Ok(new { 
+                email = user.Email, 
+                username = user.UserName,
+                role = user.AccountType.ToString(),
+                partnerAccountId = user.PartnerAccountId
+            });
         }
 
         [HttpGet("external-login/{provider}")]
@@ -140,7 +147,9 @@ namespace AiChatBox.Api.Controllers
                 {
                     new Claim(ClaimTypes.NameIdentifier, user.Id),
                     new Claim(ClaimTypes.Email, user.Email!),
-                    new Claim(ClaimTypes.Name, user.UserName ?? user.Email!)
+                    new Claim(ClaimTypes.Name, user.UserName ?? user.Email!),
+                    new Claim(ClaimTypes.Role, user.AccountType.ToString()),
+                    new Claim("partner_id", user.PartnerAccountId?.ToString() ?? "")
                 }),
                 Expires = DateTime.UtcNow.AddDays(7),
                 SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)

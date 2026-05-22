@@ -31,7 +31,10 @@ builder.Host.UseSerilog((context, config) =>
 });
 
 // Add services to the container.
-builder.Services.AddControllers();
+builder.Services.AddControllers(options =>
+{
+    options.Filters.Add<AiChatBox.Api.Filters.ProjectScopeFilter>();
+});
 builder.Services.AddHttpContextAccessor();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen();
@@ -168,7 +171,10 @@ builder.Services.AddSignalR(options => {
 });
 
 builder.Services.AddSingleton<IAuthorizationHandler, ApiKeyOrJwtHandler>();
-builder.Services.AddAuthorizationBuilder().AddPolicy("ApiKeyOrJwt", policy => policy.AddRequirements(new ApiKeyOrJwtRequirement()));
+builder.Services.AddAuthorizationBuilder()
+    .AddPolicy("ApiKeyOrJwt", policy => policy.AddRequirements(new ApiKeyOrJwtRequirement()))
+    .AddPolicy("AdminOnly", policy => policy.RequireRole("SystemAdmin"))
+    .AddPolicy("PartnerOrAdmin", policy => policy.RequireRole("PartnerDeveloper", "SystemAdmin"));
 
 // CORS
 builder.Services.AddCors(options =>
@@ -202,6 +208,45 @@ using (var scope = app.Services.CreateScope())
         Console.WriteLine("[Startup] Running Migrations...");
         db.Database.Migrate();
         Console.WriteLine("[Startup] Migrations completed successfully.");
+
+        // Seed Roles
+        var userManager = scope.ServiceProvider.GetRequiredService<UserManager<ApplicationUser>>();
+        var roleManager = scope.ServiceProvider.GetRequiredService<RoleManager<IdentityRole>>();
+
+        string[] roles = ["SystemAdmin", "PartnerDeveloper", "StandardUser"];
+        foreach (var role in roles)
+        {
+            if (!await roleManager.RoleExistsAsync(role))
+            {
+                await roleManager.CreateAsync(new IdentityRole(role));
+            }
+        }
+
+        // Seed Admin User
+        var adminEmail = builder.Configuration["AdminSeed:Email"];
+        if (!string.IsNullOrEmpty(adminEmail))
+        {
+            var admin = await userManager.FindByEmailAsync(adminEmail);
+            if (admin != null)
+            {
+                bool isUpdated = false;
+                if (admin.AccountType != UserRole.SystemAdmin)
+                {
+                    admin.AccountType = UserRole.SystemAdmin;
+                    isUpdated = true;
+                }
+                if (!await userManager.IsInRoleAsync(admin, "SystemAdmin"))
+                {
+                    await userManager.AddToRoleAsync(admin, "SystemAdmin");
+                    isUpdated = true;
+                }
+                if (isUpdated)
+                {
+                    await userManager.UpdateAsync(admin);
+                    Console.WriteLine($"[Startup] Seeded user {adminEmail} as SystemAdmin.");
+                }
+            }
+        }
 
         // Print projects and API keys for debugging/testing
         var projects = db.Projects.ToList();

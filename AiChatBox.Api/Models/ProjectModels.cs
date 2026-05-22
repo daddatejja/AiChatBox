@@ -48,10 +48,56 @@ namespace AiChatBox.Api.Models
     }
 
 
+    public enum UserRole
+    {
+        StandardUser,       // Direct customer — manages their own projects
+        PartnerDeveloper,   // B2B integrator — programmatically provisions tenants
+        SystemAdmin         // Platform operator — sees everything
+    }
+
+    public class PartnerAccount
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required, MaxLength(200)]
+        public string CompanyName { get; set; } = string.Empty;
+
+        [Required]
+        public string OwnerId { get; set; } = string.Empty;       // FK → ApplicationUser.Id
+        public ApplicationUser? Owner { get; set; }
+
+        [MaxLength(500)]
+        public string? AllowedDomainPattern { get; set; }          // e.g., "*.partnerapp.com"
+
+        // Limits
+        public int MaxTenants { get; set; } = 100;
+        public decimal CreditLimit { get; set; } = 0;              // 0 = unlimited
+        public decimal CurrentSpend { get; set; } = 0;
+
+        // Default template for new tenant projects
+        public string? DefaultSystemPrompt { get; set; }
+        public string? DefaultProvider { get; set; }
+        public string? DefaultModel { get; set; }
+        public string? DefaultThemeSettingsJson { get; set; }
+
+        // Master API Key (hashed, like ApiKey model)
+        [Required]
+        public string MasterKeyHash { get; set; } = string.Empty;
+        public bool MasterKeyActive { get; set; } = true;
+
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        public ICollection<Project> TenantProjects { get; set; } = [];
+    }
+
     public class ApplicationUser : IdentityUser
     {
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
         public ICollection<Project> Projects { get; set; } = [];
+        public UserRole AccountType { get; set; } = UserRole.StandardUser;
+        public Guid? PartnerAccountId { get; set; }  // FK to PartnerAccount (if PartnerDeveloper)
+        public PartnerAccount? PartnerAccount { get; set; }
     }
 
     public enum KnowledgeDocumentStatus
@@ -94,6 +140,16 @@ namespace AiChatBox.Api.Models
         public string? AllowedDomains { get; set; }
 
         public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        // B2B Multi-tenancy support
+        public Guid? PartnerAccountId { get; set; }  // null for direct customers
+        public PartnerAccount? PartnerAccount { get; set; }
+
+        [MaxLength(200)]
+        public string? TenantIdentifier { get; set; }  // e.g., subdomain or external tenant ID
+
+        [MaxLength(2000)]
+        public string EmbedSettingsJson { get; set; } = "{\"showPrompt\":true,\"showKnowledgeBase\":true,\"showRules\":true,\"showWidgetCustomization\":true}";
 
         public ProjectDatabase? Database { get; set; }
 
