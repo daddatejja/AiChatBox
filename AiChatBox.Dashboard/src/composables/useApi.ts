@@ -4,7 +4,7 @@ export function useApi() {
     : import.meta.env.VITE_API_URL || window.location.origin;
 
   function getToken() {
-    return localStorage.getItem("acb_token");
+    return sessionStorage.getItem("acb_token") || localStorage.getItem("acb_token");
   }
 
   async function apiFetch(path: string, options: RequestInit = {}) {
@@ -24,6 +24,7 @@ export function useApi() {
     try {
       const res = await fetch(`${API_BASE}${path}`, { ...options, headers });
       if (res.status === 401) {
+        sessionStorage.removeItem("acb_token");
         localStorage.removeItem("acb_token");
         window.location.href = "/login";
       }

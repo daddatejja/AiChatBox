@@ -8,6 +8,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Controllers
 {
@@ -69,11 +70,15 @@ namespace AiChatBox.Api.Controllers
             var userId = User.FindFirstValue(ClaimTypes.NameIdentifier);
             var user = await _userManager.FindByIdAsync(userId!);
             if (user == null) return NotFound();
+
+            var impersonatedBy = User.FindFirstValue("impersonated_by");
+
             return Ok(new { 
                 email = user.Email, 
                 username = user.UserName,
                 role = user.AccountType.ToString(),
-                partnerAccountId = user.PartnerAccountId
+                partnerAccountId = user.PartnerAccountId,
+                impersonatedBy = impersonatedBy
             });
         }
 

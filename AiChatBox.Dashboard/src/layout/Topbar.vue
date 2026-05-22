@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { useRouter } from 'vue-router';
 import { useApi } from '../composables/useApi';
+import { useAuth } from '../composables/useAuth';
 
 defineProps<{
     collapsed: boolean;
@@ -10,9 +10,8 @@ defineProps<{
 const emit = defineEmits<{
     (e: 'toggle-sidebar'): void;
 }>();
-
-const router = useRouter();
 const { apiFetch } = useApi();
+const { logout: authLogout } = useAuth();
 const username = ref('');
 const userEmail = ref('');
 const showUserMenu = ref(false);
@@ -31,13 +30,19 @@ onMounted(async () => {
             const data = await res.json();
             username.value = data.username || data.email || 'User';
             userEmail.value = data.email || '';
-            localStorage.setItem('acb_username', username.value);
+            
+            const isImpersonating = sessionStorage.getItem('acb_is_impersonating') === 'true' || !!data.impersonatedBy;
+            if (isImpersonating) {
+                sessionStorage.setItem('acb_username', username.value);
+            } else {
+                localStorage.setItem('acb_username', username.value);
+            }
         } else {
             // Fallback to cached name
-            username.value = localStorage.getItem('acb_username') || 'User';
+            username.value = sessionStorage.getItem('acb_username') || localStorage.getItem('acb_username') || 'User';
         }
     } catch {
-        username.value = localStorage.getItem('acb_username') || 'User';
+        username.value = sessionStorage.getItem('acb_username') || localStorage.getItem('acb_username') || 'User';
     }
 });
 
@@ -50,9 +55,7 @@ const toggleTheme = () => {
 };
 
 const logout = () => {
-    localStorage.removeItem('acb_token');
-    localStorage.removeItem('acb_username');
-    router.push('/login');
+    authLogout();
 };
 
 const toggleUserMenu = () => {

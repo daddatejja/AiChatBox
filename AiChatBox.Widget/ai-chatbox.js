@@ -2457,7 +2457,11 @@
 
         console.log(`[LiveToolResult] Final data for ${name}:`, data);
 
-        const isData = data && (data.rows || data.data || Array.isArray(data));
+        const isData = data && (
+          (data.rows && data.rows.length > 0) || 
+          (data.data && data.data.length > 0) || 
+          (Array.isArray(data) && data.length > 0 && typeof data[0] === 'object' && data[0] !== null)
+        );
         
         if (isData) {
            this.renderDataResult(data, container);
@@ -3685,8 +3689,17 @@
       }
     }
 
+    _hasChartableData(rows, columns) {
+      // Chart requires: at least 2 rows, at least 1 label column + 1 numeric column
+      if (!rows || rows.length < 2 || columns.length < 2) return false;
+      const numericCols = columns.slice(1).filter(c => {
+        const sample = rows.find(r => r[c] !== null && r[c] !== undefined);
+        return sample && typeof sample[c] === 'number';
+      });
+      return numericCols.length > 0;
+    }
+
     renderDataResult(result, container) {
-      console.log("[renderDataResult] rendering to:", container, "data:", result);
       if (!result) return;
       
       // Handle both formats: {columns, rows} or {data: []} or raw array
@@ -3697,20 +3710,81 @@
         columns = Object.keys(rows[0]);
       }
 
-      if (columns.length === 0) {
-        container.innerHTML = '<div class="data-empty">No data returned.</div>';
+      // Guard: no columns or no rows → clean empty state
+      if (columns.length === 0 || rows.length === 0) {
+        container.innerHTML = `
+          <div class="data-empty-state">
+            <div class="data-empty-icon">${this.icons.list}</div>
+            <div class="data-empty-text">No data returned</div>
+          </div>`;
         return;
       }
 
+      // Guard: single scalar result → stat pill
+      if (rows.length === 1 && columns.length === 1) {
+        const val = rows[0][columns[0]];
+        const label = columns[0];
+        container.innerHTML = `
+          <div class="data-stat-pill">
+            <span class="data-stat-label">${label}</span>
+            <span class="data-stat-value">${val !== null && val !== undefined ? val : '—'}</span>
+          </div>`;
+        return;
+      }
+
+      const canChart = this._hasChartableData(rows, columns);
       const id = 'data-' + Math.random().toString(36).substr(2, 9);
+      const PAGE_SIZE = 10;
+      let currentPage = 1;
+      const totalPages = () => Math.ceil(rows.length / PAGE_SIZE);
+      let isExpanded = false;
+
+      const buildTableRows = (page) => {
+        const start = (page - 1) * PAGE_SIZE;
+        const pageRows = rows.slice(start, start + PAGE_SIZE);
+        return pageRows.map(row =>
+          `<tr>${columns.map(c => `<td>${row[c] !== null && row[c] !== undefined ? row[c] : ''}</td>`).join('')}</tr>`
+        ).join('');
+      };
+
+      const buildPagination = (page) => {
+        if (rows.length <= PAGE_SIZE) return '';
+        const tp = totalPages();
+        const start = (page - 1) * PAGE_SIZE + 1;
+        const end = Math.min(page * PAGE_SIZE, rows.length);
+
+        // Build page number buttons: show at most 5 page buttons centered on current
+        let pageBtns = '';
+        const maxBtns = 5;
+        let startP = Math.max(1, page - Math.floor(maxBtns / 2));
+        let endP = Math.min(tp, startP + maxBtns - 1);
+        if (endP - startP < maxBtns - 1) startP = Math.max(1, endP - maxBtns + 1);
+
+        if (startP > 1) pageBtns += `<button class="pg-btn pg-num" data-page="1">1</button>${startP > 2 ? '<span class="pg-ellipsis">…</span>' : ''}`;
+        for (let p = startP; p <= endP; p++) {
+          pageBtns += `<button class="pg-btn pg-num ${p === page ? 'pg-current' : ''}" data-page="${p}">${p}</button>`;
+        }
+        if (endP < tp) pageBtns += `${endP < tp - 1 ? '<span class="pg-ellipsis">…</span>' : ''}<button class="pg-btn pg-num" data-page="${tp}">${tp}</button>`;
+
+        return `
+          <div class="data-pagination">
+            <span class="pg-info">Rows ${start}–${end} of ${rows.length}</span>
+            <div class="pg-controls">
+              <button class="pg-btn pg-arrow" data-page="${page - 1}" ${page === 1 ? 'disabled' : ''} title="Previous">&#8249;</button>
+              ${pageBtns}
+              <button class="pg-btn pg-arrow" data-page="${page + 1}" ${page === tp ? 'disabled' : ''} title="Next">&#8250;</button>
+            </div>
+          </div>`;
+      };
+
       container.innerHTML = `
         <div class="data-result-widget" id="${id}">
           <div class="data-tabs">
-            <button class="data-tab active" data-tab="table" title="View as Table">${this.icons.list} Table</button>
-            <button class="data-tab" data-tab="chart" title="View as Chart">${this.icons.chart} Chart</button>
+            <button class="data-tab active" data-tab="table" title="View as Table">${this.icons.list} Table <span class="data-tab-badge">${rows.length}</span></button>
+            ${canChart ? `<button class="data-tab" data-tab="chart" title="View as Chart">${this.icons.chart} Chart</button>` : ''}
             <div style="flex:1"></div>
             <div class="data-actions">
-              <button class="data-action-btn" data-action="expand" title="Expand View">${this.icons.expand}</button>
+              <button class="data-action-btn data-expand-btn" data-action="expand" title="Expand View">${this.icons.expand}</button>
               <button class="data-action-btn" data-action="copy" title="Copy to CSV">${this.icons.copy}</button>
               <button class="data-action-btn" data-action="excel" title="Export Excel">${this.icons.excel}</button>
               <button class="data-action-btn" data-action="pdf" title="Export PDF">${this.icons.pdf}</button>
@@ -3720,59 +3794,147 @@
             <div class="data-panel active" data-panel="table">
               <div class="table-container">
                 <table>
-                  <thead>
-                    <tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr>
-                  </thead>
-                  <tbody>
-                    ${rows.slice(0, 15).map(row => `
-                      <tr>${columns.map(c => `<td>${row[c] !== null ? row[c] : ''}</td>`).join('')}</tr>
-                    `).join('')}
-                    ${rows.length > 15 ? `<tr><td colspan="${columns.length}" style="text-align:center; font-style:italic; padding: 12px; background: rgba(0,0,0,0.1)">Showing first 15 of ${rows.length} rows</td></tr>` : ''}
-                  </tbody>
+                  <thead><tr>${columns.map(c => `<th>${c}</th>`).join('')}</tr></thead>
+                  <tbody class="data-tbody">${buildTableRows(1)}</tbody>
                 </table>
               </div>
+              ${buildPagination(1)}
             </div>
+            ${canChart ? `
             <div class="data-panel" data-panel="chart">
               <div class="chart-controls">
-                <button class="data-action-btn" data-action="download-chart" title="Download Chart">${this.icons.download || this.icons.save || ''}</button>
+                <button class="data-action-btn" data-action="download-chart" title="Download Chart">${this.icons.download || ''}</button>
                 <select class="chart-type-select">
-                  <option value="bar">Bar Chart</option>
-                  <option value="line">Line Chart</option>
-                  <option value="pie">Pie Chart</option>
+                  <option value="bar">Bar</option>
+                  <option value="line">Line</option>
+                  <option value="pie">Pie</option>
                   <option value="doughnut">Doughnut</option>
                 </select>
               </div>
               <div class="chart-wrapper">
                 <canvas class="data-chart-canvas"></canvas>
               </div>
-            </div>
+            </div>` : ''}
           </div>
         </div>
       `;
 
       const widget = container.querySelector(`#${id}`);
+
+      // ── Pagination click handler ──
+      const tablePanel = widget.querySelector('[data-panel="table"]');
+      const refreshPagination = () => {
+        widget.querySelector('.data-tbody').innerHTML = buildTableRows(currentPage);
+        const oldPg = tablePanel.querySelector('.data-pagination');
+        if (oldPg) oldPg.remove();
+        const pgHtml = buildPagination(currentPage);
+        if (pgHtml) tablePanel.insertAdjacentHTML('beforeend', pgHtml);
+        // Re-bind new pagination buttons
+        bindPagination();
+      };
+      const bindPagination = () => {
+        tablePanel.querySelectorAll('.pg-btn[data-page]').forEach(btn => {
+          btn.onclick = (e) => {
+            const page = parseInt(btn.dataset.page);
+            if (!isNaN(page) && page >= 1 && page <= totalPages() && page !== currentPage) {
+              currentPage = page;
+              refreshPagination();
+              widget.querySelector('.table-container').scrollTop = 0;
+            }
+          };
+        });
+      };
+      bindPagination();
+
+      // ── Tab switching ──
       const tabs = widget.querySelectorAll('.data-tab');
       const panels = widget.querySelectorAll('.data-panel');
-      
       tabs.forEach(tab => {
         tab.onclick = () => {
           tabs.forEach(t => t.classList.remove('active'));
           panels.forEach(p => p.classList.remove('active'));
           tab.classList.add('active');
-          widget.querySelector(`[data-panel="${tab.dataset.tab}"]`).classList.add('active');
-          if (tab.dataset.tab === 'chart') this.initChart(widget, columns, rows);
+          const panel = widget.querySelector(`[data-panel="${tab.dataset.tab}"]`);
+          if (panel) panel.classList.add('active');
+          if (tab.dataset.tab === 'chart' && canChart) this.initChart(widget, columns, rows);
         };
       });
+
+      // ── Action buttons ──
+      const expandBtn = widget.querySelector('.data-expand-btn');
+
+      // Track the widget's original parent so we can restore it on collapse
+      let widgetOriginalParent = null;
+      let widgetNextSibling = null;
+
+      const collapseExpand = () => {
+        isExpanded = false;
+        widget.classList.remove('data-widget-expanded', 'data-widget-expanded-mobile');
+
+        // Move widget back to its original position in the message
+        if (widgetOriginalParent) {
+          if (widgetNextSibling && widgetNextSibling.parentNode === widgetOriginalParent) {
+            widgetOriginalParent.insertBefore(widget, widgetNextSibling);
+          } else {
+            widgetOriginalParent.appendChild(widget);
+          }
+          widgetOriginalParent = null;
+          widgetNextSibling = null;
+        }
+
+        // Remove backdrop
+        const backdrop = this.shadowRoot.getElementById('data-expand-backdrop');
+        if (backdrop) backdrop.remove();
+
+        expandBtn.innerHTML = this.icons.expand;
+        expandBtn.title = 'Expand View';
+        document.removeEventListener('keydown', escHandler);
+
+        const chartPanel = widget.querySelector('[data-panel="chart"]');
+        if (canChart && chartPanel && chartPanel.classList.contains('active')) {
+          setTimeout(() => this.initChart(widget, columns, rows), 350);
+        }
+      };
+
+      const escHandler = (e) => { if (e.key === 'Escape') collapseExpand(); };
 
       widget.querySelectorAll('.data-action-btn').forEach(btn => {
         btn.onclick = () => {
           const action = btn.dataset.action;
+
           if (action === 'expand') {
-            container.classList.toggle('expanded');
-            btn.innerHTML = container.classList.contains('expanded') ? this.icons.collapse : this.icons.expand;
-            if (widget.querySelector('[data-panel="chart"]').classList.contains('active')) {
-              setTimeout(() => this.initChart(widget, columns, rows), 300);
+            isExpanded = !isExpanded;
+            if (isExpanded) {
+              const isMobile = window.innerWidth < 768;
+
+              // Remember where the widget lives so we can restore it
+              widgetOriginalParent = widget.parentNode;
+              widgetNextSibling = widget.nextSibling;
+
+              // Physically move widget to shadow root so it escapes all
+              // overflow:hidden / transform stacking contexts in the chat UI
+              this.shadowRoot.appendChild(widget);
+
+              // Backdrop sits behind the widget, above everything else
+              const backdrop = document.createElement('div');
+              backdrop.id = 'data-expand-backdrop';
+              backdrop.className = 'data-expand-backdrop';
+              backdrop.onclick = collapseExpand;
+              this.shadowRoot.insertBefore(backdrop, widget);
+
+              widget.classList.add(isMobile ? 'data-widget-expanded-mobile' : 'data-widget-expanded');
+              expandBtn.innerHTML = this.icons.collapse;
+              expandBtn.title = 'Exit Fullscreen (Esc)';
+              document.addEventListener('keydown', escHandler);
+
+              const chartPanel = widget.querySelector('[data-panel="chart"]');
+              if (canChart && chartPanel && chartPanel.classList.contains('active')) {
+                setTimeout(() => this.initChart(widget, columns, rows), 350);
+              }
+            } else {
+              collapseExpand();
             }
+
           } else if (action === 'copy') {
             const csv = [columns.join(','), ...rows.map(r => columns.map(c => r[c]).join(','))].join('\n');
             navigator.clipboard.writeText(csv);
@@ -3791,7 +3953,10 @@
         };
       });
 
-      widget.querySelector('.chart-type-select').onchange = () => this.initChart(widget, columns, rows);
+      const chartSelect = widget.querySelector('.chart-type-select');
+      if (chartSelect && canChart) {
+        chartSelect.onchange = () => this.initChart(widget, columns, rows);
+      }
       this.scrollToBottom();
     }
 

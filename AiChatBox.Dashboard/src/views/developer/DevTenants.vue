@@ -41,22 +41,44 @@ const provisionForm = ref({
     modelName: '',
     allowedDomains: '',
     themeSettingsJson: '',
+    webhookUrl: '',
+    webhookSecret: '',
     // Permissions toggles
     showPrompt: true,
     showKnowledgeBase: true,
     showRules: true,
-    showWidgetCustomization: true
+    showWidgetCustomization: true,
+    showWebhooks: true,
+    showChannels: true,
+    showConfigSelect: true,
+    showHandoff: true,
+    showLimits: true
 });
 
 const showOverrides = ref(false);
 
 // Selected Tenant for Management
 const selectedTenant = ref<any>(null);
+const manageForm = ref({
+    tenantName: '',
+    tenantIdentifier: '',
+    systemPrompt: '',
+    provider: '',
+    modelName: '',
+    allowedDomains: '',
+    webhookUrl: '',
+    webhookSecret: '',
+});
 const manageEmbedSettings = ref({
     showPrompt: true,
     showKnowledgeBase: true,
     showRules: true,
-    showWidgetCustomization: true
+    showWidgetCustomization: true,
+    showWebhooks: true,
+    showChannels: true,
+    showConfigSelect: true,
+    showHandoff: true,
+    showLimits: true
 });
 
 // Response details
@@ -72,6 +94,31 @@ const providerOptions = [
 
 const modelOptions = computed(() => {
     switch (provisionForm.value.provider) {
+        case 'gemini':
+            return [
+                { label: 'Gemini 3.1 Flash Lite', value: 'gemini-3.1-flash-lite-preview' },
+                { label: 'Gemini 3.1 Flash', value: 'gemini-3.1-flash' }
+            ];
+        case 'openai':
+            return [
+                { label: 'GPT-4o Mini', value: 'gpt-4o-mini' },
+                { label: 'GPT-4o', value: 'gpt-4o' }
+            ];
+        case 'anthropic':
+            return [
+                { label: 'Claude 4 Sonnet', value: 'claude-sonnet-4-20250514' }
+            ];
+        case 'groq':
+            return [
+                { label: 'Llama 3.3 70B', value: 'llama-3.3-70b-versatile' }
+            ];
+        default:
+            return [];
+    }
+});
+
+const manageModelOptions = computed(() => {
+    switch (manageForm.value.provider) {
         case 'gemini':
             return [
                 { label: 'Gemini 3.1 Flash Lite', value: 'gemini-3.1-flash-lite-preview' },
@@ -121,7 +168,12 @@ const handleProvision = async () => {
         showPrompt: provisionForm.value.showPrompt,
         showKnowledgeBase: provisionForm.value.showKnowledgeBase,
         showRules: provisionForm.value.showRules,
-        showWidgetCustomization: provisionForm.value.showWidgetCustomization
+        showWidgetCustomization: provisionForm.value.showWidgetCustomization,
+        showWebhooks: provisionForm.value.showWebhooks,
+        showChannels: provisionForm.value.showChannels,
+        showConfigSelect: provisionForm.value.showConfigSelect,
+        showHandoff: provisionForm.value.showHandoff,
+        showLimits: provisionForm.value.showLimits
     };
 
     const requestBody = {
@@ -132,7 +184,9 @@ const handleProvision = async () => {
         modelName: provisionForm.value.modelName || null,
         allowedDomains: provisionForm.value.allowedDomains || null,
         themeSettingsJson: provisionForm.value.themeSettingsJson || null,
-        embedSettingsJson: JSON.stringify(embedSettingsObj)
+        embedSettingsJson: JSON.stringify(embedSettingsObj),
+        webhookUrl: provisionForm.value.webhookUrl || null,
+        webhookSecret: provisionForm.value.webhookSecret || null
     };
 
     try {
@@ -156,10 +210,17 @@ const handleProvision = async () => {
                 modelName: '',
                 allowedDomains: '',
                 themeSettingsJson: '',
+                webhookUrl: '',
+                webhookSecret: '',
                 showPrompt: true,
                 showKnowledgeBase: true,
                 showRules: true,
-                showWidgetCustomization: true
+                showWidgetCustomization: true,
+                showWebhooks: true,
+                showChannels: true,
+                showConfigSelect: true,
+                showHandoff: true,
+                showLimits: true
             };
             showOverrides.value = false;
             await loadTenants();
@@ -175,6 +236,17 @@ const handleProvision = async () => {
 const openManageDialog = (tenant: any) => {
     selectedTenant.value = tenant;
     
+    manageForm.value = {
+        tenantName: tenant.name || '',
+        tenantIdentifier: tenant.tenantIdentifier || '',
+        systemPrompt: tenant.systemPrompt || '',
+        provider: tenant.provider || '',
+        modelName: tenant.modelName || '',
+        allowedDomains: tenant.allowedDomains || '',
+        webhookUrl: tenant.webhookUrl || '',
+        webhookSecret: '' // Empty by default
+    };
+
     // Parse embed settings
     try {
         const parsed = JSON.parse(tenant.embedSettingsJson || '{}');
@@ -182,14 +254,24 @@ const openManageDialog = (tenant: any) => {
             showPrompt: parsed.showPrompt !== false,
             showKnowledgeBase: parsed.showKnowledgeBase !== false,
             showRules: parsed.showRules !== false,
-            showWidgetCustomization: parsed.showWidgetCustomization !== false
+            showWidgetCustomization: parsed.showWidgetCustomization !== false,
+            showWebhooks: parsed.showWebhooks !== false,
+            showChannels: parsed.showChannels !== false,
+            showConfigSelect: parsed.showConfigSelect !== false,
+            showHandoff: parsed.showHandoff !== false,
+            showLimits: parsed.showLimits !== false
         };
     } catch (e) {
         manageEmbedSettings.value = {
             showPrompt: true,
             showKnowledgeBase: true,
             showRules: true,
-            showWidgetCustomization: true
+            showWidgetCustomization: true,
+            showWebhooks: true,
+            showChannels: true,
+            showConfigSelect: true,
+            showHandoff: true,
+            showLimits: true
         };
     }
 
@@ -204,19 +286,41 @@ const handleSaveEmbedSettings = async () => {
     const newSettingsJson = JSON.stringify(manageEmbedSettings.value);
 
     try {
+        const tenantData = {
+            tenantName: manageForm.value.tenantName,
+            tenantIdentifier: manageForm.value.tenantIdentifier || null,
+            systemPrompt: manageForm.value.systemPrompt || null,
+            provider: manageForm.value.provider || null,
+            modelName: manageForm.value.modelName || null,
+            allowedDomains: manageForm.value.allowedDomains || null,
+            webhookUrl: manageForm.value.webhookUrl || null,
+            webhookSecret: manageForm.value.webhookSecret || null
+        };
+
+        const tenantRes = await apiFetch(`/api/partner/tenants/${selectedTenant.value.projectId}`, {
+            method: 'PUT',
+            body: JSON.stringify(tenantData)
+        });
+
+        if (!tenantRes.ok) {
+            const errData = await tenantRes.json().catch(() => ({}));
+            error.value = errData.message || 'Failed to update tenant details.';
+            return;
+        }
+
         const res = await apiFetch(`/api/partner/tenants/${selectedTenant.value.projectId}/embed-settings`, {
             method: 'PUT',
             body: JSON.stringify({ embedSettingsJson: newSettingsJson })
         });
         if (res.ok) {
-            success.value = `Embed settings updated for ${selectedTenant.value.name}.`;
+            success.value = `Tenant settings and permissions updated for ${manageForm.value.tenantName}.`;
             showManageDialog.value = false;
             await loadTenants();
         } else {
             error.value = 'Failed to update embed settings.';
         }
     } catch (e) {
-        error.value = 'An error occurred.';
+        error.value = 'An error occurred while saving changes.';
     }
 };
 
@@ -332,7 +436,7 @@ onMounted(() => {
                     <InputText id="tenant-id" v-model="provisionForm.tenantIdentifier" placeholder="e.g., dental-clinic-subdomain" class="w-full" />
                     <small class="text-muted-small">A unique subdomain or client ID from your multi-tenant app to link sessions.</small>
                 </div>
-
+ 
                 <!-- Accordion for model overrides -->
                 <Accordion :value="['overrides']" class="override-accordion">
                     <AccordionPanel value="overrides">
@@ -357,11 +461,21 @@ onMounted(() => {
                                     <label for="override-domains">Whitelisted Domains</label>
                                     <InputText id="override-domains" v-model="provisionForm.allowedDomains" placeholder="e.g., app.dentalclinic.com" class="w-full" />
                                 </div>
+                                <div class="form-grid mt-3">
+                                    <div class="form-field">
+                                        <label for="override-webhook-url">Webhook URL</label>
+                                        <InputText id="override-webhook-url" v-model="provisionForm.webhookUrl" placeholder="https://api.example.com/webhooks" class="w-full" />
+                                    </div>
+                                    <div class="form-field">
+                                        <label for="override-webhook-secret">Webhook Secret</label>
+                                        <InputText id="override-webhook-secret" v-model="provisionForm.webhookSecret" type="password" placeholder="••••••••" class="w-full" />
+                                    </div>
+                                </div>
                             </div>
                         </AccordionContent>
                     </AccordionPanel>
                 </Accordion>
-
+ 
                 <!-- Embed Permissions -->
                 <div class="permission-section">
                     <h3>Iframe Embed Options</h3>
@@ -383,6 +497,26 @@ onMounted(() => {
                             <span>Widget Style Customization</span>
                             <ToggleSwitch v-model="provisionForm.showWidgetCustomization" />
                         </div>
+                        <div class="switch-row">
+                            <span>Webhook Settings</span>
+                            <ToggleSwitch v-model="provisionForm.showWebhooks" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Integration Channels</span>
+                            <ToggleSwitch v-model="provisionForm.showChannels" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Multi-Configuration Selector</span>
+                            <ToggleSwitch v-model="provisionForm.showConfigSelect" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Live Handoff Settings</span>
+                            <ToggleSwitch v-model="provisionForm.showHandoff" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Spend & Rate Limits</span>
+                            <ToggleSwitch v-model="provisionForm.showLimits" />
+                        </div>
                     </div>
                 </div>
             </div>
@@ -391,15 +525,63 @@ onMounted(() => {
                 <Button label="Provision Now" @click="handleProvision" />
             </template>
         </Dialog>
-
+ 
         <!-- Manage Tenant Dialog -->
-        <Dialog v-model:visible="showManageDialog" header="Manage Tenant Permissions" modal :style="{ width: '500px' }">
+        <Dialog v-model:visible="showManageDialog" header="Manage Tenant & Permissions" modal :style="{ width: '550px' }">
             <div class="dialog-form" v-if="selectedTenant">
                 <div class="selected-tenant-header">
                     <h4>{{ selectedTenant.name }}</h4>
                     <span class="tenant-id-sm font-mono">{{ selectedTenant.projectId }}</span>
                 </div>
-
+ 
+                <div class="form-field">
+                    <label for="manage-tenant-name">Tenant / Customer Name</label>
+                    <InputText id="manage-tenant-name" v-model="manageForm.tenantName" placeholder="e.g., Dental Clinic Inc" class="w-full" required />
+                </div>
+                <div class="form-field">
+                    <label for="manage-tenant-id">Tenant Identifier (Optional)</label>
+                    <InputText id="manage-tenant-id" v-model="manageForm.tenantIdentifier" placeholder="e.g., dental-clinic-subdomain" class="w-full" />
+                </div>
+ 
+                <!-- Accordion for model overrides -->
+                <Accordion :value="[]" class="override-accordion">
+                    <AccordionPanel value="manage-overrides">
+                        <AccordionHeader>LLM Config & Webhook Overrides (Optional)</AccordionHeader>
+                        <AccordionContent>
+                            <div class="accordion-form">
+                                <div class="form-grid">
+                                    <div class="form-field">
+                                        <label for="manage-provider">LLM Provider</label>
+                                        <Select id="manage-provider" v-model="manageForm.provider" :options="providerOptions" optionLabel="label" optionValue="value" placeholder="Inherit default" class="w-full" showClear />
+                                    </div>
+                                    <div class="form-field">
+                                        <label for="manage-model">LLM Model</label>
+                                        <Select id="manage-model" v-model="manageForm.modelName" :options="manageModelOptions" optionLabel="label" optionValue="value" placeholder="Inherit default" class="w-full" :disabled="!manageForm.provider" showClear />
+                                    </div>
+                                </div>
+                                <div class="form-field mt-3">
+                                    <label for="manage-prompt">Override System Prompt</label>
+                                    <Textarea id="manage-prompt" v-model="manageForm.systemPrompt" rows="3" placeholder="You are a helpful assistant..." class="w-full" />
+                                </div>
+                                <div class="form-field mt-3">
+                                    <label for="manage-domains">Whitelisted Domains</label>
+                                    <InputText id="manage-domains" v-model="manageForm.allowedDomains" placeholder="e.g., app.dentalclinic.com" class="w-full" />
+                                </div>
+                                <div class="form-grid mt-3">
+                                    <div class="form-field">
+                                        <label for="manage-webhook-url">Webhook URL</label>
+                                        <InputText id="manage-webhook-url" v-model="manageForm.webhookUrl" placeholder="https://api.example.com/webhooks" class="w-full" />
+                                    </div>
+                                    <div class="form-field">
+                                        <label for="manage-webhook-secret">Webhook Secret</label>
+                                        <InputText id="manage-webhook-secret" v-model="manageForm.webhookSecret" type="password" placeholder="•••••••• (leave empty to keep unchanged)" class="w-full" />
+                                    </div>
+                                </div>
+                            </div>
+                        </AccordionContent>
+                    </AccordionPanel>
+                </Accordion>
+ 
                 <div class="permission-section">
                     <h3>Custom Embedded Permissions</h3>
                     <p class="section-desc">Configure what tabs this specific customer will see inside the embedded iframe.</p>
@@ -420,9 +602,29 @@ onMounted(() => {
                             <span>Widget Style Customization</span>
                             <ToggleSwitch v-model="manageEmbedSettings.showWidgetCustomization" />
                         </div>
+                        <div class="switch-row">
+                            <span>Webhook Settings</span>
+                            <ToggleSwitch v-model="manageEmbedSettings.showWebhooks" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Integration Channels</span>
+                            <ToggleSwitch v-model="manageEmbedSettings.showChannels" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Multi-Configuration Selector</span>
+                            <ToggleSwitch v-model="manageEmbedSettings.showConfigSelect" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Live Handoff Settings</span>
+                            <ToggleSwitch v-model="manageEmbedSettings.showHandoff" />
+                        </div>
+                        <div class="switch-row">
+                            <span>Spend & Rate Limits</span>
+                            <ToggleSwitch v-model="manageEmbedSettings.showLimits" />
+                        </div>
                     </div>
                 </div>
-
+ 
                 <div class="danger-zone">
                     <h3>Danger Zone</h3>
                     <div class="danger-row">

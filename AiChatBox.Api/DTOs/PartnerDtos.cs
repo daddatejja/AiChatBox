@@ -49,6 +49,8 @@ namespace AiChatBox.Api.DTOs
         public string? AllowedDomains { get; set; }
         public string? ThemeSettingsJson { get; set; }
         public string? EmbedSettingsJson { get; set; }
+        public string? WebhookUrl { get; set; }
+        public string? WebhookSecret { get; set; }
     }
 
     public class ProvisionTenantResponse
@@ -70,6 +72,26 @@ namespace AiChatBox.Api.DTOs
         public bool HasApiKey { get; set; }
         public string EmbedSettingsJson { get; set; } = string.Empty;
         public DateTime CreatedAt { get; set; }
+        public string? WebhookUrl { get; set; }
+        public bool HasWebhookSecret { get; set; }
+        public string? AllowedDomains { get; set; }
+        public string? SystemPrompt { get; set; }
+    }
+
+    public class UpdateTenantRequest
+    {
+        [Required, MaxLength(200)]
+        public string TenantName { get; set; } = string.Empty;
+
+        [MaxLength(200)]
+        public string? TenantIdentifier { get; set; }
+
+        public string? SystemPrompt { get; set; }
+        public string? Provider { get; set; }
+        public string? ModelName { get; set; }
+        public string? AllowedDomains { get; set; }
+        public string? WebhookUrl { get; set; }
+        public string? WebhookSecret { get; set; }
     }
 
     public class UpdateTenantEmbedSettingsRequest

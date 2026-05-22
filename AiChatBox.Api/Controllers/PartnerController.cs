@@ -147,7 +147,11 @@ namespace AiChatBox.Api.Controllers
                     SessionCount = p.Sessions.Count,
                     HasApiKey = p.ApiKeys.Any(k => k.IsActive),
                     EmbedSettingsJson = p.EmbedSettingsJson,
-                    CreatedAt = p.CreatedAt
+                    CreatedAt = p.CreatedAt,
+                    WebhookUrl = p.WebhookUrl,
+                    HasWebhookSecret = !string.IsNullOrEmpty(p.WebhookSecret),
+                    AllowedDomains = p.AllowedDomains,
+                    SystemPrompt = p.SystemPrompt
                 })
                 .ToListAsync();
 
@@ -194,7 +198,9 @@ namespace AiChatBox.Api.Controllers
                 Provider = provider,
                 ModelName = modelName,
                 AllowedDomains = model.AllowedDomains ?? partner.AllowedDomainPattern,
-                EmbedSettingsJson = embedSettings
+                EmbedSettingsJson = embedSettings,
+                WebhookUrl = model.WebhookUrl,
+                WebhookSecret = model.WebhookSecret
             };
 
             _db.Projects.Add(project);
@@ -246,8 +252,59 @@ namespace AiChatBox.Api.Controllers
                 SessionCount = p.Sessions.Count,
                 HasApiKey = p.ApiKeys.Any(k => k.IsActive),
                 EmbedSettingsJson = p.EmbedSettingsJson,
-                CreatedAt = p.CreatedAt
+                CreatedAt = p.CreatedAt,
+                WebhookUrl = p.WebhookUrl,
+                HasWebhookSecret = !string.IsNullOrEmpty(p.WebhookSecret),
+                AllowedDomains = p.AllowedDomains,
+                SystemPrompt = p.SystemPrompt
             });
+        }
+
+        [HttpPut("tenants/{tenantId}")]
+        public async Task<IActionResult> UpdateTenant(Guid tenantId, UpdateTenantRequest model)
+        {
+            var partner = await GetCurrentPartnerAsync();
+            if (partner == null) return NotFound(new { message = "Partner account not found." });
+
+            var project = await _db.Projects.FirstOrDefaultAsync(p => p.Id == tenantId && p.PartnerAccountId == partner.Id);
+            if (project == null) return NotFound(new { message = "Tenant project not found." });
+
+            // Validate tenant identifier uniqueness if provided and changed
+            if (!string.IsNullOrEmpty(model.TenantIdentifier) && model.TenantIdentifier != project.TenantIdentifier)
+            {
+                var exists = await _db.Projects.AnyAsync(p => p.TenantIdentifier == model.TenantIdentifier && p.PartnerAccountId == partner.Id && p.Id != tenantId);
+                if (exists)
+                {
+                    return BadRequest(new { message = $"Tenant identifier '{model.TenantIdentifier}' is already in use." });
+                }
+            }
+
+            project.Name = model.TenantName;
+            project.TenantIdentifier = model.TenantIdentifier;
+            if (model.SystemPrompt != null) project.SystemPrompt = model.SystemPrompt;
+            if (model.Provider != null) project.Provider = model.Provider;
+            if (model.ModelName != null) project.ModelName = model.ModelName;
+            project.AllowedDomains = model.AllowedDomains;
+            project.WebhookUrl = model.WebhookUrl;
+            
+            if (model.WebhookSecret != null)
+            {
+                project.WebhookSecret = model.WebhookSecret;
+            }
+
+            await _db.SaveChangesAsync();
+
+            // Also update the Default configuration's settings to stay in sync
+            var defaultConfig = await _db.Configurations.FirstOrDefaultAsync(c => c.ProjectId == project.Id && c.Name == "Default");
+            if (defaultConfig != null)
+            {
+                if (model.SystemPrompt != null) defaultConfig.SystemPrompt = model.SystemPrompt;
+                if (model.Provider != null) defaultConfig.DefaultProvider = model.Provider;
+                if (model.ModelName != null) defaultConfig.DefaultModel = model.ModelName;
+                await _db.SaveChangesAsync();
+            }
+
+            return NoContent();
         }
 
         [HttpPut("tenants/{tenantId}/embed-settings")]
