@@ -77,10 +77,55 @@ namespace AiChatBox.Api.Controllers
             return Ok(messages);
         }
 
+        [HttpGet("widgets/{widgetId:guid}")]
+        public async Task<IActionResult> GetWidgetData(Guid widgetId)
+        {
+            var db = HttpContext.RequestServices.GetRequiredService<Data.ChatDbContext>();
+            var widget = await db.DataWidgets.FindAsync(widgetId);
+            if (widget == null) return NotFound("Widget data not found");
+
+            // Authorization: 
+            // If API key was used, verify the widget belongs to the project associated with that API key
+            var project = HttpContext.Items["CurrentProject"] as Project;
+            if (project != null)
+            {
+                if (widget.ProjectId != project.Id)
+                {
+                    return Forbid("Access denied to this widget data.");
+                }
+            }
+            else
+            {
+                // If JWT was used, ensure the user owns the project (or is system admin)
+                var currentUserId = UserId; // Resolved from claims
+                var hasAccess = await db.Projects.AnyAsync(p => p.Id == widget.ProjectId && (p.UserId == currentUserId || User.IsInRole("SystemAdmin")));
+                if (!hasAccess)
+                {
+                    return Forbid("Access denied to this widget data.");
+                }
+            }
+
+            // Return the raw JSON string directly with the correct content type
+            return Content(widget.DataJson, "application/json");
+        }
+
         [HttpPost("sessions/{sessionId:guid}/archive")]
         public async Task<IActionResult> ArchiveSession(Guid sessionId, [FromQuery] Guid? projectId)
         {
             var result = await _chatService.ArchiveSessionAsync(sessionId, UserId, projectId);
+            if (result)
+            {
+                var db = HttpContext.RequestServices.GetRequiredService<Data.ChatDbContext>();
+                db.AuditLogs.Add(new AuditLog
+                {
+                    UserId = UserId,
+                    Action = "archive_session",
+                    TargetId = sessionId.ToString(),
+                    Details = $"ProjectId: {projectId}",
+                    CreatedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
             return result ? Ok() : NotFound();
         }
 
@@ -88,6 +133,19 @@ namespace AiChatBox.Api.Controllers
         public async Task<IActionResult> HardDeleteSession(Guid sessionId, [FromQuery] Guid? projectId)
         {
             var result = await _chatService.HardDeleteSessionAsync(sessionId, UserId, projectId);
+            if (result)
+            {
+                var db = HttpContext.RequestServices.GetRequiredService<Data.ChatDbContext>();
+                db.AuditLogs.Add(new AuditLog
+                {
+                    UserId = UserId,
+                    Action = "delete_session",
+                    TargetId = sessionId.ToString(),
+                    Details = $"ProjectId: {projectId}",
+                    CreatedAt = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync();
+            }
             return result ? Ok() : NotFound();
         }
         

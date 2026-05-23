@@ -5,7 +5,7 @@ namespace AiChatBox.Api.Interfaces
 {
     public interface IAiChatService
     {
-        Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId, Guid? projectId = null, Guid? configurationId = null);
+        Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId, Guid? projectId = null, Guid? configurationId = null, string sessionType = "text", Guid? parentSessionId = null);
         Task<ChatMessage> SaveMessageAsync(Guid sessionId, string role, string content, string? imageDataUrl = null, Guid? attachedFileId = null);
         IAsyncEnumerable<ChatStreamChunk> StreamChatAsync(ChatRequest request, string userId, CancellationToken cancellationToken);
         

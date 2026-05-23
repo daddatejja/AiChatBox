@@ -41,6 +41,7 @@ namespace AiChatBox.Api.Services
         public Guid? ProjectId { get; set; }
         public Guid? ConfigurationId { get; set; }
         public Guid? SessionId { get; set; }
+        public Guid? ParentSessionId { get; set; }
         public string? UserId { get; set; }
         public string? ApiKeyOverride { get; set; }
 
@@ -76,7 +77,7 @@ namespace AiChatBox.Api.Services
             // Ensure session exists in DB before we start logging
             if (this.SessionId != null)
             {
-                var session = await _chatService.GetOrCreateSessionAsync(userId, this.SessionId, this.ProjectId, this.ConfigurationId);
+                var session = await _chatService.GetOrCreateSessionAsync(userId, this.SessionId, this.ProjectId, this.ConfigurationId, "live_voice", this.ParentSessionId);
                 this.SessionId = session.Id;
             }
 

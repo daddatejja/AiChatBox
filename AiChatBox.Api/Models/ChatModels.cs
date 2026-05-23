@@ -32,6 +32,14 @@ namespace AiChatBox.Api.Models
 
         public bool IsArchived { get; set; }
 
+        [MaxLength(20)]
+        public string SessionType { get; set; } = "text";
+
+        public Guid? ParentSessionId { get; set; }
+
+        [ForeignKey(nameof(ParentSessionId))]
+        public virtual ChatSession? ParentSession { get; set; }
+
         /// <summary>Handoff status: "ai", "queued", "active", "resolved"</summary>
         [MaxLength(20)]
         public string HandoffStatus { get; set; } = "ai";
@@ -93,5 +101,24 @@ namespace AiChatBox.Api.Models
 
         [ForeignKey(nameof(AttachedFileId))]
         public virtual UploadedFile? AttachedFile { get; set; }
+    }
+
+    [Table("DataWidgets")]
+    public class DataWidget
+    {
+        [Key]
+        public Guid Id { get; set; } = Guid.NewGuid();
+
+        [Required]
+        public Guid ProjectId { get; set; }
+
+        [Required]
+        public string DataJson { get; set; } = string.Empty;
+
+        [Required]
+        public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
+
+        [ForeignKey(nameof(ProjectId))]
+        public virtual Project? Project { get; set; }
     }
 }

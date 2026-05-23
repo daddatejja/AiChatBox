@@ -29,6 +29,8 @@ namespace AiChatBox.Api.Data
         public DbSet<FlowEdge> FlowEdges { get; set; }
         public DbSet<FlowExecutionLog> FlowExecutionLogs { get; set; }
         public DbSet<PartnerAccount> PartnerAccounts { get; set; }
+        public DbSet<AuditLog> AuditLogs { get; set; }
+        public DbSet<DataWidget> DataWidgets { get; set; }
 
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
@@ -174,6 +176,12 @@ namespace AiChatBox.Api.Data
                 .HasOne(p => p.PartnerAccount)
                 .WithMany(pa => pa.TenantProjects)
                 .HasForeignKey(p => p.PartnerAccountId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<DataWidget>()
+                .HasOne(w => w.Project)
+                .WithMany()
+                .HasForeignKey(w => w.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
         }
     }

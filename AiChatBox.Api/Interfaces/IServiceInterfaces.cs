@@ -37,6 +37,7 @@ namespace AiChatBox.Api.Interfaces
         Guid? ProjectId { get; set; }
         Guid? ConfigurationId { get; set; }
         Guid? SessionId { get; set; }
+        Guid? ParentSessionId { get; set; }
         string? UserId { get; set; }
         string? ApiKeyOverride { get; set; }
         event Func<byte[], Task>? OnAudioReceived;

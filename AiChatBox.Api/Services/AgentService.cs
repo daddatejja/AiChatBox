@@ -1,3 +1,6 @@
+using Microsoft.AspNetCore.Http;
+using Microsoft.EntityFrameworkCore;
+using AiChatBox.Api.Data;
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
@@ -14,6 +17,8 @@ namespace AiChatBox.Api.Services
                             WebhookService webhookService,
                             IAiLoggingService aiLogger,
                             EncryptionService encryptionService,
+                            IHttpContextAccessor httpContextAccessor,
+                            IDbContextFactory<ChatDbContext> dbFactory,
                             ILogger<AgentService> logger)
     {
         private readonly LlmProviderFactory _llmFactory = llmFactory;
@@ -21,6 +26,8 @@ namespace AiChatBox.Api.Services
         private readonly WebhookService _webhookService = webhookService;
         private readonly IAiLoggingService _aiLogger = aiLogger;
         private readonly EncryptionService _encryption = encryptionService;
+        private readonly IHttpContextAccessor _httpContextAccessor = httpContextAccessor;
+        private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
         private readonly ILogger<AgentService> _logger = logger;
 
         public async IAsyncEnumerable<AgentChunk> ExecuteAgentAsync(
@@ -58,7 +65,8 @@ namespace AiChatBox.Api.Services
                     var decryptedConn = _encryption.Decrypt(project.Database.ConnectionString);
                     if (!string.IsNullOrEmpty(decryptedConn))
                     {
-                        allTools.Add(new UserSqlTool(project.Database, decryptedConn, sessionContext));
+                        var isWidget = _httpContextAccessor.HttpContext?.Items.ContainsKey("CurrentApiKey") == true;
+                        allTools.Add(new UserSqlTool(project.Database, decryptedConn, sessionContext, isWidget));
                         
                         var schema = GetCompactSchema(project.Database.SchemaDefinition);
                         if (!string.IsNullOrEmpty(schema))
@@ -185,6 +193,44 @@ namespace AiChatBox.Api.Services
                     {
                         try {
                             result = await tool.ExecuteAsync(tc.ArgumentsJson, userId);
+                            if (result.Success && (tc.Name == "query_project_database" || tc.Name == "default_api:query_project_database"))
+                            {
+                                try
+                                {
+                                    var contentJson = JsonSerializer.Serialize(result.Content);
+                                    using var jsonDoc = JsonDocument.Parse(contentJson);
+                                    var root = jsonDoc.RootElement;
+                                    if (root.TryGetProperty("data", out var dataProp))
+                                    {
+                                        var dataJson = dataProp.GetRawText();
+                                        var widgetId = Guid.NewGuid();
+                                        
+                                        await using var dbContext = await _dbFactory.CreateDbContextAsync();
+                                        var widget = new DataWidget
+                                        {
+                                            Id = widgetId,
+                                            ProjectId = project?.Id ?? Guid.Empty,
+                                            DataJson = dataJson,
+                                            CreatedAt = DateTime.UtcNow
+                                        };
+                                        dbContext.DataWidgets.Add(widget);
+                                        await dbContext.SaveChangesAsync();
+
+                                        result.Content = new
+                                        {
+                                            data = dataProp.Clone(),
+                                            sql = root.TryGetProperty("sql", out var sqlProp) ? sqlProp.GetString() : null,
+                                            rowCount = root.TryGetProperty("rowCount", out var rcProp) ? rcProp.GetInt32() : 0,
+                                            truncated = root.TryGetProperty("truncated", out var trProp) && trProp.GetBoolean(),
+                                            widgetId = widgetId
+                                        };
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    _logger.LogError(ex, "Failed to create DataWidget for query results.");
+                                }
+                            }
                         } catch (Exception ex) {
                             result = new ToolResult { ToolName = tc.Name, Error = ex.Message };
                         }
@@ -210,8 +256,10 @@ namespace AiChatBox.Api.Services
 
                 var executedResults = await Task.WhenAll(toolTasks);
 
-                foreach (var (tc, res) in executedResults)
+                foreach (var item in executedResults)
                 {
+                    var tc = item.Item1;
+                    var res = item.Item2;
                     messages.Add(new GenericChatMessage
                     {
                         Role = "function",

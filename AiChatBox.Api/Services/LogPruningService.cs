@@ -31,6 +31,24 @@ namespace AiChatBox.Api.Services
                         _logger.LogInformation("Pruned {Count} old unpinned logs for Configuration {ConfigId}", deletedCount, config.Id);
                         totalDeleted += deletedCount;
                     }
+
+                    // Prune ChatSessions (and their cascade messages)
+                    var sessionsToDelete = await context.ChatSessions
+                        .Where(s => (s.ConfigurationId == config.Id || s.ProjectId == config.ProjectId)
+                                    && !s.IsArchived
+                                    && s.LastMessageAt < cutoffDate
+                                    && !context.AiRequestLogs.Any(l => l.SessionId == s.Id && l.IsPinned))
+                        .Select(s => s.Id)
+                        .ToListAsync();
+
+                    if (sessionsToDelete.Any())
+                    {
+                        var deletedSessionsCount = await context.ChatSessions
+                            .Where(s => sessionsToDelete.Contains(s.Id))
+                            .ExecuteDeleteAsync();
+                        
+                        _logger.LogInformation("Pruned {Count} old sessions for Configuration {ConfigId}", deletedSessionsCount, config.Id);
+                    }
                 }
 
                 // Session Count Pruning

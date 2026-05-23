@@ -1014,13 +1014,13 @@
 .chatbox-resize-handle {
   position: absolute;
   bottom: 0;
-  left: 0;
+  right: 0;
   width: 20px;
   height: 20px;
-  cursor: nesw-resize;
+  cursor: nwse-resize;
   z-index: 10001;
   background: linear-gradient(135deg, transparent 50%, var(--primary-color) 50%);
-  border-bottom-left-radius: 10px;
+  border-bottom-right-radius: 10px;
   opacity: 0.4;
   transition: opacity 0.2s;
 }
@@ -1534,14 +1534,71 @@
   color: var(--secondary-text);
   border-bottom: 1px solid var(--border-color);
   white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .table-container td {
   padding: 8px 12px;
   border-bottom: 1px solid #f1f5f9;
   color: var(--text-color);
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  cursor: default;
 }
 .table-container tbody tr:last-child td { border-bottom: none; }
 .table-container tbody tr:hover td { background: rgba(57, 167, 185, 0.03); }
+
+/* ── Cell Tooltip ── */
+.data-cell-tooltip {
+  position: fixed;
+  z-index: 99999;
+  background: #1e293b;
+  color: #f1f5f9;
+  font-size: 12px;
+  line-height: 1.5;
+  padding: 7px 11px;
+  border-radius: 8px;
+  max-width: min(320px, 90vw);
+  word-break: break-all;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.28), 0 0 0 1px rgba(255,255,255,0.06);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(4px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  white-space: pre-wrap;
+}
+.data-cell-tooltip.visible {
+  opacity: 1;
+  transform: translateY(0);
+}
+.data-cell-tooltip::before {
+  content: '';
+  position: absolute;
+  top: -5px;
+  left: 14px;
+  width: 10px;
+  height: 10px;
+  background: #1e293b;
+  transform: rotate(45deg);
+  border-radius: 2px;
+}
+.data-cell-tooltip-close {
+  display: none;
+  float: right;
+  margin-left: 10px;
+  cursor: pointer;
+  color: #94a3b8;
+  font-size: 14px;
+  line-height: 1;
+  pointer-events: auto;
+}
+@media (hover: none) {
+  .data-cell-tooltip { pointer-events: auto; }
+  .data-cell-tooltip-close { display: inline-block; }
+}
 
 /* ── Pagination ── */
 .data-pagination {
@@ -1641,8 +1698,6 @@
 }
 
 /* ── Fullscreen Expand: Desktop ── */
-/* Widget is physically moved to shadow root on expand so position:fixed
-   is always relative to the true viewport, not any clipping ancestor. */
 .data-widget-expanded {
   position: fixed !important;
   top: 50% !important;
@@ -1651,25 +1706,67 @@
   bottom: auto !important;
   margin: 0 !important;
   transform: translate(-50%, -50%) !important;
-  width: min(90vw, 960px) !important;
+  width: var(--expanded-w, min(90vw, 960px)) !important;
+  max-width: 95vw !important;
   max-height: 85vh !important;
+  min-width: 360px !important;
+  min-height: 260px !important;
   z-index: 11000 !important;
   border-radius: 16px !important;
   box-shadow:
     0 32px 80px rgba(0, 0, 0, 0.28),
     0 0 0 1px rgba(255, 255, 255, 0.08) !important;
   animation: widgetExpandIn 0.28s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-  overflow: auto !important;
+  overflow: hidden !important;
   /* Reset any inherited bubble padding/colors */
   background: white !important;
   font-family: var(--font-family) !important;
 }
+.data-widget-expanded .data-content {
+  overflow: auto;
+  max-height: calc(85vh - 56px); /* Fixed height */
+  /* If it needs horizontal padding offset: */
+  max-width: calc(var(--expanded-w, 90vw) - 40px); 
+}
+
 .data-widget-expanded .table-container {
-  max-height: calc(85vh - 180px) !important;
+  max-height: calc(85vh - 180px) !important; /* Fixed height */
+  overflow: auto !important;
+  /* Ensure the table scrolls horizontally if it gets too narrow */
+  max-width: calc(var(--expanded-w, 90vw) - 40px) !important;
 }
+
 .data-widget-expanded .data-chart-canvas {
-  height: calc(85vh - 200px) !important;
+  height: calc(85vh - 200px) !important; /* Fixed height */
+  /* Explicitly tell the chart canvas how wide it is allowed to be */
+  width: calc(var(--expanded-w, 90vw) - 60px) !important;
 }
+
+/* Resize handle for expanded widget */
+.data-widget-expanded-resize {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  width: 18px;
+  height: 18px;
+  cursor: ew-resize;
+  z-index: 11001;
+  opacity: 0.4;
+  transition: opacity 0.2s;
+}
+.data-widget-expanded-resize:hover { opacity: 1; }
+.data-widget-expanded-resize::after {
+  content: '';
+  position: absolute;
+  right: 4px;
+  bottom: 4px;
+  width: 9px;
+  height: 9px;
+  border-right: 2px solid var(--primary-color, #39a7b9);
+  border-bottom: 2px solid var(--primary-color, #39a7b9);
+  border-bottom-right-radius: 2px;
+}
+
 @keyframes widgetExpandIn {
   from { opacity: 0.6; transform: translate(-50%, -48%) scale(0.97); }
   to   { opacity: 1;   transform: translate(-50%, -50%) scale(1);    }

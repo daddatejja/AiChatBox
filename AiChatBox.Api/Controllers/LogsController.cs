@@ -1,5 +1,6 @@
 using System.Security.Claims;
 using AiChatBox.Api.Data;
+using AiChatBox.Api.Models;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
@@ -132,6 +133,17 @@ namespace AiChatBox.Api.Controllers
             }
 
             log.IsPinned = !log.IsPinned;
+
+            var auditLog = new AuditLog
+            {
+                UserId = userId,
+                Action = log.IsPinned ? "pin_log" : "unpin_log",
+                TargetId = log.Id.ToString(),
+                Details = $"Endpoint: {log.Endpoint}, Session: {log.SessionId}",
+                CreatedAt = DateTime.UtcNow
+            };
+            _db.AuditLogs.Add(auditLog);
+
             await _db.SaveChangesAsync();
 
             return Ok(new { isPinned = log.IsPinned });

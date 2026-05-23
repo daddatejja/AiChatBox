@@ -1,6 +1,7 @@
 using System.Runtime.CompilerServices;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AiChatBox.Api.Data;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
@@ -53,12 +54,17 @@ namespace AiChatBox.Api.Services
         private ProjectConfiguration? CurrentConfiguration => _httpContextAccessor.HttpContext?.Items["CurrentConfiguration"] as ProjectConfiguration;
         private ApiKey? CurrentApiKey => _httpContextAccessor.HttpContext?.Items["CurrentApiKey"] as ApiKey;
 
-        public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId, Guid? projectId = null, Guid? configurationId = null)
+        public async Task<ChatSession> GetOrCreateSessionAsync(string userId, Guid? sessionId, Guid? projectId = null, Guid? configurationId = null, string sessionType = "text", Guid? parentSessionId = null)
         {
+            var pId = projectId ?? CurrentProject?.Id;
             if (sessionId.HasValue)
             {
-                var existing = await _db.ChatSessions
-                    .FirstOrDefaultAsync(s => s.Id == sessionId.Value && s.UserId == userId);
+                var query = _db.ChatSessions.Where(s => s.Id == sessionId.Value && s.UserId == userId);
+                if (pId.HasValue)
+                {
+                    query = query.Where(s => s.ProjectId == pId.Value);
+                }
+                var existing = await query.FirstOrDefaultAsync();
 
                 if (existing != null)
                 {
@@ -91,7 +97,9 @@ namespace AiChatBox.Api.Services
                 ConfigurationId = configurationId ?? configId,
                 Title = "New Chat",
                 CreatedAt = DateTime.UtcNow,
-                LastMessageAt = DateTime.UtcNow
+                LastMessageAt = DateTime.UtcNow,
+                SessionType = sessionType,
+                ParentSessionId = parentSessionId
             };
 
             _db.ChatSessions.Add(session);
@@ -495,8 +503,25 @@ namespace AiChatBox.Api.Services
                     }
                     else if (chunk.ToolResult != null)
                     {
-                        await SaveMessageAsync(session.Id, "function", JsonSerializer.Serialize(new { toolName = chunk.ToolResult.ToolName, result = chunk.ToolResult.Result, thoughtSignature = chunk.ToolResult.ThoughtSignature }, _jsonOptions));
-                        yield return new ChatStreamChunk { ToolResult = chunk.ToolResult, SessionId = session.Id };
+                        var isWidget = CurrentApiKey != null;
+                        var resultObj = chunk.ToolResult.Result;
+                        if (isWidget && resultObj != null)
+                        {
+                            resultObj = SanitizeToolResultObject(resultObj);
+                        }
+
+                        await SaveMessageAsync(session.Id, "function", JsonSerializer.Serialize(new { toolName = chunk.ToolResult.ToolName, result = resultObj, thoughtSignature = chunk.ToolResult.ThoughtSignature }, _jsonOptions));
+                        yield return new ChatStreamChunk 
+                        { 
+                            ToolResult = new ToolResultDto
+                            {
+                                ToolCallId = chunk.ToolResult.ToolCallId,
+                                ToolName = chunk.ToolResult.ToolName,
+                                Result = resultObj,
+                                ThoughtSignature = chunk.ToolResult.ThoughtSignature
+                            }, 
+                            SessionId = session.Id 
+                        };
                     }
                     else if (!string.IsNullOrEmpty(chunk.Text))
                     {
@@ -601,7 +626,7 @@ namespace AiChatBox.Api.Services
         {
             var pId = projectId ?? CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && s.ProjectId == pId && !s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == pId && !s.IsArchived && s.Messages.Any())
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto
                 {
@@ -609,7 +634,9 @@ namespace AiChatBox.Api.Services
                     Title = s.Title,
                     CreatedAt = s.CreatedAt,
                     LastMessageAt = s.LastMessageAt,
-                    MessageCount = s.Messages.Count
+                    MessageCount = s.Messages.Count,
+                    SessionType = s.SessionType,
+                    ParentSessionId = s.ParentSessionId
                 })
                 .ToListAsync();
         }
@@ -620,21 +647,24 @@ namespace AiChatBox.Api.Services
             var sessionExists = await _db.ChatSessions.AnyAsync(s => s.Id == sessionId && s.UserId == userId && s.ProjectId == pId);
             if (!sessionExists) return [];
 
-            return await _db.ChatMessages
+            var messages = await _db.ChatMessages
                 .Include(m => m.AttachedFile)
                 .Where(m => m.SessionId == sessionId)
                 .OrderBy(m => m.CreatedAt)
-                .Select(m => new ChatMessageDto
-                {
-                    Id = m.Id,
-                    Role = m.Role,
-                    Content = m.Content,
-                    ImageDataUrl = m.ImageDataUrl,
-                    AttachedFileId = m.AttachedFileId,
-                    AttachedFileName = m.AttachedFile != null ? m.AttachedFile.OriginalFileName : null,
-                    CreatedAt = m.CreatedAt
-                })
                 .ToListAsync();
+
+            var isWidget = CurrentApiKey != null;
+
+            return messages.Select(m => new ChatMessageDto
+            {
+                Id = m.Id,
+                Role = m.Role,
+                Content = m.Role == "function" ? SanitizeChatMessageContent(m.Content, isWidget) : m.Content,
+                ImageDataUrl = m.ImageDataUrl,
+                AttachedFileId = m.AttachedFileId,
+                AttachedFileName = m.AttachedFile != null ? m.AttachedFile.OriginalFileName : null,
+                CreatedAt = m.CreatedAt
+            });
         }
 
         public async Task<bool> ArchiveSessionAsync(Guid sessionId, string userId, Guid? projectId = null)
@@ -651,7 +681,7 @@ namespace AiChatBox.Api.Services
         {
             var pId = projectId ?? CurrentProject?.Id;
             return await _db.ChatSessions
-                .Where(s => s.UserId == userId && s.ProjectId == pId && s.IsArchived)
+                .Where(s => s.UserId == userId && s.ProjectId == pId && s.IsArchived && s.Messages.Any())
                 .OrderByDescending(s => s.LastMessageAt)
                 .Select(s => new ChatSessionDto 
                 { 
@@ -659,7 +689,9 @@ namespace AiChatBox.Api.Services
                     Title = s.Title, 
                     CreatedAt = s.CreatedAt, 
                     LastMessageAt = s.LastMessageAt, 
-                    MessageCount = s.Messages.Count 
+                    MessageCount = s.Messages.Count,
+                    SessionType = s.SessionType,
+                    ParentSessionId = s.ParentSessionId
                 })
                 .ToListAsync();
         }
@@ -672,6 +704,57 @@ namespace AiChatBox.Api.Services
             _db.ChatSessions.Remove(session);
             await _db.SaveChangesAsync();
             return true;
+        }
+
+        private string SanitizeChatMessageContent(string content, bool isWidget)
+        {
+            if (!isWidget || string.IsNullOrWhiteSpace(content) || !content.TrimStart().StartsWith("{"))
+            {
+                return content;
+            }
+
+            try
+            {
+                var jsonNode = JsonNode.Parse(content);
+                if (jsonNode is JsonObject jsonObj)
+                {
+                    if (jsonObj.TryGetPropertyValue("result", out var resultNode) && resultNode is JsonObject resultObj)
+                    {
+                        resultObj.Remove("sql");
+                        resultObj.Remove("data");
+                    }
+                    return jsonObj.ToJsonString();
+                }
+            }
+            catch
+            {
+                // Fallback to original content if JSON parsing fails
+            }
+
+            return content;
+        }
+
+        private object? SanitizeToolResultObject(object? result)
+        {
+            if (result == null) return null;
+
+            try
+            {
+                var jsonStr = JsonSerializer.Serialize(result, _jsonOptions);
+                var node = JsonNode.Parse(jsonStr);
+                if (node is JsonObject jsonObj)
+                {
+                    jsonObj.Remove("sql");
+                    jsonObj.Remove("data");
+                    return jsonObj;
+                }
+            }
+            catch
+            {
+                // Fail-safe: return original
+            }
+
+            return result;
         }
     }
 }
