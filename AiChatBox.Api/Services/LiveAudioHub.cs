@@ -59,8 +59,9 @@ namespace AiChatBox.Api.Services
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
                 var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
-                Guid? sessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var sid) ? sid : Guid.NewGuid();
-                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId);
+                Guid? sessId = Guid.NewGuid();
+                Guid? parentSessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var psid) ? psid : (Guid?)null;
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId, parentSessId);
             }
             catch (Exception ex)
             {
@@ -119,8 +120,9 @@ namespace AiChatBox.Api.Services
                 var systemPrompt = config?.SystemPrompt ?? project.SystemPrompt;
                 var geminiApiKeyOverride = _encryption.Decrypt(config?.GeminiApiKey);
 
-                Guid? sessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var sid) ? sid : Guid.NewGuid();
-                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId);
+                Guid? sessId = Guid.NewGuid(); // Always generate a fresh unique session ID for isolated live session
+                Guid? parentSessId = !string.IsNullOrEmpty(sessionId) && Guid.TryParse(sessionId, out var psid) ? psid : (Guid?)null;
+                await StartSessionInternal(connectionId, userId, voiceName, systemPrompt, project.Id, config?.Id, geminiApiKeyOverride, sessId, parentSessId);
             }
             catch (Exception ex)
             {
@@ -132,7 +134,7 @@ namespace AiChatBox.Api.Services
         /// <summary>
         /// Shared session initialization logic used by both StartLive and StartLiveDashboard.
         /// </summary>
-        private async Task StartSessionInternal(string connectionId, string userId, string? voiceName, string? systemPrompt, Guid? projectId, Guid? configurationId, string? geminiApiKeyOverride, Guid? sessionId)
+        private async Task StartSessionInternal(string connectionId, string userId, string? voiceName, string? systemPrompt, Guid? projectId, Guid? configurationId, string? geminiApiKeyOverride, Guid? sessionId, Guid? parentSessionId = null)
         {
             await _sessionManager.StartSessionAsync(connectionId, userId, voiceName, systemPrompt,
                 async (pcmData) => 
@@ -158,7 +160,8 @@ namespace AiChatBox.Api.Services
                 projectId,
                 configurationId,
                 geminiApiKeyOverride,
-                sessionId
+                sessionId,
+                parentSessionId
             );
 
             var session = _sessionManager.GetSession(connectionId);

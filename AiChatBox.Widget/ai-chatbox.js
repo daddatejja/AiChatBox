@@ -197,7 +197,7 @@
       this.sessions = [];
       this.attachments = [];
       this.pastedImage = null;
-      this.currentSessionId = localStorage.getItem("ai_chat_session_id") || null;
+      this.currentSessionId = null;
       this.liveTimerInterval = null;
       this.liveStartTime = null;
       
@@ -277,6 +277,11 @@
         });
         this.dispatchEvent(event);
       };
+    }
+
+    getSessionStorageKey() {
+      const projectId = this.projectId || this.getAttribute("project-id");
+      return projectId ? `ai_chat_session_id_${projectId}` : `ai_chat_session_id`;
     }
 
     getHeaders() {
@@ -445,6 +450,7 @@
       this.authToken = this.getAttribute("auth-token") || null;
       this.projectId = this.getAttribute("project-id") || null;
       this.configurationId = this.getAttribute("configuration-id") || null;
+      this.currentSessionId = localStorage.getItem(this.getSessionStorageKey()) || null;
       this.userId = this.getAttribute("user-id") || "standalone-user";
       this.provider = this.getAttribute("provider") || "gemini";
       this.modelName = this.getAttribute("model") || "gemini-3.1-flash-lite-preview";
@@ -477,6 +483,14 @@
                 <style>
                   .message-text-content:empty, .message-widget-container:empty { display: none; }
                   .message-text-content { margin-bottom: 8px; line-height: 1.5; }
+                  
+                  @keyframes dataPulse {
+                    0%, 100% { opacity: 0.4; }
+                    50% { opacity: 0.8; }
+                  }
+                  .data-skeleton-line {
+                    animation: dataPulse 1.5s infinite ease-in-out;
+                  }
                   
                   /* Command Autocomplete Dropdown Styling */
                   .command-autocomplete-dropdown {
@@ -1819,9 +1833,9 @@
                 const textChunk = data.Text || data.text;
                 const errorChunk = data.Error || data.error;
 
-                if (sid && !this.currentSessionId) {
+                if (sid && this.currentSessionId !== sid) {
                   this.currentSessionId = sid;
-                  localStorage.setItem("ai_chat_session_id", sid);
+                  localStorage.setItem(this.getSessionStorageKey(), sid);
                 }
 
                 const isDone = data.Done || data.done;
@@ -1959,8 +1973,8 @@
       let initWidth, initHeight;
       document.addEventListener("mousemove", (e) => {
         if (isResizing) {
-          const dx = startX - e.clientX; // Resizing from bottom-left
-          const dy = startY - e.clientY;
+          const dx = e.clientX - startX; // Resizing from bottom-right
+          const dy = e.clientY - startY;
           container.style.width = Math.max(320, initWidth + dx) + "px";
           container.style.height = Math.max(400, initHeight + dy) + "px";
         }
@@ -2074,9 +2088,9 @@
                 const textChunk = data.Text || data.text;
                 const errorChunk = data.Error || data.error;
 
-                if (sid && !this.currentSessionId) {
+                if (sid && this.currentSessionId !== sid) {
                   this.currentSessionId = sid;
-                  localStorage.setItem("ai_chat_session_id", sid);
+                  localStorage.setItem(this.getSessionStorageKey(), sid);
                 }
 
                 // Capture message ID from Done chunk for feedback
@@ -2176,9 +2190,9 @@
                 try {
                   const data = JSON.parse(line.substring(6));
                   const sid = data.SessionId || data.sessionId || data.sid;
-                  if (sid && !this.currentSessionId) {
+                  if (sid && this.currentSessionId !== sid) {
                     this.currentSessionId = sid;
-                    localStorage.setItem("ai_chat_session_id", sid);
+                    localStorage.setItem(this.getSessionStorageKey(), sid);
                   }
                 } catch (e) {}
               }
@@ -2616,7 +2630,7 @@
       this.stopHandoffConnection();
       this.handoffStatus = "ai";
       this.currentSessionId = null;
-      localStorage.removeItem("ai_chat_session_id");
+      localStorage.removeItem(this.getSessionStorageKey());
       this.shadowRoot.getElementById("messages-container").innerHTML = "";
 
       const transcriptArea = this.shadowRoot.getElementById("live-transcript");
@@ -2928,12 +2942,16 @@
       area.scrollTop = area.scrollHeight;
     }
 
-    // ---- Missing Methods Implementation ----
     async loadSessions() {
       try {
         const isArchived = this.shadowRoot.getElementById("tab-archived").classList.contains("history-tab-active");
         const endpoint = isArchived ? "archived" : "sessions";
-        const response = await fetch(`${this.apiUrl}/api/chat/${endpoint}`, {
+        let url = `${this.apiUrl}/api/chat/${endpoint}`;
+        const projectId = this.projectId || this.getAttribute("project-id");
+        if (projectId) {
+          url += `?projectId=${encodeURIComponent(projectId)}`;
+        }
+        const response = await fetch(url, {
           headers: this.getHeaders(),
         });
         if (!response.ok) throw new Error("Failed to load history");
@@ -3171,14 +3189,18 @@
     async loadSessionMessages(sessionId) {
       this.stopHandoffConnection();
       this.currentSessionId = sessionId;
-      localStorage.setItem("ai_chat_session_id", sessionId);
-      const projectId = this.getAttribute("project-id") || localStorage.getItem("ai_chat_project_id");
+      localStorage.setItem(this.getSessionStorageKey(), sessionId);
+      const projectId = this.projectId || this.getAttribute("project-id") || localStorage.getItem("ai_chat_project_id");
       if (projectId) localStorage.setItem("ai_chat_project_id", projectId);
       
       const list = this.shadowRoot.getElementById("messages-container");
       list.innerHTML = `<div class="history-loading">Loading messages...</div>`;
       try {
-        const response = await fetch(`${this.apiUrl}/api/chat/sessions/${sessionId}`, {
+        let url = `${this.apiUrl}/api/chat/sessions/${sessionId}`;
+        if (projectId) {
+          url += `?projectId=${encodeURIComponent(projectId)}`;
+        }
+        const response = await fetch(url, {
           headers: this.getHeaders(),
         });
         if (!response.ok) throw new Error("Session not found");
@@ -3190,7 +3212,6 @@
           const isTool = role === "tool";
           const rawContent = m.Content || m.content || "";
           
-          // Intercept saved rich responses (starting with or containing "[REDIRECT RESPONSE] ", etc.)
           let isRichResponse = false;
           let richType = null;
           let richPayload = null;
@@ -3227,35 +3248,35 @@
             return; // Skip remaining normal rendering
           }
 
-          // Try to detect if the content is a JSON tool result
+          // Try to detect if the content is a JSON tool result or tool calls
           let toolData = m.ToolResult || m.toolResult;
           let wasParsedAsTool = false;
+          let isToolCalling = false;
 
-          if (!toolData && rawContent.trim().startsWith('{')) {
+          if (rawContent.trim().startsWith('{')) {
             try {
               const parsed = JSON.parse(rawContent);
               if (parsed.toolName || parsed.ToolName) {
                 toolData = parsed;
                 wasParsedAsTool = true;
               }
+              if (parsed.toolCalls || parsed.ToolCalls || parsed.toolCall || parsed.ToolCall) {
+                isToolCalling = true;
+              }
             } catch(e) {}
           }
 
-          if (isTool || wasParsedAsTool) {
+          if (isTool || wasParsedAsTool || isToolCalling) {
              const toolName = toolData?.toolName || toolData?.ToolName;
              const isDbTool = toolName === 'query_project_database' || toolName === 'query_database' || toolName === 'query_data';
              const hasResult = toolData?.result || toolData?.Result;
              
-             if (isDbTool) {
-                if (!hasResult) return; // Skip empty/null database results in history
-                
+             if (isDbTool && hasResult) {
                 const msgWrap = this.addMessage("ai", `<div class="message-text-content"></div><div class="message-widget-container"></div>`, null, null, m.Id || m.id);
                 const widgetContainer = msgWrap.querySelector(".message-widget-container");
                 this.renderDataResult(toolData.result || toolData.Result, widgetContainer);
-                return; 
              }
-             
-             if (isTool && !wasParsedAsTool) return; // Skip non-DB raw tool messages if they aren't parsed
+             return; // Skip rendering raw tool result / tool call JSON in conversation
           }
 
           const content = this.formatMarkdown(rawContent);
@@ -3637,7 +3658,7 @@
             pre.parentNode.replaceChild(wrapper, pre);
           });
           
-          return tempDiv.innerHTML;
+          return this.sanitizeHtml(tempDiv.innerHTML);
         }
       } catch (e) {
         console.warn("Markdown parsing failed, falling back to basic rendering", e);
@@ -3662,7 +3683,7 @@
         `;
       });
 
-      return html;
+      return this.sanitizeHtml(html);
     }
     scrollToBottom() {
       const m = this.shadowRoot.getElementById("messages-container");
@@ -3701,6 +3722,73 @@
 
     renderDataResult(result, container) {
       if (!result) return;
+
+      // Handle lazy loading if widgetId is present and data is not yet loaded
+      const widgetId = result.widgetId || result.WidgetId;
+      if (widgetId && !result.data && !result.rows) {
+        // Prevent duplicate load if this container is already fetching/fetched this widgetId
+        if (container.dataset.loadingWidgetId === widgetId) {
+          return;
+        }
+        container.dataset.loadingWidgetId = widgetId;
+
+        container.innerHTML = `
+          <div class="data-loading-widget" style="background: rgba(99, 102, 241, 0.04); border: 1px dashed rgba(99, 102, 241, 0.25); border-radius: 12px; padding: 16px; margin-top: 8px; display: flex; flex-direction: column; gap: 12px;">
+            <div style="display: flex; align-items: center; gap: 10px; color: var(--primary-color, #6366f1); font-size: 13px; font-weight: 500;">
+              <span class="spin-animation" style="display: inline-block; animation: spin 1s linear infinite;">${this.icons.refresh}</span>
+              <span>Fetching query results (${result.rowCount || 0} rows)...</span>
+            </div>
+            <div style="display: flex; flex-direction: column; gap: 6px;">
+              <div class="data-skeleton-line" style="height: 10px; width: 90%; background: rgba(255,255,255,0.06); border-radius: 4px;"></div>
+              <div class="data-skeleton-line" style="height: 10px; width: 70%; background: rgba(255,255,255,0.06); border-radius: 4px;"></div>
+              <div class="data-skeleton-line" style="height: 10px; width: 45%; background: rgba(255,255,255,0.06); border-radius: 4px;"></div>
+            </div>
+          </div>`;
+
+        // Load the data asynchronously
+        fetch(`${this.apiUrl}/api/chat/widgets/${widgetId}`, {
+          headers: this.getHeaders()
+        })
+        .then(res => {
+          if (!res.ok) throw new Error(`HTTP error! status: ${res.status}`);
+          return res.json();
+        })
+        .then(data => {
+          // Once data is loaded, clear dataset and render the real widget
+          delete container.dataset.loadingWidgetId;
+          this.renderDataResult({
+            data: data,
+            rowCount: result.rowCount || (Array.isArray(data) ? data.length : 0),
+            truncated: result.truncated
+          }, container);
+        })
+        .catch(err => {
+          console.error("Failed to load lazy widget data:", err);
+          delete container.dataset.loadingWidgetId;
+          container.innerHTML = `
+            <div style="color: var(--danger-color); font-size: 13px; padding: 12px; border: 1px solid rgba(239, 68, 68, 0.2); border-radius: 12px; background: rgba(239, 68, 68, 0.05); display: flex; align-items: flex-start; gap: 10px; margin-top: 8px;">
+              <div style="flex-shrink: 0; margin-top: 1px;">${this.icons.error}</div>
+              <div style="flex: 1; font-weight: 500;">Failed to load query data: ${this.escapeHtml(err.message)}</div>
+            </div>`;
+        });
+        return;
+      }
+
+      // Handle string error/warning messages returned from tool execution
+      if (typeof result === 'string') {
+        const isWarning = result.includes("restricted") || result.includes("permitted") || result.includes("limit") || result.includes("not permitted");
+        const alertBg = isWarning ? "rgba(245, 158, 11, 0.08)" : "rgba(239, 68, 68, 0.08)";
+        const alertBorder = isWarning ? "rgba(245, 158, 11, 0.2)" : "rgba(239, 68, 68, 0.2)";
+        const alertText = isWarning ? "#d97706" : "#ef4444";
+        const icon = isWarning ? this.icons.lightbulb : this.icons.error;
+
+        container.innerHTML = `
+          <div class="data-alert-widget" style="background: ${alertBg}; border: 1px solid ${alertBorder}; border-radius: 12px; padding: 14px; color: ${alertText}; font-size: 13px; line-height: 1.5; margin-top: 8px; display: flex; align-items: flex-start; gap: 10px; animation: slideUp 0.2s ease;">
+            <div style="flex-shrink: 0; margin-top: 1px;">${icon}</div>
+            <div style="flex: 1; font-weight: 500;">${this.escapeHtml(result)}</div>
+          </div>`;
+        return;
+      }
       
       // Handle both formats: {columns, rows} or {data: []} or raw array
       let rows = result.rows || result.data || (Array.isArray(result) ? result : []);
@@ -3743,7 +3831,7 @@
         const start = (page - 1) * PAGE_SIZE;
         const pageRows = rows.slice(start, start + PAGE_SIZE);
         return pageRows.map(row =>
-          `<tr>${columns.map(c => `<td>${row[c] !== null && row[c] !== undefined ? row[c] : ''}</td>`).join('')}</tr>`
+          `<tr>${columns.map(c => `<td>${row[c] !== null && row[c] !== undefined ? this.escapeHtml(row[c]) : ''}</td>`).join('')}</tr>`
         ).join('');
       };
 
@@ -3777,6 +3865,8 @@
           </div>`;
       };
 
+      const isTruncated = result.truncated || result.Truncated || false;
+
       container.innerHTML = `
         <div class="data-result-widget" id="${id}">
           <div class="data-tabs">
@@ -3791,6 +3881,11 @@
             </div>
           </div>
           <div class="data-content">
+            ${isTruncated ? `
+              <div class="data-truncated-banner" style="background: rgba(245, 158, 11, 0.08); border: 1px dashed rgba(245, 158, 11, 0.2); border-radius: 8px; padding: 8px 12px; margin: 12px 0; font-size: 12px; color: #d97706; display: flex; align-items: center; gap: 8px;">
+                <span style="font-size: 14px; display: flex; align-items: center;">⚠️</span>
+                <span>Showing first ${rows.length} rows. Results are truncated for performance.</span>
+              </div>` : ''}
             <div class="data-panel active" data-panel="table">
               <div class="table-container">
                 <table>
@@ -3820,6 +3915,84 @@
       `;
 
       const widget = container.querySelector(`#${id}`);
+
+      (() => {
+        let tip = this.shadowRoot.getElementById("data-cell-tooltip-singleton");
+        if (!tip) {
+          tip = document.createElement("div");
+          tip.id = "data-cell-tooltip-singleton";
+          tip.className = "data-cell-tooltip";
+          tip.innerHTML = "<span class='data-cell-tooltip-close' title='Close'>✕</span><span class='data-cell-tooltip-text'></span>";
+          this.shadowRoot.appendChild(tip);
+          tip.querySelector(".data-cell-tooltip-close").addEventListener("click", () => {
+            tip.classList.remove("visible");
+          });
+        }
+        const tipText = tip.querySelector(".data-cell-tooltip-text");
+        let hideTimer = null;
+        let showTimer = null; 
+
+        const showTip = (el, text) => {
+          clearTimeout(hideTimer);
+          tipText.textContent = text;
+          tip.classList.add("visible");
+          positionTip(el);
+        };
+        
+        const hideTip = () => {
+          hideTimer = setTimeout(() => tip.classList.remove("visible"), 120);
+        };
+        
+        const positionTip = (el) => {
+          const r = el.getBoundingClientRect();
+          const tw = Math.min(320, window.innerWidth * 0.9);
+          let left = r.left;
+          let top = r.bottom + 8;
+          if (left + tw > window.innerWidth - 8) left = window.innerWidth - tw - 8;
+          if (left < 8) left = 8;
+          if (top + 60 > window.innerHeight) top = r.top - 8 - 60;
+          tip.style.left = left + "px";
+          tip.style.top = top + "px";
+        };
+
+        tip.addEventListener("mouseenter", () => {
+          clearTimeout(hideTimer);
+        });
+
+        tip.addEventListener("mouseleave", () => {
+          hideTip();
+        });
+
+        widget.addEventListener("mouseover", (e) => {
+          const td = e.target.closest("td, th");
+          if (!td) return;
+          if (td.scrollWidth > td.clientWidth + 2) {
+            clearTimeout(hideTimer);
+            clearTimeout(showTimer);
+            
+            showTimer = setTimeout(() => {
+              showTip(td, td.textContent.trim());
+            }, 400); 
+          }
+        });
+
+        widget.addEventListener("mouseout", (e) => {
+          const td = e.target.closest("td, th");
+          if (td) {
+            clearTimeout(showTimer);
+            hideTip();
+          }
+        });
+
+        widget.addEventListener("click", (e) => {
+          const td = e.target.closest("td, th");
+          if (!td) return;
+          if (td.scrollWidth > td.clientWidth + 2) {
+            clearTimeout(showTimer);
+            showTip(td, td.textContent.trim());
+          }
+        });
+      })();
 
       // ── Pagination click handler ──
       const tablePanel = widget.querySelector('[data-panel="table"]');
@@ -3886,6 +4059,15 @@
         const backdrop = this.shadowRoot.getElementById('data-expand-backdrop');
         if (backdrop) backdrop.remove();
 
+        // Clean up expanded resize handle & restore styles
+        if (widget._rwCleanup) widget._rwCleanup();
+        widget.style.width = '';
+        widget.style.height = '';
+        widget.style.left = '';
+        widget.style.top = '';
+        widget.style.transform = '';
+        widget.style.removeProperty('--expanded-w');
+
         expandBtn.innerHTML = this.icons.expand;
         expandBtn.title = 'Expand View';
         document.removeEventListener('keydown', escHandler);
@@ -3926,6 +4108,75 @@
               expandBtn.innerHTML = this.icons.collapse;
               expandBtn.title = 'Exit Fullscreen (Esc)';
               document.addEventListener('keydown', escHandler);
+
+              // Add resize handle (desktop only)
+              if (!isMobile && !widget.querySelector('.data-widget-expanded-resize')) {
+                const rh = document.createElement('div');
+                rh.className = 'data-widget-expanded-resize';
+                widget.appendChild(rh);
+
+                let rwStartX, rwStartY, rwInitW, rwInitH, rwInitLeft, rwInitTop;
+                const maxW = window.innerWidth * 0.95;
+                const maxH = window.innerHeight * 0.92;
+
+                const onRWMove = (ev) => {
+                  const newW = Math.min(maxW, Math.max(360, rwInitW + (ev.clientX - rwStartX)));
+                  
+                  widget.style.setProperty('--expanded-w', newW + 'px');
+                  
+                  const canvas = widget.querySelector('.data-chart-canvas');
+                  if (canvas && canvas._chart) canvas._chart.resize();
+                };
+
+                const onRWUp = (ev) => {
+                  // Release pointer and restore text selection
+                  rh.releasePointerCapture(ev.pointerId);
+                  document.body.style.userSelect = '';
+                  
+                  // Remove listeners so they don't fire passively
+                  document.removeEventListener('pointermove', onRWMove);
+                  document.removeEventListener('pointerup', onRWUp);
+                };
+
+                rh.addEventListener('pointerdown', (ev) => {
+                  rwStartX = ev.clientX;
+                  rwStartY = ev.clientY;
+                  
+                  const wr = widget.getBoundingClientRect();
+                  rwInitW = wr.width;
+                  rwInitH = wr.height;
+                  rwInitLeft = wr.left;
+                  rwInitTop = wr.top;
+
+                  // Switch from transform-centering to absolute fixed coords
+                  widget.style.transform = 'none';
+                  widget.style.left = rwInitLeft + 'px';
+                  widget.style.top = rwInitTop + 'px';
+
+                  // Prevent text highlighting while dragging
+                  document.body.style.userSelect = 'none';
+                  
+                  // Ensure the handle continues to receive events even if the cursor leaves the element
+                  rh.setPointerCapture(ev.pointerId);
+
+                  // Attach drag and release listeners ONLY while actively dragging
+                  document.addEventListener('pointermove', onRWMove);
+                  document.addEventListener('pointerup', onRWUp);
+
+                  ev.preventDefault();
+                  ev.stopPropagation();
+                });
+
+                // Clean up on collapse or destruction
+                widget._rwCleanup = () => {
+                  // Failsafe cleanup just in case widget is destroyed mid-drag
+                  document.removeEventListener('pointermove', onRWMove);
+                  document.removeEventListener('pointerup', onRWUp);
+                  document.body.style.userSelect = '';
+                  rh.remove();
+                  delete widget._rwCleanup;
+                };
+              }
 
               const chartPanel = widget.querySelector('[data-panel="chart"]');
               if (canChart && chartPanel && chartPanel.classList.contains('active')) {
@@ -4054,6 +4305,58 @@
       } catch (err) {
         console.error('Export failed:', err);
       }
+    }
+
+    sanitizeHtml(html) {
+      if (!html) return "";
+      
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(html, "text/html");
+      const body = doc.body;
+      
+      // 1. Remove script elements
+      const scripts = body.querySelectorAll("script");
+      scripts.forEach(s => s.remove());
+      
+      // 2. Walk all elements and remove interactive or harmful attributes/handlers
+      const allElements = body.querySelectorAll("*");
+      allElements.forEach(el => {
+        // Remove event handlers (attributes starting with "on")
+        const attrs = Array.from(el.attributes);
+        attrs.forEach(attr => {
+          if (attr.name.toLowerCase().startsWith("on")) {
+            el.removeAttribute(attr.name);
+          }
+          // Remove javascript: URLs in href/src/action
+          if (["href", "src", "action"].includes(attr.name.toLowerCase())) {
+            const val = attr.value.trim().toLowerCase();
+            if (val.startsWith("javascript:") || val.startsWith("data:text/html")) {
+              el.removeAttribute(attr.name);
+            }
+          }
+        });
+
+        // Remove dangerous elements
+        const name = el.tagName.toLowerCase();
+        if (["iframe", "object", "embed", "frame", "frameset", "base"].includes(name)) {
+          el.remove();
+        }
+      });
+
+      return body.innerHTML;
+    }
+
+    escapeHtml(str) {
+      if (str === null || str === undefined) return "";
+      if (typeof str !== "string") {
+        return String(str);
+      }
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#039;");
     }
   }
 

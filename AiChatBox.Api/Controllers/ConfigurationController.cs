@@ -134,6 +134,16 @@ namespace AiChatBox.Api.Controllers
             };
 
             _db.Configurations.Add(config);
+            
+            _db.AuditLogs.Add(new AuditLog
+            {
+                UserId = UserId,
+                Action = "create_configuration",
+                TargetId = config.Id.ToString(),
+                Details = $"ProjectId: {projectId}, Name: {model.Name}",
+                CreatedAt = DateTime.UtcNow
+            });
+
             await _db.SaveChangesAsync();
 
             return CreatedAtAction(nameof(GetConfiguration), new { id = config.Id }, new ConfigurationDto
@@ -246,6 +256,17 @@ namespace AiChatBox.Api.Controllers
             if (model.ChannelSettingsJson != null) config.ChannelSettingsJson = string.IsNullOrEmpty(model.ChannelSettingsJson) ? null : model.ChannelSettingsJson;
 
             await _db.SaveChangesAsync();
+
+            _db.AuditLogs.Add(new AuditLog
+            {
+                UserId = UserId,
+                Action = "update_configuration",
+                TargetId = config.Id.ToString(),
+                Details = $"Name: {config.Name}",
+                CreatedAt = DateTime.UtcNow
+            });
+            await _db.SaveChangesAsync();
+
             return NoContent();
         }
 
@@ -302,6 +323,15 @@ namespace AiChatBox.Api.Controllers
             config.SystemPrompt = history.SystemPrompt;
             config.DefaultProvider = history.DefaultProvider;
             config.DefaultModel = history.DefaultModel;
+
+            _db.AuditLogs.Add(new AuditLog
+            {
+                UserId = UserId,
+                Action = "restore_configuration",
+                TargetId = config.Id.ToString(),
+                Details = $"Restored to historyId: {historyId}",
+                CreatedAt = DateTime.UtcNow
+            });
 
             await _db.SaveChangesAsync();
             return NoContent();
@@ -371,6 +401,16 @@ namespace AiChatBox.Api.Controllers
             if (config == null) return NotFound();
 
             _db.Configurations.Remove(config);
+
+            _db.AuditLogs.Add(new AuditLog
+            {
+                UserId = UserId,
+                Action = "delete_configuration",
+                TargetId = config.Id.ToString(),
+                Details = $"Name: {config.Name}",
+                CreatedAt = DateTime.UtcNow
+            });
+
             await _db.SaveChangesAsync();
             return NoContent();
         }
@@ -448,6 +488,15 @@ namespace AiChatBox.Api.Controllers
             config.SystemPrompt = historyEntry.SystemPrompt;
             config.DefaultModel = historyEntry.DefaultModel;
             config.DefaultProvider = historyEntry.DefaultProvider;
+
+            _db.AuditLogs.Add(new AuditLog
+            {
+                UserId = UserId,
+                Action = "restore_configuration",
+                TargetId = config.Id.ToString(),
+                Details = $"Restored to historyId: {historyId}",
+                CreatedAt = DateTime.UtcNow
+            });
 
             await _db.SaveChangesAsync();
             return NoContent();

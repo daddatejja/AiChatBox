@@ -18,6 +18,7 @@ namespace AiChatBox.Api.Services.Tools
         private readonly ProjectDatabase _dbConfig;
         private readonly string _decryptedConnectionString;
         private readonly Dictionary<string, string> _sessionContext = new(StringComparer.OrdinalIgnoreCase);
+        private readonly bool _isWidget;
 
         public string Name => "query_project_database";
         public string Description => "Executes read-only SQL queries on the user's project database. Use this to fetch data, generate reports, or answer analytical questions based on the provided schema.";
@@ -41,10 +42,11 @@ namespace AiChatBox.Api.Services.Tools
             ["required"] = new JsonArray { "query" }
         };
 
-        public UserSqlTool(ProjectDatabase dbConfig, string decryptedConnectionString, string? sessionContextJson = null)
+        public UserSqlTool(ProjectDatabase dbConfig, string decryptedConnectionString, string? sessionContextJson = null, bool isWidget = false)
         {
             _dbConfig = dbConfig;
             _decryptedConnectionString = decryptedConnectionString;
+            _isWidget = isWidget;
 
             if (!string.IsNullOrEmpty(sessionContextJson))
             {
@@ -150,7 +152,10 @@ namespace AiChatBox.Api.Services.Tools
                             }
                         }
                     }
-                    catch { /* ignore parse errors — fail open */ }
+                    catch (Exception ex)
+                    {
+                        return new ToolResult { ToolName = Name, Error = "Failed to parse allowed columns configuration. Query blocked for security reasons." };
+                    }
                 }
                 // ─────────────────────────────────────────────────────────────────────
 
@@ -265,7 +270,8 @@ namespace AiChatBox.Api.Services.Tools
             }
             catch (Exception ex)
             {
-                return new ToolResult { ToolName = Name, Error = ex.Message };
+                var userError = _isWidget ? "An error occurred while executing the database query. Please verify your query syntax or search terms." : ex.Message;
+                return new ToolResult { ToolName = Name, Error = userError };
             }
         }
 

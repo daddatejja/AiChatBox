@@ -3,18 +3,21 @@ using System;
 using AiChatBox.Api.Data;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
 using Pgvector;
 
 #nullable disable
 
-namespace AiChatBox.Api.Migrations
+namespace AiChatBox.Api.Data.Migrations
 {
     [DbContext(typeof(ChatDbContext))]
-    partial class ChatDbContextModelSnapshot : ModelSnapshot
+    [Migration("20260523041625_AddSessionEnhancementsAndAuditing")]
+    partial class AddSessionEnhancementsAndAuditing
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -534,29 +537,6 @@ namespace AiChatBox.Api.Migrations
                     b.HasIndex("ProjectId");
 
                     b.ToTable("CustomTools");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.DataWidget", b =>
-                {
-                    b.Property<Guid>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("uuid");
-
-                    b.Property<DateTime>("CreatedAt")
-                        .HasColumnType("timestamp without time zone");
-
-                    b.Property<string>("DataJson")
-                        .IsRequired()
-                        .HasColumnType("text");
-
-                    b.Property<Guid>("ProjectId")
-                        .HasColumnType("uuid");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("ProjectId");
-
-                    b.ToTable("DataWidgets");
                 });
 
             modelBuilder.Entity("AiChatBox.Api.Models.DocumentChunk", b =>
@@ -1358,17 +1338,6 @@ namespace AiChatBox.Api.Migrations
                 {
                     b.HasOne("AiChatBox.Api.Models.Project", "Project")
                         .WithMany("CustomTools")
-                        .HasForeignKey("ProjectId")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
-                    b.Navigation("Project");
-                });
-
-            modelBuilder.Entity("AiChatBox.Api.Models.DataWidget", b =>
-                {
-                    b.HasOne("AiChatBox.Api.Models.Project", "Project")
-                        .WithMany()
                         .HasForeignKey("ProjectId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();

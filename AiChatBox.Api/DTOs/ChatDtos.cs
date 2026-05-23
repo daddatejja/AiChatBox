@@ -62,6 +62,8 @@ namespace AiChatBox.Api.DTOs
         public DateTime CreatedAt { get; set; }
         public DateTime LastMessageAt { get; set; }
         public int MessageCount { get; set; }
+        public string SessionType { get; set; } = "text";
+        public Guid? ParentSessionId { get; set; }
     }
 
     public class ChatMessageDto

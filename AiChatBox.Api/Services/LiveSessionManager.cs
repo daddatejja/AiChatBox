@@ -23,7 +23,8 @@ namespace AiChatBox.Api.Services
             Guid? projectId = null,
             Guid? configurationId = null,
             string? apiKeyOverride = null,
-            Guid? sessionId = null)
+            Guid? sessionId = null,
+            Guid? parentSessionId = null)
         {
             // Enforce 1 live session per user
             if (_userConnections.TryGetValue(userId, out var existingConnectionId))
@@ -44,6 +45,7 @@ namespace AiChatBox.Api.Services
                 geminiService.ProjectId = projectId;
                 geminiService.ConfigurationId = configurationId;
                 geminiService.SessionId = sessionId;
+                geminiService.ParentSessionId = parentSessionId;
                 geminiService.ApiKeyOverride = apiKeyOverride;
                 geminiService.UserId = userId; // Ensure UserId is set on the service
 
