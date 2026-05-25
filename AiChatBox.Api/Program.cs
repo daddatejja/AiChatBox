@@ -146,6 +146,7 @@ builder.Services.AddScoped<IChannelAdapter, WhatsAppAdapter>();
 builder.Services.AddScoped<IChannelAdapter, SlackAdapter>();
 builder.Services.AddScoped<IChannelAdapter, TelegramAdapter>();
 builder.Services.AddScoped<IChannelAdapter, TeamsAdapter>();
+builder.Services.AddScoped<IChannelAdapter, OpenWaAdapter>();
 
 // Hangfire configuration
 builder.Services.AddHangfire(configuration => configuration

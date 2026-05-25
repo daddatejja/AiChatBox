@@ -12,6 +12,7 @@ const { apiFetch, getToken, API_BASE } = useApi();
 interface HandoffSession {
     sessionId: string;
     userId: string;
+    title: string | null;
     projectId: string | null;
     projectName: string;
     configurationName: string | null;
@@ -333,7 +334,7 @@ onUnmounted(() => {
                         @click="selectSession(s)"
                     >
                         <div class="session-card-header">
-                            <span class="session-user">{{ s.userId }}</span>
+                            <span class="session-user">{{ s.title || s.userId }}</span>
                             <span class="session-time">{{ waitTime(s.queuedAt) }}</span>
                         </div>
                         <div class="session-project">{{ s.projectName }}</div>
@@ -362,7 +363,7 @@ onUnmounted(() => {
                     <!-- Chat Header -->
                     <div class="chat-header">
                         <div class="chat-header-info">
-                            <h3>{{ selectedSession.userId }}</h3>
+                            <h3>{{ selectedSession.title || selectedSession.userId }}</h3>
                             <span class="chat-header-project">{{ selectedSession.projectName }}</span>
                             <span :class="['status-badge', 'status-' + selectedSession.handoffStatus]">
                                 {{ selectedSession.handoffStatus }}

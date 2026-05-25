@@ -526,3 +526,30 @@
     .variable-chips { gap: 4px; }
     .tab-btn { padding: 6px 10px; font-size: 0.78rem; }
 }
+
+.local-dev-tip {
+    display: flex;
+    gap: 10px;
+    background: rgba(245, 158, 11, 0.08);
+    border: 1px solid rgba(245, 158, 11, 0.25);
+    border-radius: 8px;
+    padding: 12px;
+    color: #b45309;
+    font-size: 0.8rem;
+    line-height: 1.45;
+    margin-top: 8px;
+}
+
+.local-dev-tip .info-icon {
+    font-size: 1.05rem;
+    color: #d97706;
+    margin-top: 2px;
+}
+
+.local-dev-tip .tip-content {
+    flex: 1;
+}
+
+.mt-3 {
+    margin-top: 12px;
+}

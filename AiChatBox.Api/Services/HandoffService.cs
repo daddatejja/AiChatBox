@@ -1,15 +1,27 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using AiChatBox.Api.Data;
+using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Models;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
 namespace AiChatBox.Api.Services
 {
-    public class HandoffService(ChatDbContext db, IHubContext<LiveChatHub> hubContext, IntentClassifierService classifier, ILogger<HandoffService> logger)
+    public class HandoffService(
+        ChatDbContext db,
+        IHubContext<LiveChatHub> hubContext,
+        IntentClassifierService classifier,
+        IEnumerable<IChannelAdapter> adapters,
+        ILogger<HandoffService> logger)
     {
         private readonly ChatDbContext _db = db;
         private readonly IHubContext<LiveChatHub> _hubContext = hubContext;
         private readonly IntentClassifierService _classifier = classifier;
+        private readonly IEnumerable<IChannelAdapter> _adapters = adapters;
         private readonly ILogger<HandoffService> _logger = logger;
 
         /// <summary>
@@ -201,6 +213,7 @@ namespace AiChatBox.Api.Services
             {
                 SessionId = s.Id,
                 UserId = s.UserId,
+                Title = s.Title,
                 ProjectId = s.ProjectId,
                 ProjectName = s.Project != null ? s.Project.Name : "Unknown",
                 ConfigurationName = s.Configuration != null ? s.Configuration.Name : null,
@@ -228,6 +241,7 @@ namespace AiChatBox.Api.Services
                 {
                     SessionId = s.Id,
                     UserId = s.UserId,
+                    Title = s.Title,
                     ProjectId = s.ProjectId,
                     ProjectName = s.Project != null ? s.Project.Name : "Unknown",
                     ConfigurationName = s.Configuration != null ? s.Configuration.Name : null,
@@ -269,6 +283,35 @@ namespace AiChatBox.Api.Services
                 role = "agent"
             });
 
+            // If this is an external channel session, dispatch outbound message through the channel adapter
+            if (!string.IsNullOrEmpty(session.ExternalSenderId) && session.UserId.StartsWith("external-"))
+            {
+                var parts = session.UserId.Split('-');
+                if (parts.Length >= 2)
+                {
+                    var channel = parts[1];
+                    var adapter = _adapters.FirstOrDefault(a => a.ChannelName.Equals(channel, StringComparison.OrdinalIgnoreCase));
+                    if (adapter != null)
+                    {
+                        try
+                        {
+                            await adapter.SendOutbound(new OutboundMessage
+                            {
+                                RecipientId = session.ExternalSenderId,
+                                Text = message,
+                                Channel = channel,
+                                SessionId = session.Id,
+                                ProjectId = session.ProjectId ?? Guid.Empty
+                            });
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "Failed to send outbound agent message over channel {Channel} for session {SessionId}", channel, sessionId);
+                        }
+                    }
+                }
+            }
+
             return msg;
         }
     }
@@ -277,6 +320,7 @@ namespace AiChatBox.Api.Services
     {
         public Guid SessionId { get; set; }
         public string UserId { get; set; } = string.Empty;
+        public string? Title { get; set; }
         public Guid? ProjectId { get; set; }
         public string ProjectName { get; set; } = string.Empty;
         public string? ConfigurationName { get; set; }

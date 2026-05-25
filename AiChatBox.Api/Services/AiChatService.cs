@@ -198,7 +198,7 @@ namespace AiChatBox.Api.Services
             {
                 project = await _db.Projects
                     .Include(p => p.Database)
-                    .FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && p.UserId == userId);
+                    .FirstOrDefaultAsync(p => p.Id == request.ProjectId.Value && (p.UserId == userId || userId.StartsWith("external-")));
             }
 
             if (config == null && project != null)

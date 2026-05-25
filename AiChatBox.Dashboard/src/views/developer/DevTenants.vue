@@ -346,7 +346,7 @@ const handleDeleteTenant = async (tenantId: string) => {
 
 const showSnippet = (tenant: any) => {
     // Generate snippet
-    const baseUrl = import.meta.env.DEV ? 'https://localhost:44385' : window.location.origin;
+    const baseUrl = import.meta.env.DEV ? 'http://localhost:5180' : window.location.origin;
     currentSnippet.value = `<!-- Copy and paste this script into your website HTML body -->
 <script 
   src="${baseUrl}/widget/chatbox.js" 

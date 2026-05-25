@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Net.Http;
 using System.Net.Http.Headers;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -34,6 +35,58 @@ namespace AiChatBox.Api.Services
 
             if (string.IsNullOrWhiteSpace(bodyText))
                 throw new ArgumentException("Request body is empty.");
+
+            Guid projectId = Guid.Empty;
+            if (request.RouteValues.TryGetValue("projectId", out var val) && Guid.TryParse(val?.ToString(), out var pid))
+            {
+                projectId = pid;
+            }
+
+            // Verify WhatsApp Signature if AppSecret is configured
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var config = await db.Configurations
+                .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+            if (config == null)
+            {
+                config = await db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == projectId);
+            }
+
+            if (config != null && !string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
+            {
+                var settings = JsonSerializer.Deserialize<ChannelSettings>(config.ChannelSettingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (settings?.WhatsApp != null && !string.IsNullOrWhiteSpace(settings.WhatsApp.AppSecret))
+                {
+                    var decryptedSecret = _encryptionService.Decrypt(settings.WhatsApp.AppSecret);
+                    if (!string.IsNullOrEmpty(decryptedSecret))
+                    {
+                        var signatureHeader = request.Headers["X-Hub-Signature-256"].ToString();
+                        if (string.IsNullOrEmpty(signatureHeader))
+                        {
+                            throw new UnauthorizedAccessException("Missing required X-Hub-Signature-256 header.");
+                        }
+
+                        const string prefix = "sha256=";
+                        if (!signatureHeader.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
+                        {
+                            throw new UnauthorizedAccessException("Invalid X-Hub-Signature-256 header format.");
+                        }
+
+                        var actualSignature = signatureHeader.Substring(prefix.Length);
+
+                        using var hmac = new HMACSHA256(Encoding.UTF8.GetBytes(decryptedSecret));
+                        var computedHashBytes = hmac.ComputeHash(Encoding.UTF8.GetBytes(bodyText));
+                        var computedSignature = Convert.ToHexString(computedHashBytes).ToLowerInvariant();
+
+                        if (!CryptographicOperations.FixedTimeEquals(
+                            Encoding.UTF8.GetBytes(computedSignature),
+                            Encoding.UTF8.GetBytes(actualSignature)))
+                        {
+                            throw new UnauthorizedAccessException("WhatsApp request signature verification failed.");
+                        }
+                    }
+                }
+            }
 
             using var doc = JsonDocument.Parse(bodyText);
             var root = doc.RootElement;
@@ -71,10 +124,31 @@ namespace AiChatBox.Api.Services
                 }
             }
 
-            Guid projectId = Guid.Empty;
-            if (request.RouteValues.TryGetValue("projectId", out var val) && Guid.TryParse(val?.ToString(), out var pid))
+            var senderName = string.Empty;
+            if (valProp.TryGetProperty("contacts", out var contactsArray) && contactsArray.GetArrayLength() > 0)
             {
-                projectId = pid;
+                var contactObj = contactsArray[0];
+                if (contactObj.TryGetProperty("profile", out var profileProp))
+                {
+                    senderName = profileProp.GetProperty("name").GetString() ?? "";
+                }
+            }
+
+            var attachmentUrl = string.Empty;
+            if (messageObj.TryGetProperty("type", out var msgTypeProp))
+            {
+                var typeStr = msgTypeProp.GetString();
+                if (typeStr == "image" || typeStr == "audio" || typeStr == "voice" || typeStr == "document" || typeStr == "video")
+                {
+                    if (messageObj.TryGetProperty(typeStr, out var mediaObj))
+                    {
+                        var mediaId = mediaObj.TryGetProperty("id", out var idProp) ? idProp.GetString() : null;
+                        if (!string.IsNullOrEmpty(mediaId))
+                        {
+                            attachmentUrl = await GetWhatsAppMediaUrl(mediaId, projectId);
+                        }
+                    }
+                }
             }
 
             return new InboundMessage
@@ -82,7 +156,9 @@ namespace AiChatBox.Api.Services
                 SenderId = senderId,
                 Text = text,
                 Channel = ChannelName,
-                ProjectId = projectId
+                ProjectId = projectId,
+                SenderName = senderName,
+                AttachmentUrl = attachmentUrl
             };
         }
 
@@ -130,6 +206,47 @@ namespace AiChatBox.Api.Services
                 var errorMsg = await response.Content.ReadAsStringAsync();
                 throw new Exception($"Failed to send WhatsApp message. Status: {response.StatusCode}, Details: {errorMsg}");
             }
+        }
+
+        private async Task<string> GetWhatsAppMediaUrl(string mediaId, Guid projectId)
+        {
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var config = await db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+                if (config == null)
+                {
+                    config = await db.Configurations
+                        .FirstOrDefaultAsync(c => c.ProjectId == projectId);
+                }
+
+                if (config == null || string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
+                    return string.Empty;
+
+                var settings = JsonSerializer.Deserialize<ChannelSettings>(config.ChannelSettingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (settings?.WhatsApp == null || string.IsNullOrWhiteSpace(settings.WhatsApp.AccessToken))
+                    return string.Empty;
+
+                var accessToken = _encryptionService.Decrypt(settings.WhatsApp.AccessToken);
+                var getMediaUrl = $"https://graph.facebook.com/v19.0/{mediaId}";
+
+                using var request = new HttpRequestMessage(HttpMethod.Get, getMediaUrl);
+                request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", accessToken);
+
+                var response = await _http.SendAsync(request);
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseString = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(responseString);
+                    return doc.RootElement.GetProperty("url").GetString() ?? string.Empty;
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to retrieve WhatsApp media URL: {ex.Message}");
+            }
+            return string.Empty;
         }
     }
 }
