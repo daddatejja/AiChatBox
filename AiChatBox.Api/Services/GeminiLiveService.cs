@@ -1,6 +1,7 @@
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using AiChatBox.Api.DTOs;
 using AiChatBox.Api.Interfaces;
 using AiChatBox.Api.Models;
@@ -456,7 +457,7 @@ namespace AiChatBox.Api.Services
                     {
                         name = t.Name,
                         description = t.Description,
-                        parameters = t.ParametersSchema
+                        parameters = NormalizeSchema(t.ParametersSchema)
                     }).ToArray()
                 }
             ];
@@ -617,6 +618,52 @@ namespace AiChatBox.Api.Services
             _modelAudioBuffer.Dispose();
 
             GC.SuppressFinalize(this);
+        }
+
+        private static JsonNode? NormalizeSchema(JsonNode? node)
+        {
+            if (node == null) return null;
+
+            if (node is JsonObject obj)
+            {
+                var copy = new JsonObject();
+                foreach (var prop in obj)
+                {
+                    var key = prop.Key;
+                    var val = prop.Value;
+
+                    if (key == "type" && val is JsonValue valVal && valVal.TryGetValue<string>(out var typeStr))
+                    {
+                        var normType = typeStr.ToLowerInvariant() switch
+                        {
+                            "int" or "integer" => "INTEGER",
+                            "string" => "STRING",
+                            "number" or "float" or "double" => "NUMBER",
+                            "boolean" or "bool" => "BOOLEAN",
+                            "array" => "ARRAY",
+                            "object" => "OBJECT",
+                            _ => typeStr.ToUpperInvariant()
+                        };
+                        copy[key] = JsonValue.Create(normType);
+                    }
+                    else
+                    {
+                        copy[key] = NormalizeSchema(val);
+                    }
+                }
+                return copy;
+            }
+            else if (node is JsonArray arr)
+            {
+                var copy = new JsonArray();
+                foreach (var item in arr)
+                {
+                    copy.Add(NormalizeSchema(item));
+                }
+                return copy;
+            }
+
+            return node.DeepClone();
         }
     }
 }
