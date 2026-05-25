@@ -23,13 +23,17 @@ namespace AiChatBox.Api.Controllers
         IEnumerable<IChannelAdapter> adapters,
         IAiChatService chatService,
         IHubContext<LiveChatHub> hubContext,
-        EncryptionService encryptionService) : ControllerBase
+        EncryptionService encryptionService,
+        IServiceScopeFactory scopeFactory,
+        ILogger<ChannelController> logger) : ControllerBase
     {
         private readonly IDbContextFactory<ChatDbContext> _dbFactory = dbFactory;
         private readonly IEnumerable<IChannelAdapter> _adapters = adapters;
         private readonly IAiChatService _chatService = chatService;
         private readonly IHubContext<LiveChatHub> _hubContext = hubContext;
         private readonly EncryptionService _encryptionService = encryptionService;
+        private readonly IServiceScopeFactory _scopeFactory = scopeFactory;
+        private readonly ILogger<ChannelController> _logger = logger;
 
         private IChannelAdapter GetAdapter(string channel)
         {
@@ -103,12 +107,16 @@ namespace AiChatBox.Api.Controllers
 
                 if (session == null)
                 {
+                    var sessionTitle = !string.IsNullOrEmpty(inbound.SenderName)
+                        ? $"{inbound.SenderName} ({channel})"
+                        : $"Session: {inbound.SenderId} ({channel})";
+
                     session = new ChatSession
                     {
                         ExternalSenderId = inbound.SenderId,
                         ProjectId = projectId,
                         UserId = $"external-{channel}-{inbound.SenderId}",
-                        Title = $"Session: {inbound.SenderId} ({channel})",
+                        Title = sessionTitle,
                         CreatedAt = DateTime.UtcNow,
                         LastMessageAt = DateTime.UtcNow,
                         HandoffStatus = "ai"
@@ -116,13 +124,28 @@ namespace AiChatBox.Api.Controllers
                     db.ChatSessions.Add(session);
                     await db.SaveChangesAsync();
                 }
+                else if (!string.IsNullOrEmpty(inbound.SenderName) && (string.IsNullOrEmpty(session.Title) || session.Title.StartsWith("Session: ")))
+                {
+                    session.Title = $"{inbound.SenderName} ({channel})";
+                    await db.SaveChangesAsync();
+                }
 
                 // 2. Save the incoming message from the user
+                var msgContent = inbound.Text;
+                if (!string.IsNullOrEmpty(inbound.AttachmentUrl))
+                {
+                    msgContent += $"\n\n📎 Attachment: {inbound.AttachmentUrl}";
+                }
+
                 var userMsg = new ChatMessage
                 {
                     SessionId = session.Id,
                     Role = "user",
-                    Content = inbound.Text,
+                    Content = msgContent,
+                    ImageDataUrl = !string.IsNullOrEmpty(inbound.AttachmentUrl) && 
+                                   (inbound.AttachmentUrl.Contains(".png") || inbound.AttachmentUrl.Contains(".jpg") || inbound.AttachmentUrl.Contains(".jpeg") || inbound.AttachmentUrl.Contains(".webp") || inbound.AttachmentUrl.Contains("google.com") || inbound.AttachmentUrl.Contains("telegram.org")) 
+                                   ? inbound.AttachmentUrl 
+                                   : null,
                     CreatedAt = DateTime.UtcNow
                 };
                 db.ChatMessages.Add(userMsg);
@@ -142,40 +165,62 @@ namespace AiChatBox.Api.Controllers
                     return Ok();
                 }
 
-                // 4. Generate AI Agent response in a non-streaming compile
-                var responseText = new StringBuilder();
-                var chatRequest = new ChatRequest
+                // 4. Generate AI Agent response & Send reply outbound back over the channel asynchronously (in background)
+                // This returns a 200 OK immediately, preventing webhook timeout errors from third-party channels (like OpenWA).
+                _ = Task.Run(async () =>
                 {
-                    SessionId = session.Id,
-                    Message = inbound.Text,
-                    ProjectId = projectId
-                };
-
-                await foreach (var chunk in _chatService.StreamChatAsync(chatRequest, session.UserId, default))
-                {
-                    if (!string.IsNullOrEmpty(chunk.Text))
+                    try
                     {
-                        responseText.Append(chunk.Text);
+                        using var scope = _scopeFactory.CreateScope();
+                        var scopedChatService = scope.ServiceProvider.GetRequiredService<IAiChatService>();
+                        var scopedAdapters = scope.ServiceProvider.GetServices<IChannelAdapter>();
+                        var scopedAdapter = scopedAdapters.FirstOrDefault(a => a.ChannelName.Equals(channel, StringComparison.OrdinalIgnoreCase));
+
+                        if (scopedAdapter == null)
+                        {
+                            _logger.LogError("Scoped adapter not found for channel {Channel} in background processing.", channel);
+                            return;
+                        }
+
+                        var responseText = new StringBuilder();
+                        var chatRequest = new ChatRequest
+                        {
+                            SessionId = session.Id,
+                            Message = inbound.Text,
+                            ProjectId = projectId
+                        };
+
+                        await foreach (var chunk in scopedChatService.StreamChatAsync(chatRequest, session.UserId, default))
+                        {
+                            if (!string.IsNullOrEmpty(chunk.Text))
+                            {
+                                responseText.Append(chunk.Text);
+                            }
+                            if (!string.IsNullOrEmpty(chunk.Error))
+                            {
+                                responseText.Append($" [Error: {chunk.Error}]");
+                            }
+                        }
+
+                        var replyText = responseText.ToString();
+
+                        var outbound = new OutboundMessage
+                        {
+                            RecipientId = inbound.SessionExternalId ?? inbound.SenderId,
+                            Text = replyText,
+                            Channel = channel,
+                            SessionId = session.Id,
+                            ProjectId = projectId
+                        };
+
+                        await scopedAdapter.SendOutbound(outbound);
                     }
-                    if (!string.IsNullOrEmpty(chunk.Error))
+                    catch (Exception bgEx)
                     {
-                        responseText.Append($" [Error: {chunk.Error}]");
+                        _logger.LogError(bgEx, "Background processing for webhook message failed (Channel: {Channel}, SessionId: {SessionId})", channel, session.Id);
                     }
-                }
+                });
 
-                var replyText = responseText.ToString();
-
-                // 5. Send reply outbound back over the channel
-                var outbound = new OutboundMessage
-                {
-                    RecipientId = inbound.SessionExternalId ?? inbound.SenderId,
-                    Text = replyText,
-                    Channel = channel,
-                    SessionId = session.Id,
-                    ProjectId = projectId
-                };
-
-                await adapter.SendOutbound(outbound);
                 return Ok();
             }
             catch (NotSupportedException ex)
@@ -184,7 +229,7 @@ namespace AiChatBox.Api.Controllers
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"[Webhook Error] {channel}: {ex.Message}\n{ex.StackTrace}");
+                _logger.LogError(ex, "[Webhook Error] {Channel} failed to process", channel);
                 return StatusCode(500, $"Internal Webhook Error: {ex.Message}");
             }
         }

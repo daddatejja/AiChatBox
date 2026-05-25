@@ -53,32 +53,40 @@ namespace AiChatBox.Api.Services
 
         /// <summary>
         /// Decrypts an encrypted Base64 string back to plaintext.
+        /// Returns the original string if it is not a valid encrypted Base64 string or decryption fails.
         /// Returns null if the input is null or empty.
         /// </summary>
         public string? Decrypt(string? encryptedBase64)
         {
             if (string.IsNullOrEmpty(encryptedBase64)) return null;
 
-            var encryptedBytes = Convert.FromBase64String(encryptedBase64);
+            try
+            {
+                var encryptedBytes = Convert.FromBase64String(encryptedBase64);
 
-            if (encryptedBytes.Length < NonceSize + TagSize)
-                throw new CryptographicException("Invalid encrypted data format.");
+                if (encryptedBytes.Length < NonceSize + TagSize)
+                    return encryptedBase64;
 
-            var nonce = new byte[NonceSize];
-            var ciphertextLength = encryptedBytes.Length - NonceSize - TagSize;
-            var ciphertext = new byte[ciphertextLength];
-            var tag = new byte[TagSize];
+                var nonce = new byte[NonceSize];
+                var ciphertextLength = encryptedBytes.Length - NonceSize - TagSize;
+                var ciphertext = new byte[ciphertextLength];
+                var tag = new byte[TagSize];
 
-            Buffer.BlockCopy(encryptedBytes, 0, nonce, 0, NonceSize);
-            Buffer.BlockCopy(encryptedBytes, NonceSize, ciphertext, 0, ciphertextLength);
-            Buffer.BlockCopy(encryptedBytes, NonceSize + ciphertextLength, tag, 0, TagSize);
+                Buffer.BlockCopy(encryptedBytes, 0, nonce, 0, NonceSize);
+                Buffer.BlockCopy(encryptedBytes, NonceSize, ciphertext, 0, ciphertextLength);
+                Buffer.BlockCopy(encryptedBytes, NonceSize + ciphertextLength, tag, 0, TagSize);
 
-            var plaintext = new byte[ciphertextLength];
+                var plaintext = new byte[ciphertextLength];
 
-            using var aes = new AesGcm(_key, TagSize);
-            aes.Decrypt(nonce, ciphertext, tag, plaintext);
+                using var aes = new AesGcm(_key, TagSize);
+                aes.Decrypt(nonce, ciphertext, tag, plaintext);
 
-            return Encoding.UTF8.GetString(plaintext);
+                return Encoding.UTF8.GetString(plaintext);
+            }
+            catch
+            {
+                return encryptedBase64;
+            }
         }
     }
 }

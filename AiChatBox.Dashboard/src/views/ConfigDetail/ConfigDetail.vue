@@ -14,6 +14,7 @@ import Dialog from 'primevue/dialog';
 import './ConfigDetail.css';
 
 const {
+    API_BASE,
     projectId,
     activeTab, showAdminDialog, showTemplateVarsDialog, showHistoryDialog,
     sectionsOpen, toggleSection,
@@ -371,13 +372,56 @@ const {
                             <InputText v-model="channels.whatsApp.verifyToken" placeholder="e.g. my_secure_verification_token" fluid />
                         </div>
                     </div>
-                    <div class="form-group">
-                        <label>Access Token</label>
-                        <Password v-model="channels.whatsApp.accessToken" :feedback="false" toggleMask placeholder="Meta Graph API Access Token" fluid />
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Access Token</label>
+                            <Password v-model="channels.whatsApp.accessToken" :feedback="false" toggleMask placeholder="Meta Graph API Access Token" fluid />
+                        </div>
+                        <div class="form-group">
+                            <label>App Secret (Optional signature check)</label>
+                            <Password v-model="channels.whatsApp.appSecret" :feedback="false" toggleMask placeholder="Meta App Secret" fluid />
+                        </div>
                     </div>
                     <div class="webhook-info">
-                        <strong>Webhook URL:</strong> <code>/api/channel/whatsapp/{{ projectId }}</code>
+                        <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/whatsapp/{{ projectId }}</code>
                     </div>
+                </div>
+
+                <div class="channel-block">
+                    <h4 class="channel-title">
+                        <i class="pi pi-whatsapp" style="color:#128C7E;"></i>
+                        OpenWA (Personal / Self-Hosted WhatsApp Web Client)
+                    </h4>
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>OpenWA Gateway URL</label>
+                            <InputText v-model="channels.openWa.instanceUrl" placeholder="e.g. http://localhost:2785" fluid />
+                        </div>
+                        <div class="form-group">
+                            <label>Session Name</label>
+                            <InputText v-model="channels.openWa.sessionName" placeholder="e.g. default-session" fluid />
+                        </div>
+                    </div>
+                    <div class="form-group">
+                        <label>API Key (Optional X-API-Key)</label>
+                        <Password v-model="channels.openWa.apiKey" :feedback="false" toggleMask placeholder="API Key for OpenWA gateway" fluid />
+                    </div>
+                    <div class="webhook-info">
+                        <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/openwa/{{ projectId }}</code>
+                    </div>
+                    <div v-if="API_BASE.startsWith('https://localhost')" class="local-dev-tip mt-3 animate-fade-in">
+                        <i class="pi pi-info-circle info-icon"></i>
+                        <div class="tip-content">
+                            <strong>Local Dev Webhook Tip:</strong> If your self-hosted OpenWA gateway is on HTTP, it may fail to connect to <code>https://localhost:44385</code> because Node.js rejects self-signed certificates by default (causing <code>"fetch failed"</code>).
+                            <div class="mt-2">
+                                👉 To fix this, use the HTTP port in OpenWA instead: <code style="background-color:rgba(255,255,255,0.15); color:#d97706; padding:2px 6px; border-radius:4px; font-weight: 700;">http://localhost:49451/api/channel/openwa/{{ projectId }}</code> (Port 49451 is your IIS Express HTTP port).
+                            </div>
+                        </div>
+                    </div>
+                    <small class="info-text" style="display:flex; align-items:center; gap:6px; color:#f59e0b; font-weight:600; margin-top:8px;">
+                        <i class="pi pi-exclamation-triangle"></i>
+                        Safety Warning: Self-hosted personal WhatsApp integrations violate Meta Terms of Service. Automating high volumes of cold messages can lead to permanent account bans. Use responsibly!
+                    </small>
                 </div>
 
                 <div class="channel-block">
@@ -396,7 +440,7 @@ const {
                         </div>
                     </div>
                     <div class="webhook-info">
-                        <strong>Request URL (Event Subscriptions):</strong> <code>/api/channel/slack/{{ projectId }}</code>
+                        <strong>Request URL (Event Subscriptions):</strong> <code>{{ API_BASE }}/api/channel/slack/{{ projectId }}</code>
                     </div>
                 </div>
 
@@ -405,12 +449,18 @@ const {
                         <i class="pi pi-telegram" style="color:#0088cc;"></i>
                         Telegram Bot
                     </h4>
-                    <div class="form-group">
-                        <label>Bot Token</label>
-                        <Password v-model="channels.telegram.botToken" :feedback="false" toggleMask placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" fluid />
+                    <div class="grid-2">
+                        <div class="form-group">
+                            <label>Bot Token</label>
+                            <Password v-model="channels.telegram.botToken" :feedback="false" toggleMask placeholder="123456789:ABCdefGhIJKlmNoPQRsTUVwxyZ" fluid />
+                        </div>
+                        <div class="form-group">
+                            <label>Secret Token (Optional verification)</label>
+                            <Password v-model="channels.telegram.secretToken" :feedback="false" toggleMask placeholder="Telegram Webhook Secret Token" fluid />
+                        </div>
                     </div>
                     <div class="webhook-info">
-                        <strong>Webhook URL:</strong> <code>/api/channel/telegram/{{ projectId }}</code>
+                        <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/telegram/{{ projectId }}</code>
                     </div>
                 </div>
 
@@ -430,7 +480,7 @@ const {
                         </div>
                     </div>
                     <div class="webhook-info">
-                        <strong>Webhook URL:</strong> <code>/api/channel/teams/{{ projectId }}</code>
+                        <strong>Webhook URL:</strong> <code>{{ API_BASE }}/api/channel/teams/{{ projectId }}</code>
                     </div>
                 </div>
             </div>

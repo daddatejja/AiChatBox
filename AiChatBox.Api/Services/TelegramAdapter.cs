@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -33,6 +34,46 @@ namespace AiChatBox.Api.Services
             if (string.IsNullOrWhiteSpace(bodyText))
                 throw new ArgumentException("Request body is empty.");
 
+            Guid projectId = Guid.Empty;
+            if (request.RouteValues.TryGetValue("projectId", out var val) && Guid.TryParse(val?.ToString(), out var pid))
+            {
+                projectId = pid;
+            }
+
+            // Verify Telegram Secret Token if configured
+            await using var db = await _dbFactory.CreateDbContextAsync();
+            var config = await db.Configurations
+                .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+            if (config == null)
+            {
+                config = await db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == projectId);
+            }
+
+            if (config != null && !string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
+            {
+                var settings = JsonSerializer.Deserialize<ChannelSettings>(config.ChannelSettingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (settings?.Telegram != null && !string.IsNullOrWhiteSpace(settings.Telegram.SecretToken))
+                {
+                    var decryptedSecret = _encryptionService.Decrypt(settings.Telegram.SecretToken);
+                    if (!string.IsNullOrEmpty(decryptedSecret))
+                    {
+                        var secretHeader = request.Headers["X-Telegram-Bot-Api-Secret-Token"].ToString();
+                        if (string.IsNullOrEmpty(secretHeader))
+                        {
+                            throw new UnauthorizedAccessException("Missing required X-Telegram-Bot-Api-Secret-Token header.");
+                        }
+
+                        if (!CryptographicOperations.FixedTimeEquals(
+                            Encoding.UTF8.GetBytes(decryptedSecret),
+                            Encoding.UTF8.GetBytes(secretHeader)))
+                        {
+                            throw new UnauthorizedAccessException("Telegram secret token verification failed.");
+                        }
+                    }
+                }
+            }
+
             using var doc = JsonDocument.Parse(bodyText);
             var root = doc.RootElement;
 
@@ -58,10 +99,43 @@ namespace AiChatBox.Api.Services
                 text = textProp.GetString() ?? "";
             }
 
-            Guid projectId = Guid.Empty;
-            if (request.RouteValues.TryGetValue("projectId", out var val) && Guid.TryParse(val?.ToString(), out var pid))
+            var senderName = string.Empty;
+            if (msgProp.TryGetProperty("from", out var fromObj))
             {
-                projectId = pid;
+                var firstName = fromObj.TryGetProperty("first_name", out var fnProp) ? fnProp.GetString() ?? "" : "";
+                var lastName = fromObj.TryGetProperty("last_name", out var lnProp) ? lnProp.GetString() ?? "" : "";
+                senderName = $"{firstName} {lastName}".Trim();
+                if (string.IsNullOrEmpty(senderName))
+                {
+                    senderName = fromObj.TryGetProperty("username", out var unProp) ? unProp.GetString() ?? "" : "";
+                }
+            }
+
+            var attachmentUrl = string.Empty;
+            if (msgProp.TryGetProperty("photo", out var photoArray) && photoArray.GetArrayLength() > 0)
+            {
+                var lastPhoto = photoArray[photoArray.GetArrayLength() - 1];
+                var fileId = lastPhoto.TryGetProperty("file_id", out var fProp) ? fProp.GetString() : null;
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    attachmentUrl = await GetTelegramFileUrl(fileId, projectId);
+                }
+            }
+            else if (msgProp.TryGetProperty("voice", out var voiceProp))
+            {
+                var fileId = voiceProp.TryGetProperty("file_id", out var fProp) ? fProp.GetString() : null;
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    attachmentUrl = await GetTelegramFileUrl(fileId, projectId);
+                }
+            }
+            else if (msgProp.TryGetProperty("document", out var docProp))
+            {
+                var fileId = docProp.TryGetProperty("file_id", out var fProp) ? fProp.GetString() : null;
+                if (!string.IsNullOrEmpty(fileId))
+                {
+                    attachmentUrl = await GetTelegramFileUrl(fileId, projectId);
+                }
             }
 
             return new InboundMessage
@@ -69,7 +143,9 @@ namespace AiChatBox.Api.Services
                 SenderId = chatId,
                 Text = text,
                 Channel = ChannelName,
-                ProjectId = projectId
+                ProjectId = projectId,
+                SenderName = senderName,
+                AttachmentUrl = attachmentUrl
             };
         }
 
@@ -111,6 +187,48 @@ namespace AiChatBox.Api.Services
                 var errorMsg = await response.Content.ReadAsStringAsync();
                 throw new Exception($"Failed to send message to Telegram. Status: {response.StatusCode}, Details: {errorMsg}");
             }
+        }
+
+        private async Task<string> GetTelegramFileUrl(string fileId, Guid projectId)
+        {
+            try
+            {
+                await using var db = await _dbFactory.CreateDbContextAsync();
+                var config = await db.Configurations
+                    .FirstOrDefaultAsync(c => c.ProjectId == projectId && c.Name == "Default");
+                if (config == null)
+                {
+                    config = await db.Configurations
+                        .FirstOrDefaultAsync(c => c.ProjectId == projectId);
+                }
+
+                if (config == null || string.IsNullOrWhiteSpace(config.ChannelSettingsJson))
+                    return string.Empty;
+
+                var settings = JsonSerializer.Deserialize<ChannelSettings>(config.ChannelSettingsJson, new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+                if (settings?.Telegram == null || string.IsNullOrWhiteSpace(settings.Telegram.BotToken))
+                    return string.Empty;
+
+                var botToken = _encryptionService.Decrypt(settings.Telegram.BotToken);
+                var getFileUrl = $"https://api.telegram.org/bot{botToken}/getFile?file_id={fileId}";
+
+                var response = await _http.GetAsync(getFileUrl);
+                if (response.IsSuccessStatusCode)
+                {
+                    var responseString = await response.Content.ReadAsStringAsync();
+                    using var doc = JsonDocument.Parse(responseString);
+                    if (doc.RootElement.GetProperty("ok").GetBoolean())
+                    {
+                        var filePath = doc.RootElement.GetProperty("result").GetProperty("file_path").GetString();
+                        return $"https://api.telegram.org/file/bot{botToken}/{filePath}";
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to retrieve Telegram file: {ex.Message}");
+            }
+            return string.Empty;
         }
     }
 }

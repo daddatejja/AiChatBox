@@ -4,7 +4,7 @@ import { useApi } from '../../composables/useApi';
 
 export function useConfigDetail() {
     const route = useRoute();
-    const { apiFetch } = useApi();
+    const { apiFetch, API_BASE } = useApi();
 
     const projectId = computed(() => route.params.projectId as string);
     const configId = computed(() => route.params.configId as string);
@@ -70,10 +70,11 @@ export function useConfigDetail() {
     });
 
     const channels = reactive({
-        whatsApp: { phoneNumberId: '', accessToken: '', verifyToken: '' },
+        whatsApp: { phoneNumberId: '', accessToken: '', verifyToken: '', appSecret: '' },
         slack: { botToken: '', signingSecret: '' },
-        telegram: { botToken: '' },
-        teams: { appId: '', appPassword: '' }
+        telegram: { botToken: '', secretToken: '' },
+        teams: { appId: '', appPassword: '' },
+        openWa: { instanceUrl: '', sessionName: '', apiKey: '' }
     });
 
     // ─── Theme Engine ───
@@ -230,6 +231,7 @@ export function useConfigDetail() {
                     if (pc.slack) Object.assign(channels.slack, pc.slack);
                     if (pc.telegram) Object.assign(channels.telegram, pc.telegram);
                     if (pc.teams) Object.assign(channels.teams, pc.teams);
+                    if (pc.openWa) Object.assign(channels.openWa, pc.openWa);
                 } catch (e) { console.error('Failed to parse channel settings JSON', e); }
             }
 
@@ -410,6 +412,8 @@ export function useConfigDetail() {
     onMounted(() => { loadProviders(); load(); });
 
     return {
+        // API URL base
+        API_BASE,
         // route
         projectId, configId,
         // ui state
