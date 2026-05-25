@@ -557,6 +557,8 @@ export function getChatboxTemplate(chatbox) {
             <div class="chatbox-header-actions">
                 ${chatbox.config?.liveVoiceEnabled !== false ? `<button class="header-action-btn" id="btn-live" title="Live Voice Mode">${chatbox.icons.voice}</button>` : ''}
                 <button class="header-action-btn" id="btn-history" title="Chat history">${chatbox.icons.history}</button>
+                <button class="header-action-btn" id="btn-retry" title="Retry last response">${chatbox.icons.refresh}</button>
+                <button class="header-action-btn" id="btn-export" title="Copy chat transcript">${chatbox.icons.copy}</button>
                 <button class="header-action-btn" id="btn-new" title="New chat">${chatbox.icons.newChat}</button>
                 <button class="header-action-btn" id="btn-full" title="Fullscreen">${chatbox.icons.fullscreen}</button>
                 <button class="header-action-btn" id="btn-minimize" title="Minimize">${chatbox.icons.minimize}</button>

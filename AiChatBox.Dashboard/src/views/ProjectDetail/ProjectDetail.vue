@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { useProjectDetail } from './ProjectDetail';
-import { ref, watch, nextTick } from 'vue';
+import { ref, watch, nextTick, computed } from 'vue';
 import Button from 'primevue/button';
 import Card from 'primevue/card';
 import Dialog from 'primevue/dialog';
@@ -166,6 +166,18 @@ function someColumnsSelected(table: string): boolean {
     return cols.some(c => sel.has(c)) && !allColumnsSelected(table);
 }
 
+const onboardingChecklist = computed(() => {
+    const items = [
+        { label: 'Create at least one configuration', done: configs.value.length > 0, tab: 'configs' },
+        { label: 'Generate at least one API key', done: keys.value.length > 0, tab: 'keys' },
+        { label: 'Set webhook URL or add a custom tool', done: !!project.value.webhookUrl || tools.value.length > 0, tab: 'tools' },
+        { label: 'Configure database (optional but recommended)', done: dbConfig.hasConnectionString, tab: 'database' },
+        { label: 'Save project settings once', done: !!project.value.systemPrompt || !!project.value.allowedDomains, tab: 'overview' }
+    ];
+    const completed = items.filter(i => i.done).length;
+    return { items, completed, total: items.length };
+});
+
 
 // \u2500\u2500 Session Context Filter JSON editor \u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500
 // Replaced with a visual table→column picker \u2014 no CodeMirror needed here.
@@ -295,6 +307,27 @@ function someColumnsSelected(table: string): boolean {
                         </div>
                     </router-link>
                 </div>
+
+                <Card class="onboarding-card">
+                    <template #content>
+                        <div class="onboarding-header">
+                            <h3 class="section-heading">First 5 Steps</h3>
+                            <span class="onboarding-progress">{{ onboardingChecklist.completed }}/{{ onboardingChecklist.total }} complete</span>
+                        </div>
+                        <div class="onboarding-list">
+                            <button
+                                v-for="item in onboardingChecklist.items"
+                                :key="item.label"
+                                class="onboarding-item"
+                                :class="{ done: item.done }"
+                                @click="activeTab = item.tab"
+                            >
+                                <i :class="item.done ? 'pi pi-check-circle' : 'pi pi-circle'"></i>
+                                <span>{{ item.label }}</span>
+                            </button>
+                        </div>
+                    </template>
+                </Card>
             </div>
 
             <!-- ── Configs tab (unchanged) ──────────────────────────────── -->

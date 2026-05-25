@@ -17,6 +17,13 @@ const loading = ref(true);
 const showCreate = ref(false);
 
 const form = reactive({ name: '' });
+const selectedStarter = ref('support');
+
+const starterTemplates = [
+    { id: 'support', label: 'Customer Support', name: 'Support Assistant', prompt: 'Track order status and handle common support requests.' },
+    { id: 'sales', label: 'Sales Assistant', name: 'Sales Copilot', prompt: 'Answer pricing and product-fit questions for prospects.' },
+    { id: 'ops', label: 'Internal Ops', name: 'Ops Helper', prompt: 'Help teammates with internal process and policy questions.' }
+];
 
 async function load() {
     loading.value = true;
@@ -41,6 +48,13 @@ async function createProject() {
         form.name = ''; 
         load();
     }
+}
+
+function applyStarter(templateId: string) {
+    const template = starterTemplates.find(t => t.id === templateId);
+    if (!template) return;
+    selectedStarter.value = template.id;
+    form.name = template.name;
 }
 
 async function deleteProject(id: string) {
@@ -108,12 +122,36 @@ onMounted(load);
             </div>
         </div>
 
-        <Dialog v-model:visible="showCreate" modal header="Create New Project" :style="{ width: '400px' }">
-            <p class="dialog-subtitle">Projects are containers for your different bot configurations and API keys.</p>
+        <Dialog v-model:visible="showCreate" modal header="Create New Project" :style="{ width: '520px' }">
+            <p class="dialog-subtitle">Pick a starter, then create. You can fully customize everything after setup.</p>
             <form @submit.prevent="createProject" class="form">
+                <div class="form-group">
+                    <label>Starter Template</label>
+                    <div class="starter-grid">
+                        <button
+                            v-for="starter in starterTemplates"
+                            :key="starter.id"
+                            type="button"
+                            class="starter-card"
+                            :class="{ active: selectedStarter === starter.id }"
+                            @click="applyStarter(starter.id)"
+                        >
+                            <strong>{{ starter.label }}</strong>
+                            <span>{{ starter.prompt }}</span>
+                        </button>
+                    </div>
+                </div>
                 <div class="form-group">
                     <label for="name">Project Name</label>
                     <InputText id="name" v-model="form.name" placeholder="E.g., Customer Support Bot" required fluid />
+                </div>
+                <div class="wizard-checklist">
+                    <h4>What happens next</h4>
+                    <ul>
+                        <li>Add your first configuration and model</li>
+                        <li>Generate an API key for the widget</li>
+                        <li>Run one test conversation in Playground</li>
+                    </ul>
                 </div>
                 <div class="dialog-actions">
                     <Button label="Cancel" severity="secondary" outlined @click="showCreate = false" />
@@ -218,6 +256,46 @@ onMounted(load);
     justify-content: flex-end;
     gap: 12px;
     margin-top: 24px;
+}
+.starter-grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 8px;
+}
+.starter-card {
+    border: 1px solid var(--p-surface-300);
+    background: var(--p-surface-0);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.starter-card.active {
+    border-color: var(--p-primary-400);
+    background: var(--p-primary-50);
+}
+.starter-card span {
+    font-size: 0.8rem;
+    color: var(--p-surface-500);
+}
+.wizard-checklist {
+    background: var(--p-surface-50);
+    border: 1px dashed var(--p-surface-300);
+    border-radius: 10px;
+    padding: 12px;
+}
+.wizard-checklist h4 {
+    margin: 0 0 8px;
+    font-size: 0.85rem;
+}
+.wizard-checklist ul {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 0.8rem;
+    color: var(--p-surface-600);
 }
 
 /* ── Mobile Responsive ── */

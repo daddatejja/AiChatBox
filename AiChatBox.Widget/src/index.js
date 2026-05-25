@@ -618,6 +618,17 @@ class AiChatBox extends HTMLElement {
     this.sendMessage();
   }
 
+  async copyTranscript() {
+    const wrappers = this.shadowRoot.querySelectorAll(".message-wrapper");
+    const lines = Array.from(wrappers).map((wrapper) => {
+      const role = wrapper.classList.contains("user-side") ? "User" : "Assistant";
+      const text = wrapper.querySelector(".message-bubble")?.innerText?.trim() || "";
+      return text ? `${role}: ${text}` : "";
+    }).filter(Boolean);
+    if (!lines.length) return;
+    await navigator.clipboard.writeText(lines.join("\n\n"));
+  }
+
   startNewChat() {
     if (this.abortController) {
       this.abortController.abort();
@@ -937,21 +948,35 @@ class AiChatBox extends HTMLElement {
 
   renderEmptyState() {
     const container = this.shadowRoot.getElementById("messages-container");
+    const intent = (this.getAttribute("project-intent") || "").toLowerCase();
+    const tips = intent.includes("support")
+      ? ["Where is my order?", "I need help with a refund", "How do I contact an agent?"]
+      : intent.includes("sales")
+      ? ["Which plan should I choose?", "Do you offer discounts?", "Can I book a demo?"]
+      : this.suggestions;
     container.innerHTML = `
       <div class="chatbox-empty-state">
         <div class="empty-state-icon">${icons.awesome}</div>
         <h3>${this.getAttribute("welcome-message") || "How can I help you today?"}</h3>
+        <p class="empty-state-subtitle">Try one of these starter prompts.</p>
         <div class="suggestion-chips">
-          ${this.suggestions.map(s => `<button class="suggestion-chip">${s}</button>`).join("")}
+          ${tips.map(s => `<button class="suggestion-chip">${s}</button>`).join("")}
         </div>
       </div>
     `;
     container.querySelectorAll(".suggestion-chip").forEach((btn, i) => {
       btn.onclick = () => {
-        this.shadowRoot.getElementById("chat-input").value = this.suggestions[i];
+        this.shadowRoot.getElementById("chat-input").value = tips[i];
         this.sendMessage();
       };
     });
+  }
+
+  mapErrorMessage(status, fallbackMessage) {
+    if (status === 401 || status === 403) return "Authentication failed. Please verify your API key or token.";
+    if (status === 413) return "Attachment is too large. Please upload a smaller file.";
+    if (status >= 500) return "The AI service is temporarily unavailable. Please try again in a moment.";
+    return fallbackMessage || "Something went wrong while sending your message.";
   }
 
   stopGeneration() {
@@ -1103,7 +1128,7 @@ class AiChatBox extends HTMLElement {
         }),
       });
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      if (!response.ok) throw new Error(this.mapErrorMessage(response.status, `API Error: ${response.status}`));
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();
@@ -1258,7 +1283,7 @@ class AiChatBox extends HTMLElement {
         }),
       });
 
-      if (!response.ok) throw new Error(`API Error: ${response.status}`);
+      if (!response.ok) throw new Error(this.mapErrorMessage(response.status, `API Error: ${response.status}`));
 
       const reader = response.body.getReader();
       const decoder = new TextDecoder();

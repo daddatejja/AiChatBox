@@ -10,6 +10,8 @@ export function setupEventListeners(chatbox) {
   root.getElementById("btn-minimize").onclick = () => chatbox.toggleChat();
   root.getElementById("btn-history").onclick = () => chatbox.toggleHistory();
   root.getElementById("btn-history-close").onclick = () => chatbox.toggleHistory();
+  root.getElementById("btn-retry").onclick = () => chatbox.regenerateLastResponse();
+  root.getElementById("btn-export").onclick = () => chatbox.copyTranscript();
   root.getElementById("btn-new").onclick = () => chatbox.startNewChat();
   
   const liveBtn = root.getElementById("btn-live");
