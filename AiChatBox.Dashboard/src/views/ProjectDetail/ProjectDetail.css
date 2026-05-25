@@ -369,6 +369,44 @@
     margin: 0;
 }
 
+.onboarding-card {
+    margin-top: 12px;
+    border: 1px solid var(--p-surface-200);
+}
+.onboarding-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+.onboarding-progress {
+    font-size: 0.75rem;
+    font-weight: 700;
+    color: var(--p-primary-600);
+    background: var(--p-primary-50);
+    border-radius: 999px;
+    padding: 3px 10px;
+}
+.onboarding-list {
+    display: grid;
+    gap: 8px;
+}
+.onboarding-item {
+    border: 1px solid var(--p-surface-200);
+    background: var(--p-surface-0);
+    border-radius: 8px;
+    padding: 9px 11px;
+    display: flex;
+    gap: 8px;
+    align-items: center;
+    text-align: left;
+    cursor: pointer;
+}
+.onboarding-item.done {
+    border-color: var(--p-green-300);
+    background: var(--p-green-50);
+}
+
 /* ─── Settings Form ─────────────────────────────────────────── */
 .form-grid {
     display: grid;

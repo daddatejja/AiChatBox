@@ -44,9 +44,6 @@ async function loadProjects() {
         const res = await apiFetch('/api/project');
         if (res.ok) {
             projects.value = await res.json();
-            if (projects.value.length > 0 && !selectedProject.value) {
-                selectedProject.value = projects.value[0];
-            }
         }
     } catch(e) { console.error(e); }
 }
